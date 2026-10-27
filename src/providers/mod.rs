@@ -17,6 +17,7 @@ mod nvim;
 // `src/plugins.rs`, declared here because `main.rs` is not this story's to edit.
 #[path = "../plugins.rs"]
 pub mod plugins;
+mod screen;
 mod sheets;
 mod shells;
 mod sway;
@@ -47,6 +48,7 @@ pub const KNOWN: &[&str] = &[
     "hyprland",
     "kde",
     "ghostty",
+    "screen",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -68,6 +70,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "mpv" => mpv::sheet(),
         "vim" => vim::sheet(ctx),
         "nano" => nano::sheet(),
+        "screen" => screen::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",

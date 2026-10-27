@@ -1,0 +1,16 @@
+# Synthetic user screenrc for keybind-find's tests.
+escape ^Bb
+bind c screen -t "my shell" 1
+bind x
+bind N
+bind r command -c resize
+bind -c resize 1 resize +1
+bind -c resize "2" resize -1
+bind -c orphan z quit
+bindkey -k k1 select 1
+bind -k k2 select 2
+source sub/inc.screenrc
+source ~/home.screenrc
+source missing.screenrc
+bind ? help   # a comment after a command
+bind \033 windows

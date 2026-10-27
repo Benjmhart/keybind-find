@@ -26,6 +26,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | nano | its main-menu keys: nano's defaults for its version (7.2, 8.4 and 9.2 built in) with your nanorc's `bind`/`unbind` on top | none ([below](#nano)) |
 | herdr | herdr's defaults for its version, your `config.toml` and plugin commands | none |
 | tmux | the running server's `list-keys`, so your prefix and bindings, with each key's note | none |
+| GNU screen | its default command keys for its version (4.9 and 5.0 built in) with `/etc/screenrc` and your screenrc's `bind`, `bind -c` and `escape` on top | none ([below](#screen)) |
 | bash, zsh, fish | the prompt's line-editing keys from the shell itself: bash's `bind -p`/`-s`/`-X` (with your `.inputrc`), zsh's `bindkey -L`, fish's `bind` (every mode) | none; it runs your rc files: [below](#shells-run-your-rc-files) |
 | less | its keys from `less --help`, with your lesskey file's `#command` binds on top; also under `man`, `git log`, `systemctl status` | none; your keys need less 582+ and the lesskey source file ([below](#less)) |
 | mpv | the bindings of a headless mpv started with your config: built-ins, your `input.conf` and keys your scripts bind at load, with each one's comment | none; it starts mpv on every `Super+/` ([below](#mpv)) |
@@ -35,9 +36,9 @@ The lists are read from the programs' real configuration, your own bindings incl
 | espanso | `espanso match list`; picking a match types its trigger | none |
 | anything else | a sheet you write, or a script that prints one | [docs/sheets.md](docs/sheets.md) |
 
-nvim, vim, nano, herdr, tmux, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
+nvim, vim, nano, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
-sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane. When one terminal process runs several shells
+sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
 GNOME Terminal, Xfce Terminal, WezTerm, Ghostty and Terminator), keybind-find can't tell which is the focused one: it prints a one-line warning
 and shows the list without the program inside (the terminal's own keys, alacritty's or Ghostty's, are still listed). espanso's `word: true` matches (they
@@ -149,6 +150,20 @@ out, counted in one line. Caps Lock and Num Lock in a bind's modifiers are ignor
 focused window comes from `hyprctl -j activewindow`, never from X, so a native Wayland window is never mistaken for the
 last XWayland one; if `hyprctl` fails, that is a line for the window and one for the binds, and the list goes
 on without them.
+
+### screen
+
+GNU screen can't print its key table, so keybind-find takes screen's default command keys for its version (from
+`process.c` `InitKeytab()` of 4.9.1 and 5.0.2; another version gets the nearest, with a one-line note) and lays
+`/etc/screenrc` and then your screenrc (`$SCREENRC`, else `~/.screenrc`, as keybind-find's own environment has them)
+over them, following `source`: `bind` adds, replaces or removes a key, `escape`/`defescape` moves every key behind your
+command key, and `bind -c <class>` keys are listed behind the key that enters the class (`bind r command -c resize`).
+Not read: `-e` or `-c` on screen's command line, a system screenrc built in somewhere other than `/etc/screenrc`,
+`$SYSSCREENRC`, `bindkey` and `bind -k` lines (counted in the one-line note), and per-user `escape` in multiuser
+sessions. nvim inside screen is found through the one attached session (`screen -ls`) and its current window; with
+several attached sessions keybind-find can't tell which is yours, says so in one line, and shows screen's keys without
+nvim's. A session shared by several terminals (`screen -x`) answers for one of them, which may not be the focused one.
+A window renumbered with `number` may not be found. Other programs inside screen aren't looked for.
 
 ### Ghostty
 
