@@ -113,8 +113,8 @@ fn add_nvim_in(
     }
 }
 
-/// The pid of the nvim found in the focused window (the terminal's foreground program, or the program in tmux's or
-/// herdr's active pane), for the nvim provider to ask the running nvim.
+/// The pid of the nvim found in the focused window (the terminal's foreground program, the program in tmux's or
+/// herdr's active pane, or in screen's current window), for the nvim provider to ask the running nvim.
 /// ponytail: a process-wide value set while `detect` runs, beside `Context` rather than in it, so `Context`'s literals
 /// elsewhere don't change; move it into `Context` when a story owns those.
 static NVIM_PID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();

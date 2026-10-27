@@ -96,6 +96,9 @@ fn sheet_with(
     if let Some(user) = user {
         rc.read(&user, false, &mut notes, env);
     }
+    if rc.escape.is_none() {
+        notes.push("`escape \"\"`: screen has no command key, so no command keys".into());
+    }
     let (sheet, left_out) = rc.sheet();
     if left_out > 0 {
         notes.push(format!(
@@ -179,9 +182,7 @@ type Action = Option<(String, Option<String>)>;
 /// screen's key tables as the rc files leave them.
 struct Keytab {
     main: Vec<Entry>,
-    /// The rc files' `bind` lines in order (class, key, command and description, or `None` to remove), replayed over
-    /// the defaults once the last `escape` is known.
-    binds: Vec<(Option<String>, Key, Action)>,
+    classes: Vec<(String, Vec<Entry>)>,
     /// The escape key and the key that sends it (`escape xy`); `None` after `escape ""` (no command key).
     escape: Option<(u8, u8)>,
     /// Pinned descriptions, by command.
@@ -208,15 +209,52 @@ impl Keytab {
             .bind
             .iter()
             .map(|b| (b.command.clone(), b.desc.clone()))
+            .chain([
+                (
+                    "other".into(),
+                    "Toggle to the window displayed previously".into(),
+                ),
+                (
+                    "meta".into(),
+                    "Send the command character to the window".into(),
+                ),
+            ])
             .collect();
-        Ok(Keytab {
+        let mut keytab = Keytab {
             main,
-            binds: Vec::new(),
-            escape: Some((1, b'a')),
+            classes: Vec::new(),
+            escape: None,
             descs,
             left_out: 0,
             read: BTreeSet::new(),
-        })
+        };
+        // `InitKeytab` ends by putting `other` and `meta` on the default escape, `^A` and `a`.
+        keytab.escape(Some((1, b'a')));
+        Ok(keytab)
+    }
+
+    /// `escape xy` where it stands, as `SetEscape` does: the old escape keys lose their actions, `x` gets `other` and
+    /// `y` `meta` (later `bind` lines can still change them). `None` (`escape ""`) leaves no command key.
+    fn escape(&mut self, keys: Option<(u8, u8)>) {
+        if let Some((x, y)) = self.escape {
+            set(&mut self.main, Key::Byte(x), None);
+            set(&mut self.main, Key::Byte(y), None);
+        }
+        self.escape = keys;
+        if let Some((x, y)) = keys {
+            for (key, command) in [(x, "other"), (y, "meta")] {
+                let desc = self.desc(command);
+                set(&mut self.main, Key::Byte(key), Some((command.into(), desc)));
+            }
+        }
+    }
+
+    /// The pinned description of `command`, as written.
+    fn desc(&self, command: &str) -> Option<String> {
+        self.descs
+            .iter()
+            .find(|(c, _)| c == command)
+            .map(|(_, d)| d.clone())
     }
 
     /// Reads one rc file's lines in order. A file is read once; one that can't be read is a note (a missing top-level
@@ -226,15 +264,16 @@ impl Keytab {
         if !self.read.insert(key) {
             return;
         }
+        // Bytes, split at `\n` only, as screen reads them: a `\r` stays in the last word, a Latin-1 byte is one key.
         let text = match std::fs::read(path) {
-            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Ok(bytes) => bytes,
             Err(e) if !sourced && e.kind() == std::io::ErrorKind::NotFound => return,
             Err(e) => {
                 notes.push(format!("can't read {}: {e}", path.display()));
                 return;
             }
         };
-        for line in text.lines() {
+        for line in text.split(|b| *b == b'\n') {
             let words = words(line).unwrap_or_default();
             let Some((first, args)) = words.split_first() else {
                 continue;
@@ -243,8 +282,8 @@ impl Keytab {
                 b"bind" => self.bind(args),
                 b"bindkey" => self.left_out += 1,
                 b"escape" | b"defescape" => match args {
-                    [w] if w.is_empty() => self.escape = None,
-                    [w] if w.len() == 2 => self.escape = Some((w[0], w[1])),
+                    [w] if w.is_empty() => self.escape(None),
+                    [w] if w.len() == 2 => self.escape(Some((w[0], w[1]))),
                     _ => {}
                 },
                 b"source" => {
@@ -272,6 +311,19 @@ impl Keytab {
                     class = Some(String::from_utf8_lossy(name).into_owned());
                     args = rest;
                 }
+                // The termcap back-tab key is the one pinned; other termcap keys aren't listed.
+                [flag, name, rest @ ..] if flag == b"-k" && name == b"bt" => {
+                    let command = rest
+                        .iter()
+                        .map(|w| String::from_utf8_lossy(w).into_owned())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let desc = self.desc(&command);
+                    let action = (!command.is_empty()).then_some((command, desc));
+                    let table = self.table(class);
+                    set(table, Key::Backtab, action);
+                    return;
+                }
                 [flag, ..] if flag == b"-k" => {
                     self.left_out += 1;
                     return;
@@ -291,61 +343,38 @@ impl Keytab {
             .map(|w| String::from_utf8_lossy(w).into_owned())
             .collect::<Vec<_>>()
             .join(" ");
-        let desc = self
-            .descs
-            .iter()
-            .find(|(c, _)| *c == command)
-            .map(|(_, d)| d.clone());
-        self.binds
-            .push((class, key, (!command.is_empty()).then_some((command, desc))));
+        let desc = self.desc(&command);
+        let table = self.table(class);
+        set(table, key, (!command.is_empty()).then_some((command, desc)));
+    }
+
+    /// The main table, or class `name`'s (created empty, as screen's `FindKtab` does).
+    fn table(&mut self, class: Option<String>) -> &mut Vec<Entry> {
+        let Some(name) = class else {
+            return &mut self.main;
+        };
+        let i = match self.classes.iter().position(|(c, _)| *c == name) {
+            Some(i) => i,
+            None => {
+                self.classes.push((name, Vec::new()));
+                self.classes.len() - 1
+            }
+        };
+        &mut self.classes[i].1
     }
 
     /// The sheet, and how many keys were left out (with the bindkey and termcap lines counted while reading).
-    /// The defaults get `other` and `meta` on the last `escape`'s keys (as `InitKeytab` ends), then the `bind` lines
-    /// are replayed over them in order.
-    fn sheet(mut self) -> (Sheet, usize) {
+    fn sheet(self) -> (Sheet, usize) {
         let mut sheet = Sheet {
             title: "screen".into(),
             provider: "screen".into(),
             binds: Default::default(),
         };
-        // `escape ""`: no command key, so no command keys.
-        let Some((x, y)) = self.escape else {
+        // `escape ""`: no command key, so no command keys (`sheet_with` says why).
+        let Some((x, _)) = self.escape else {
             return (sheet, self.left_out);
         };
-        set(
-            &mut self.main,
-            Key::Byte(x),
-            Some((
-                "other".into(),
-                Some("Toggle to the window displayed previously".into()),
-            )),
-        );
-        set(
-            &mut self.main,
-            Key::Byte(y),
-            Some((
-                "meta".into(),
-                Some("Send the command character to the window".into()),
-            )),
-        );
-        let mut classes: Vec<(String, Vec<Entry>)> = Vec::new();
-        for (class, key, action) in std::mem::take(&mut self.binds) {
-            let table = match class {
-                None => &mut self.main,
-                Some(name) => {
-                    let i = match classes.iter().position(|(c, _)| *c == name) {
-                        Some(i) => i,
-                        None => {
-                            classes.push((name, Vec::new()));
-                            classes.len() - 1
-                        }
-                    };
-                    &mut classes[i].1
-                }
-            };
-            set(table, key, action);
-        }
+        let classes = self.classes;
         let mut left_out = self.left_out;
         let Some(escape) = notation(Key::Byte(x)) else {
             // No notation for the escape key itself: nothing can be sent.
@@ -454,8 +483,7 @@ fn expand(path: &str, env: Env) -> PathBuf {
 /// `\n \r \t \' \" \\ \$ \# \^` and `\ooo` (octal) escapes and `^x` (control characters, `^?` is DEL) outside single
 /// quotes; `#` at the start of a word ends the line. `!cmd` is `exec cmd`. `$VAR` is left as is (only `source` paths
 /// expand). `None` for a line screen drops (a quote left open).
-fn words(line: &str) -> Option<Vec<Vec<u8>>> {
-    let b = line.as_bytes();
+fn words(b: &[u8]) -> Option<Vec<Vec<u8>>> {
     let mut words = Vec::new();
     let mut i = 0;
     loop {
@@ -776,7 +804,7 @@ mod tests {
         // `source`: relative to the including file, `~`, a loop read once.
         assert!(has(
             &main,
-            "ctrl+b shift+z = Reset the virtual terminal to its power-on values"
+            "ctrl+b shift+j = Reset the virtual terminal to its power-on values"
         ));
         assert!(has(
             &main,
@@ -878,8 +906,9 @@ mod tests {
 
     /// The sheet from the defaults and `rc` (one user file).
     fn with_rc(rc: &str) -> (Sheet, Vec<String>) {
-        let dir =
-            std::env::temp_dir().join(format!("kbf-screen-rc-{}-{}", std::process::id(), rc.len()));
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("kbf-screen-rc-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("rc"), rc).unwrap();
         let vars = [("SCREENRC", dir.join("rc").to_string_lossy().into_owned())];
@@ -890,7 +919,7 @@ mod tests {
 
     #[test]
     fn binds_after_escape_win() {
-        // `escape` sets the defaults' `other`/`meta` keys; a later `bind` replaces them, and so does an earlier one.
+        // `escape` acts where it stands (screen's `SetEscape`): a later `bind` replaces its keys, it replaces an earlier one's.
         let (sheet, _) = with_rc("escape ^Bb\nbind ^B windows\n");
         let main = rows(&sheet, "screen");
         assert!(
@@ -905,11 +934,24 @@ mod tests {
         assert!(!rows(&sheet, "screen")
             .iter()
             .any(|r| r.starts_with("ctrl+a ctrl+a ")));
-        // Only the last escape counts.
+        let (sheet, _) = with_rc("bind b windows\nescape ^Bb\n");
+        assert!(has(
+            &rows(&sheet, "screen"),
+            "ctrl+b b = Send the command character to the window"
+        ));
+        // A user's own `other`/`meta` bind gets the description too.
+        let (sheet, _) = with_rc("bind o other\n");
+        assert!(has(
+            &rows(&sheet, "screen"),
+            "ctrl+a o = Toggle to the window displayed previously"
+        ));
+        // A second escape clears the first one's keys (`^B` and `b` lose their actions, defaults included).
         let (sheet, _) = with_rc("escape ^Bb\nescape ^Tt\n");
         let main = rows(&sheet, "screen");
         assert!(
-            has(&main, "ctrl+t ctrl+b = Send a break to window"),
+            !main
+                .iter()
+                .any(|r| r.starts_with("ctrl+t ctrl+b ") || r.starts_with("ctrl+t b ")),
             "{main:#?}"
         );
         assert!(has(
@@ -917,8 +959,12 @@ mod tests {
             "ctrl+t ctrl+t = Toggle to the window displayed previously"
         ));
         // `escape ""`: no command key, so nothing is listed; a malformed escape changes nothing.
-        let (sheet, _) = with_rc("escape \"\"\n");
+        let (sheet, notes) = with_rc("escape \"\"\n");
         assert!(sheet.binds.is_empty());
+        assert!(
+            notes.iter().any(|n| n.contains("no command key")),
+            "{notes:?}"
+        );
         let (sheet, _) = with_rc("escape ^B\nescape abc\n");
         assert!(has(
             &rows(&sheet, "screen"),
@@ -928,7 +974,9 @@ mod tests {
         let (sheet, notes) = with_rc("escape \\351x\n");
         assert!(sheet.binds.is_empty());
         assert!(
-            notes.iter().any(|n| n.starts_with("leaving out 8")),
+            notes
+                .iter()
+                .any(|n| n.starts_with("leaving out 88 bindings")),
             "{notes:?}"
         );
     }
@@ -945,6 +993,34 @@ mod tests {
             "ctrl+a q = Send a control-q to the current window"
         ));
         assert!(notes.is_empty(), "{notes:?}");
+    }
+
+    #[test]
+    fn raw_bytes_and_termcap_backtab() {
+        // A `\r` stays in the last word (screen refuses the 3-byte escape); a Latin-1 byte is one key.
+        let (sheet, _) = with_rc("escape ^Bb\r\nbind \u{e0} windows\n");
+        let main = rows(&sheet, "screen");
+        assert!(main.iter().all(|r| r.starts_with("ctrl+a ")), "{main:#?}");
+        let pinned: Pinned = toml::from_str(REGISTRY[1].1).unwrap();
+        let mut rc = Keytab::new(&pinned).unwrap();
+        // `bind \340 windows` from a Latin-1 file: one byte, left out (no notation) but not dropped.
+        let line = [b"bind ".as_slice(), &[0o340], b" windows"].concat();
+        let words = words(&line).unwrap();
+        rc.bind(&words[1..]);
+        // `bind -k bt` changes the pinned back-tab row; another termcap key is counted.
+        rc.bind(&[b"-k".to_vec(), b"bt".to_vec(), b"windows".to_vec()]);
+        rc.bind(&[
+            b"-k".to_vec(),
+            b"k1".to_vec(),
+            b"select".to_vec(),
+            b"1".to_vec(),
+        ]);
+        let (sheet, left_out) = rc.sheet();
+        assert_eq!(left_out, 2);
+        assert!(has(
+            &rows(&sheet, "screen"),
+            "ctrl+a shift+Tab = Show a list of window"
+        ));
     }
 
     #[test]
@@ -966,7 +1042,7 @@ mod tests {
     #[test]
     fn words_as_screen_parses_them() {
         let w = |l: &str| {
-            words(l)
+            words(l.as_bytes())
                 .unwrap()
                 .into_iter()
                 .map(|w| String::from_utf8_lossy(&w).into_owned())
@@ -985,14 +1061,14 @@ mod tests {
         assert_eq!(w("a#b"), ["a#b"]);
         assert_eq!(w("!ls -l"), ["exec", "ls", "-l"]);
         assert!(w("   ").is_empty());
-        assert_eq!(words("bind x \"open"), None);
-        assert_eq!(words("bind x 'open"), None);
+        assert_eq!(words(b"bind x \"open"), None);
+        assert_eq!(words(b"bind x 'open"), None);
     }
 
     #[test]
     fn key_notation() {
         let n = |l: &str| {
-            let w = words(l).unwrap();
+            let w = words(l.as_bytes()).unwrap();
             notation(Key::Byte(w[0][0]))
         };
         for (spelled, want) in [
