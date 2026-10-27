@@ -2,6 +2,10 @@
 //! (`data/screen/<version>.toml`, from `process.c` `InitKeytab()` at that release) with `/etc/screenrc` and the
 //! user's screenrc laid over them. screen can't print its key table, so this is what the files say. Shown when screen
 //! is the program in the focused terminal.
+//!
+//! ponytail: the session's own command line (`screen -e ^Bb`, `-c file`) and environment (`$SCREENRC`) aren't known
+//! here, only this process's; and `/etc/screenrc` stands for the system file a build may have elsewhere
+//! (`SYSTEM_SCREENRC`). Read the server's `/proc/<pid>/cmdline` and `environ` if that bites.
 
 use super::nvim::single;
 use crate::context::run_for;
@@ -95,7 +99,7 @@ fn sheet_with(
     let (sheet, left_out) = rc.sheet();
     if left_out > 0 {
         notes.push(format!(
-            "leaving out {left_out} keys (bindkey lines, termcap keys, keys with no key notation, or a class no key enters)"
+            "leaving out {left_out} bindings (bindkey and bind -k lines, keys with no key notation, or a class no key enters)"
         ));
     }
     Ok((sheet, notes))
@@ -116,8 +120,14 @@ fn version_of(text: &str) -> Option<String> {
     )
 }
 
+/// `4.09.01` → [4, 9, 1]; a part's trailing letters (`01beta`, `2-dirty`) are dropped.
 fn parse_version(v: &str) -> Option<Vec<u64>> {
-    v.split('.').map(|p| p.parse().ok()).collect()
+    v.split('.')
+        .map(|p| {
+            let digits = p.find(|c: char| !c.is_ascii_digit()).unwrap_or(p.len());
+            p[..digits].parse().ok()
+        })
+        .collect()
 }
 
 /// The pinned file for `installed`: the newest of the same major version, else the newest; with a note naming the
@@ -166,9 +176,11 @@ type Entry = (Key, String, Option<String>);
 /// screen's key tables as the rc files leave them.
 struct Keytab {
     main: Vec<Entry>,
-    classes: Vec<(String, Vec<Entry>)>,
-    /// The escape key and the key that sends it (`escape xy`).
-    escape: (u8, u8),
+    /// The rc files' `bind` lines in order (class, key, command and description, or `None` to remove), replayed over
+    /// the defaults once the last `escape` is known.
+    binds: Vec<(Option<String>, Key, Option<(String, Option<String>)>)>,
+    /// The escape key and the key that sends it (`escape xy`); `None` after `escape ""` (no command key).
+    escape: Option<(u8, u8)>,
     /// Pinned descriptions, by command.
     descs: Vec<(String, String)>,
     left_out: usize,
@@ -196,8 +208,8 @@ impl Keytab {
             .collect();
         Ok(Keytab {
             main,
-            classes: Vec::new(),
-            escape: (1, b'a'),
+            binds: Vec::new(),
+            escape: Some((1, b'a')),
             descs,
             left_out: 0,
             read: BTreeSet::new(),
@@ -220,20 +232,18 @@ impl Keytab {
             }
         };
         for line in text.lines() {
-            let words = words(line);
+            let words = words(line).unwrap_or_default();
             let Some((first, args)) = words.split_first() else {
                 continue;
             };
             match first.as_slice() {
                 b"bind" => self.bind(args),
                 b"bindkey" => self.left_out += 1,
-                b"escape" | b"defescape" => {
-                    if let [w] = args {
-                        if let [x, y] = w.as_slice() {
-                            self.escape = (*x, *y);
-                        }
-                    }
-                }
+                b"escape" | b"defescape" => match args {
+                    [w] if w.is_empty() => self.escape = None,
+                    [w] if w.len() == 2 => self.escape = Some((w[0], w[1])),
+                    _ => {}
+                },
                 b"source" => {
                     if let Some(file) = args.first() {
                         let file = expand(&String::from_utf8_lossy(file), env);
@@ -283,25 +293,23 @@ impl Keytab {
             .iter()
             .find(|(c, _)| *c == command)
             .map(|(_, d)| d.clone());
-        let table = match class {
-            None => &mut self.main,
-            Some(name) => {
-                let i = match self.classes.iter().position(|(c, _)| *c == name) {
-                    Some(i) => i,
-                    None => {
-                        self.classes.push((name, Vec::new()));
-                        self.classes.len() - 1
-                    }
-                };
-                &mut self.classes[i].1
-            }
-        };
-        set(table, key, (!command.is_empty()).then_some((command, desc)));
+        self.binds
+            .push((class, key, (!command.is_empty()).then_some((command, desc))));
     }
 
     /// The sheet, and how many keys were left out (with the bindkey and termcap lines counted while reading).
+    /// The defaults get `other` and `meta` on the last `escape`'s keys (as `InitKeytab` ends), then the `bind` lines
+    /// are replayed over them in order.
     fn sheet(mut self) -> (Sheet, usize) {
-        let (x, y) = self.escape;
+        let mut sheet = Sheet {
+            title: "screen".into(),
+            provider: "screen".into(),
+            binds: Default::default(),
+        };
+        // `escape ""`: no command key, so no command keys.
+        let Some((x, y)) = self.escape else {
+            return (sheet, self.left_out);
+        };
         set(
             &mut self.main,
             Key::Byte(x),
@@ -318,17 +326,55 @@ impl Keytab {
                 Some("Send the command character to the window".into()),
             )),
         );
-        let mut sheet = Sheet {
-            title: "screen".into(),
-            provider: "screen".into(),
-            binds: Default::default(),
-        };
+        let mut classes: Vec<(String, Vec<Entry>)> = Vec::new();
+        for (class, key, action) in std::mem::take(&mut self.binds) {
+            let table = match class {
+                None => &mut self.main,
+                Some(name) => {
+                    let i = match classes.iter().position(|(c, _)| *c == name) {
+                        Some(i) => i,
+                        None => {
+                            classes.push((name, Vec::new()));
+                            classes.len() - 1
+                        }
+                    };
+                    &mut classes[i].1
+                }
+            };
+            set(table, key, action);
+        }
         let mut left_out = self.left_out;
         let Some(escape) = notation(Key::Byte(x)) else {
             // No notation for the escape key itself: nothing can be sent.
-            let all = self.main.len() + self.classes.iter().map(|(_, t)| t.len()).sum::<usize>();
+            let all = self.main.len() + classes.iter().map(|(_, t)| t.len()).sum::<usize>();
             return (sheet, left_out + all);
         };
+        // Each class behind the first key that enters it (`bind r command -c resize`), from the main table or from a
+        // class already reached.
+        let mut prefixes: Vec<(String, String)> = Vec::new();
+        let enters = |table: &[Entry], prefix: &str, prefixes: &mut Vec<(String, String)>| {
+            for (k, command, _) in table {
+                let (Some(name), Some(k)) = (command.strip_prefix("command -c "), notation(*k))
+                else {
+                    continue;
+                };
+                if !prefixes.iter().any(|(n, _)| n == name) {
+                    prefixes.push((name.to_string(), format!("{prefix} {k}")));
+                }
+            }
+        };
+        enters(&self.main, &escape, &mut prefixes);
+        for _ in 0..classes.len() {
+            for (name, table) in &classes {
+                if let Some(prefix) = prefixes
+                    .iter()
+                    .find(|(n, _)| n == name)
+                    .map(|(_, p)| p.clone())
+                {
+                    enters(table, &prefix, &mut prefixes);
+                }
+            }
+        }
         let mut add = |category: &str, prefix: &str, table: &[Entry]| {
             for (key, command, desc) in table {
                 let Some(k) = notation(*key) else {
@@ -345,16 +391,9 @@ impl Keytab {
         };
         add("screen", &escape, &self.main);
         let mut orphans = 0;
-        for (name, table) in &self.classes {
-            // The first key that enters the class: `bind r command -c resize`.
-            let enter = format!("command -c {name}");
-            let entry = self
-                .main
-                .iter()
-                .find(|(_, c, _)| *c == enter)
-                .and_then(|(k, _, _)| notation(*k));
-            match entry {
-                Some(k) => add(&format!("class {name}"), &format!("{escape} {k}"), table),
+        for (name, table) in &classes {
+            match prefixes.iter().find(|(n, _)| n == name) {
+                Some((_, prefix)) => add(&format!("class {name}"), prefix, table),
                 None => orphans += table.len(),
             }
         }
@@ -411,8 +450,8 @@ fn expand(path: &str, env: Env) -> PathBuf {
 /// A screenrc line's words, as screen's `Parse` splits them: whitespace between words, `"…"` and `'…'` quoting,
 /// `\n \r \t \' \" \\ \$ \# \^` and `\ooo` (octal) escapes and `^x` (control characters, `^?` is DEL) outside single
 /// quotes; `#` at the start of a word ends the line. `!cmd` is `exec cmd`. `$VAR` is left as is (only `source` paths
-/// expand).
-fn words(line: &str) -> Vec<Vec<u8>> {
+/// expand). `None` for a line screen drops (a quote left open).
+fn words(line: &str) -> Option<Vec<Vec<u8>>> {
     let b = line.as_bytes();
     let mut words = Vec::new();
     let mut i = 0;
@@ -426,7 +465,7 @@ fn words(line: &str) -> Vec<Vec<u8>> {
             continue;
         }
         if i >= b.len() || b[i] == b'#' || b[i] == b'\n' {
-            return words;
+            return Some(words);
         }
         let mut word = Vec::new();
         let mut delim = 0;
@@ -470,6 +509,10 @@ fn words(line: &str) -> Vec<Vec<u8>> {
                 word.push(c);
             }
             i += 1;
+        }
+        // screen drops a line with a quote left open.
+        if delim != 0 {
+            return None;
         }
         words.push(word);
     }
@@ -582,6 +625,51 @@ mod tests {
     }
 
     #[test]
+    fn pinned_rows_match_init_keytab() {
+        // Spot checks against `InitKeytab()`, keys whose spelling the generator could get wrong.
+        for (v, text) in REGISTRY {
+            let pinned: Pinned = toml::from_str(text).unwrap();
+            let cmd = |k: &str| {
+                let hits: Vec<&str> = pinned
+                    .bind
+                    .iter()
+                    .filter(|b| b.key == k)
+                    .map(|b| b.command.as_str())
+                    .collect();
+                assert!(hits.len() <= 1, "{v}: {k:?} twice");
+                hits.first().copied()
+            };
+            for (key, want) in [
+                (" ", "next"),
+                ("^@", "next"),
+                ("{", "history"),
+                ("}", "history"),
+                ("^I", "focus"),
+                ("i", "info"),
+                ("backtab", "focus prev"),
+                (
+                    "^\\",
+                    if *v == "4.9.1" {
+                        "quit"
+                    } else {
+                        "quit --confirm"
+                    },
+                ),
+                ("\"", "windowlist -b"),
+                ("'", "select"),
+                ("|", "split -v"),
+                ("9", "select 9"),
+                ("L", "login"),
+            ] {
+                assert_eq!(cmd(key), Some(want), "{v}: {key:?}");
+            }
+            // The escape keys get `other` and `meta` from the reader, not the data.
+            assert_eq!((cmd("^A"), cmd("a")), (None, None), "{v}");
+            assert_eq!(pinned.bind.len(), 87, "{v}");
+        }
+    }
+
+    #[test]
     fn version_pick() {
         let pick = |text: &str| {
             let (v, _, note) = select(REGISTRY, version_of(text).as_deref()).unwrap();
@@ -613,6 +701,15 @@ mod tests {
         );
         assert_eq!(pick("Screen version 6.0.0"), ("5.0.2", true));
         assert_eq!(pick("garbage"), ("5.0.2", true));
+        // A build suffix doesn't hide the version.
+        assert_eq!(
+            pick("Screen version 4.09.01beta (GNU) 20-Aug-23"),
+            ("4.9.1", false)
+        );
+        assert_eq!(
+            pick("Screen version 5.0.2-dirty (build on x)"),
+            ("5.0.2", false)
+        );
         let (_, _, note) = select(REGISTRY, Some("4.6.2")).unwrap();
         assert!(note.unwrap().contains("data/screen/4.6.2.toml"));
         assert_eq!(
@@ -657,7 +754,8 @@ mod tests {
         assert!(!main
             .iter()
             .any(|r| r.starts_with("ctrl+b ctrl+a ") || r.starts_with("ctrl+b a ")));
-        // /etc/screenrc (upstream): `bind ^k` and `bind ^\` remove, `bind \\ quit` and `bind K kill` add.
+        // /etc/screenrc is upstream's `etc/etcscreenrc` from https://ftp.gnu.org/gnu/screen/screen-5.0.2.tar.gz:
+        // `bind ^k` and `bind ^\` remove, `bind \\ quit` and `bind K kill` add.
         assert!(!main
             .iter()
             .any(|r| r.starts_with("ctrl+b ctrl+k ") || r.starts_with("ctrl+b ctrl+backslash ")));
@@ -693,7 +791,9 @@ mod tests {
             "{notes:?}"
         );
         assert!(
-            notes.iter().any(|n| n.starts_with("leaving out 3 keys")),
+            notes
+                .iter()
+                .any(|n| n.starts_with("leaving out 3 bindings")),
             "{notes:?}"
         );
         assert_eq!(notes.len(), 2, "{notes:?}");
@@ -773,10 +873,98 @@ mod tests {
         assert!(!main.iter().any(|r| r.starts_with("grave ctrl+a ")));
     }
 
+    /// The sheet from the defaults and `rc` (one user file).
+    fn with_rc(rc: &str) -> (Sheet, Vec<String>) {
+        let dir =
+            std::env::temp_dir().join(format!("kbf-screen-rc-{}-{}", std::process::id(), rc.len()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("rc"), rc).unwrap();
+        let vars = [("SCREENRC", dir.join("rc").to_string_lossy().into_owned())];
+        let result = sheet_with(REGISTRY, v5(), Path::new("/nonexistent"), &env(&vars));
+        let _ = std::fs::remove_dir_all(&dir);
+        result.unwrap()
+    }
+
+    #[test]
+    fn binds_after_escape_win() {
+        // `escape` sets the defaults' `other`/`meta` keys; a later `bind` replaces them, and so does an earlier one.
+        let (sheet, _) = with_rc("escape ^Bb\nbind ^B windows\n");
+        let main = rows(&sheet, "screen");
+        assert!(
+            has(&main, "ctrl+b ctrl+b = Show a list of window"),
+            "{main:#?}"
+        );
+        assert!(has(
+            &main,
+            "ctrl+b b = Send the command character to the window"
+        ));
+        let (sheet, _) = with_rc("bind ^A\n");
+        assert!(!rows(&sheet, "screen")
+            .iter()
+            .any(|r| r.starts_with("ctrl+a ctrl+a ")));
+        // Only the last escape counts.
+        let (sheet, _) = with_rc("escape ^Bb\nescape ^Tt\n");
+        let main = rows(&sheet, "screen");
+        assert!(
+            has(&main, "ctrl+t ctrl+b = Send a break to window"),
+            "{main:#?}"
+        );
+        assert!(has(
+            &main,
+            "ctrl+t ctrl+t = Toggle to the window displayed previously"
+        ));
+        // `escape ""`: no command key, so nothing is listed; a malformed escape changes nothing.
+        let (sheet, _) = with_rc("escape \"\"\n");
+        assert!(sheet.binds.is_empty());
+        let (sheet, _) = with_rc("escape ^B\nescape abc\n");
+        assert!(has(
+            &rows(&sheet, "screen"),
+            "ctrl+a c = Create a new window with a shell and switch to that window"
+        ));
+        // An escape key with no notation: every key left out.
+        let (sheet, notes) = with_rc("escape \\351x\n");
+        assert!(sheet.binds.is_empty());
+        assert!(
+            notes.iter().any(|n| n.starts_with("leaving out 8")),
+            "{notes:?}"
+        );
+    }
+
+    #[test]
+    fn classes_reached_through_classes_and_dropped_lines() {
+        let (sheet, notes) = with_rc(
+            "bind r command -c a\nbind -c a x command -c b\nbind -c b 1 resize +1\nbind q stuff \"open\n",
+        );
+        assert_eq!(rows(&sheet, "class b"), ["ctrl+a r x 1 = resize +1"]);
+        // The line with the open quote is dropped, as screen drops it: `q` keeps its default.
+        assert!(has(
+            &rows(&sheet, "screen"),
+            "ctrl+a q = Send a control-q to the current window"
+        ));
+        assert!(notes.is_empty(), "{notes:?}");
+    }
+
+    #[test]
+    fn source_paths_expand() {
+        let env = |k: &str| match k {
+            "HOME" => Some("/h".to_string()),
+            "D" => Some("/d".to_string()),
+            _ => None,
+        };
+        assert_eq!(expand("~/x", &env), PathBuf::from("/h/x"));
+        assert_eq!(expand("~", &env), PathBuf::from("/h"));
+        assert_eq!(expand("$D/x", &env), PathBuf::from("/d/x"));
+        assert_eq!(expand("${D}x", &env), PathBuf::from("/dx"));
+        assert_eq!(expand("$UNSET/x", &env), PathBuf::from("/x"));
+        assert_eq!(expand("a$", &env), PathBuf::from("a$"));
+        assert_eq!(expand("~user/x", &env), PathBuf::from("~user/x"));
+    }
+
     #[test]
     fn words_as_screen_parses_them() {
         let w = |l: &str| {
             words(l)
+                .unwrap()
                 .into_iter()
                 .map(|w| String::from_utf8_lossy(&w).into_owned())
                 .collect::<Vec<_>>()
@@ -794,12 +982,14 @@ mod tests {
         assert_eq!(w("a#b"), ["a#b"]);
         assert_eq!(w("!ls -l"), ["exec", "ls", "-l"]);
         assert!(w("   ").is_empty());
+        assert_eq!(words("bind x \"open"), None);
+        assert_eq!(words("bind x 'open"), None);
     }
 
     #[test]
     fn key_notation() {
         let n = |l: &str| {
-            let w = words(l);
+            let w = words(l).unwrap();
             notation(Key::Byte(w[0][0]))
         };
         for (spelled, want) in [

@@ -21,7 +21,7 @@ pub fn detect() -> Context {
     let wayland = set(env_var("WAYLAND_DISPLAY"));
     let session = current_session();
     let (mut ctx, program) = focus(session, wayland, read_focus, run);
-    add_nested_nvim(&mut ctx.providers, run);
+    add_nested_nvim(&mut ctx.providers, run, std::path::Path::new("/proc"));
     let window = keybind_find_sheet::Context {
         wm: session.map(str::to_string),
         class: ctx.class.clone(),
@@ -81,16 +81,16 @@ fn focus(
     (ctx, program)
 }
 
-/// nvim inside herdr, tmux or screen, each asked through `run` (a test seam) only in its own context.
+/// nvim inside herdr, tmux or screen, each asked through `run` only in its own context; screen also reads `proc`
+/// (`/proc`). Both are test seams.
 fn add_nested_nvim(
     providers: &mut Vec<&'static str>,
     run: impl Fn(&str, &[&str]) -> anyhow::Result<String> + Copy,
+    proc: &std::path::Path,
 ) {
     add_nvim_in(providers, "herdr", || herdr_pane_runs_nvim(run));
     add_nvim_in(providers, "tmux", || tmux_pane_runs_nvim(run));
-    add_nvim_in(providers, "screen", || {
-        screen_window_runs_nvim(run, std::path::Path::new("/proc"))
-    });
+    add_nvim_in(providers, "screen", || screen_window_runs_nvim(run, proc));
 }
 
 /// In a context holding the multiplexer `outer` (herdr, tmux), adds nvim after it when its focused pane runs nvim.
@@ -186,7 +186,9 @@ fn tmux_pane_runs_nvim(
 /// (`screen -S <session> -Q number`), the server's child with `WINDOW=<number>` in its environment under `proc` (a
 /// test seam for `/proc`), and that child's terminal's foreground group leader. Records nvim's pid.
 /// ponytail: several attached sessions can't be told apart (screen has no client activity, unlike tmux): an error, not
-/// a guess. Match the session to the client in the focused terminal if that bites.
+/// a guess. Match the session to the client in the focused terminal if that bites. `WINDOW=<n>` is the number a
+/// window was created with, so after `number` renumbers windows the lookup can miss or find another window; and the
+/// session list, like `$SCREENDIR`, is this process's view, not the terminal's.
 fn screen_window_runs_nvim(
     run: impl Fn(&str, &[&str]) -> anyhow::Result<String>,
     proc: &std::path::Path,
@@ -237,7 +239,8 @@ fn attached_session(ls: &str) -> anyhow::Result<&str> {
             let state = l.rfind('(').map_or("", |i| l[i..].trim_end());
             matches!(state, "(Attached)" | "(Multi, attached)")
         })
-        .filter_map(|l| l.split_whitespace().next())
+        // The name runs to the next tab: `screen -S "my work"` has a space in it.
+        .filter_map(|l| l[1..].split('\t').next())
         .collect();
     match attached.as_slice() {
         [one] => Ok(one),
@@ -1581,6 +1584,15 @@ mod tests {
         assert!(format!("{:#}", attached_session(&two).unwrap_err()).contains("2 attached"));
         assert!(attached_session(&ls(&["\t1.a\t(Detached)"])).is_err());
         assert!(attached_session("No Sockets found in /run/screen/S-u.\n").is_err());
+        // A name with a space runs to the tab; `Multi, detached` isn't attached.
+        assert_eq!(
+            attached_session(&ls(&[
+                "\t500.my work\t(Attached)",
+                "\t6.x\t(Multi, detached)"
+            ]))
+            .unwrap(),
+            "500.my work"
+        );
     }
 
     #[test]
@@ -1611,14 +1623,33 @@ mod tests {
                 _ => window.get().to_string(),
             })
         };
+        // Through `add_nested_nvim`: nvim right after screen.
+        let screen = || providers_for(Some("xmonad"), Some("Alacritty"), Some("screen"), &[]);
+        let mut p = screen();
+        add_nested_nvim(&mut p, fake, &dir);
+        assert_eq!(
+            p,
+            ["xmonad", "espanso", "alacritty", "screen", "nvim", "sheets"]
+        );
+        calls.borrow_mut().clear();
         let nvim = screen_window_program(fake, &dir);
         window.set("0 (bash)");
         let bash = screen_window_program(fake, &dir);
+        let mut p = screen();
+        add_nested_nvim(&mut p, fake, &dir);
+        assert_eq!(p, screen());
+        // A window without a readable stat: its own process is the program.
+        write("400/environ", b"WINDOW=4\0");
+        write("400/comm", b"htop\n");
+        write("100/task/100/children", b"200 300 400");
+        window.set("4 (htop)");
+        let no_stat = screen_window_program(fake, &dir);
         window.set("7 (gone)");
         let gone = screen_window_program(fake, &dir);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(nvim.unwrap(), (310, "nvim".to_string()));
         assert_eq!(bash.unwrap(), (200, "bash".to_string()));
+        assert_eq!(no_stat.unwrap(), (400, "htop".to_string()));
         assert!(format!("{:#}", gone.unwrap_err()).contains("screen window 7"));
         assert_eq!(
             calls.borrow()[..2],
@@ -1648,12 +1679,12 @@ mod tests {
             anyhow::bail!("No Sockets found")
         };
         let mut p = screen();
-        add_nested_nvim(&mut p, fake);
+        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
         assert_eq!(p, screen());
         assert_eq!(*calls.borrow(), ["screen -ls"]);
         calls.borrow_mut().clear();
         let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("zsh"), &[]);
-        add_nested_nvim(&mut p, fake);
+        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
         assert!(calls.borrow().is_empty());
     }
 
@@ -1669,7 +1700,7 @@ mod tests {
             })
         };
         let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("tmux: client"), &[]);
-        add_nested_nvim(&mut p, fake);
+        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "tmux", "nvim", "sheets"]
@@ -1678,7 +1709,7 @@ mod tests {
         assert_eq!(*calls.borrow(), ["tmux", "tmux"]);
         calls.borrow_mut().clear();
         let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("herdr"), &[]);
-        add_nested_nvim(&mut p, fake);
+        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "herdr", "nvim", "sheets"]
@@ -1686,7 +1717,7 @@ mod tests {
         assert_eq!(*calls.borrow(), ["herdr", "herdr"]);
         calls.borrow_mut().clear();
         let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("zsh"), &[]);
-        add_nested_nvim(&mut p, fake);
+        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
         assert!(calls.borrow().is_empty());
     }
 

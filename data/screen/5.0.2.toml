@@ -2,7 +2,8 @@
 # Source: https://ftp.gnu.org/gnu/screen/screen-5.0.2.tar.gz (screen 5.0.2), GPL-3.0-or-later:
 #   process.c  InitKeytab() (keys and commands, later assignments winning, every #ifdef feature on). Not here: `other`
 #   and `meta`, which screen puts on the escape keys last (`^A` and `a` by default; the reader adds them).
-#   doc/screen.1  "DEFAULT KEY BINDINGS" (descriptions, by command)
+#   doc/screen.1  "DEFAULT KEY BINDINGS" (descriptions, by command; `parent` and `focus prev` have no row there and
+#   are described by hand)
 # Keys in screen's spelling (`^A`, `^?`); `backtab` is the termcap back-tab key. `L` (login) needs a utmp build.
 # Generated from the tarball by a script kept out of the repo; to support another screen version, add a file next
 # to this one.
@@ -36,8 +37,8 @@ desc = "Create a new window with a shell and switch to that window"
 
 [[bind]]
 key = " "
-command = "history"
-desc = "Copy and paste a previous (command) line"
+command = "next"
+desc = "Switch to the next window"
 
 [[bind]]
 key = "^@"
@@ -308,6 +309,16 @@ desc = "Write the contents of the paste buffer to the stdin queue of the current
 key = "^]"
 command = "paste ."
 desc = "Write the contents of the paste buffer to the stdin queue of the current window"
+
+[[bind]]
+key = "{"
+command = "history"
+desc = "Copy and paste a previous (command) line"
+
+[[bind]]
+key = "}"
+command = "history"
+desc = "Copy and paste a previous (command) line"
 
 [[bind]]
 key = ">"

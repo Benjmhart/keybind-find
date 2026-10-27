@@ -155,13 +155,14 @@ on without them.
 
 GNU screen can't print its key table, so keybind-find takes screen's default command keys for its version (from
 `process.c` `InitKeytab()` of 4.9.1 and 5.0.2; another version gets the nearest, with a one-line note) and lays
-`/etc/screenrc` and then your screenrc (`$SCREENRC`, else `~/.screenrc`) over them, following `source`: `bind` adds,
-replaces or removes a key, `escape`/`defescape` moves every key behind your command key, and `bind -c <class>` keys
-are listed behind the key that enters the class (`bind r command -c resize`). Not read: `-e` or `-c` on screen's
-command line, `$SYSSCREENRC`, `bindkey` and `bind -k` lines (counted in the one-line note), and per-user `escape` in
-multiuser sessions. nvim inside screen is found through the one attached session (`screen -ls`) and its current
-window; with several attached sessions keybind-find can't tell which is yours, says so in one line, and shows
-screen's keys without nvim's. Other programs inside screen aren't looked for.
+`/etc/screenrc` and then your screenrc (`$SCREENRC`, else `~/.screenrc`, as keybind-find's own environment has them)
+over them, following `source`: `bind` adds, replaces or removes a key, `escape`/`defescape` moves every key behind your
+command key, and `bind -c <class>` keys are listed behind the key that enters the class (`bind r command -c resize`).
+Not read: `-e` or `-c` on screen's command line, a system screenrc built in somewhere other than `/etc/screenrc`,
+`$SYSSCREENRC`, `bindkey` and `bind -k` lines (counted in the one-line note), and per-user `escape` in multiuser
+sessions. nvim inside screen is found through the one attached session (`screen -ls`) and its current window; with
+several attached sessions keybind-find can't tell which is yours, says so in one line, and shows screen's keys without
+nvim's. A window renumbered with `number` may not be found. Other programs inside screen aren't looked for.
 
 ### Ghostty
 
