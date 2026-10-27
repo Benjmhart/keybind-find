@@ -1,0 +1,4 @@
+[org.kde.spectacle.desktop]
+RectangularRegionScreenShot=Meta+Shift+Print,Meta+Shift+Print,Capture Rectangular Region
+_k_friendly_name=Spectacle
+_launch=Print,Print,Spectacle

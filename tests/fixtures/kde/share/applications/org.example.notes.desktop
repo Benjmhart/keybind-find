@@ -1,0 +1,23 @@
+[Desktop Entry]
+Type=Application
+Name=Notes
+Exec=notes
+Actions=new; open; edit;
+
+[Desktop Action new]
+Name=New Note
+Exec=notes --new
+X-KDE-Shortcuts=Meta+N
+
+[Desktop Action open]
+Exec=notes --open
+X-KDE-Shortcuts=meta+shift+o
+
+[Desktop Action stale]
+Name=Not Listed In Actions
+Exec=notes --stale
+X-KDE-Shortcuts=Meta+Shift+S
+
+[Desktop Action edit]
+Name=Edit Note
+Exec=notes --edit

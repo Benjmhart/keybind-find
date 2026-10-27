@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Hidden
+Exec=hidden
+NoDisplay=true
+X-KDE-Shortcuts=Meta+H

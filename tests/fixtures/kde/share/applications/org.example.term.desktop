@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Example Terminal
+Name[de]=Beispielterminal
+Exec=example-term
+X-KDE-Shortcuts=Ctrl+Alt+T

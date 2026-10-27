@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=No Display
+Exec=nodisplay
+NoDisplay=true
+X-KDE-Shortcuts=Meta+Y

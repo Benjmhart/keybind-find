@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Plain System Copy
+Exec=plain
+X-KDE-Shortcuts=Meta+P

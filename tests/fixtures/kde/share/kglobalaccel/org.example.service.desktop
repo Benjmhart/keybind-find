@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Service
+Exec=service
+X-KDE-GlobalShortcutType=Service
+X-KDE-Shortcuts=Meta+S
+Actions=run
+
+[Desktop Action run]
+Name=Run It
+Exec=service --run
+X-KDE-Shortcuts=Meta+R,Meta+Shift+R

@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Konsole
+Exec=konsole
+X-KDE-Shortcuts=Ctrl+Alt+Y

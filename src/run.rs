@@ -221,6 +221,7 @@ pub fn send(window: Option<&str>, e: &Entry, dry_run: bool) -> anyhow::Result<()
         e,
         dry_run,
         wayland,
+        crate::context::window().wm.as_deref(),
         &mut std::io::stdout().lock(),
         &run_all,
     )
@@ -230,14 +231,35 @@ fn is_wayland(wayland_display: Option<&std::ffi::OsStr>) -> bool {
     wayland_display.is_some_and(|v| !v.is_empty())
 }
 
+/// `send` with the session (`kde`, `gnome`, … from `context::detect`) and the runner as parameters.
 fn send_with(
     window: Option<&str>,
     e: &Entry,
     dry_run: bool,
     wayland: bool,
+    session: Option<&str>,
     out: &mut dyn Write,
     run: &dyn Fn(&[Vec<String>]) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
+    // KWin and Mutter don't implement the virtual-keyboard protocol wtype needs, so a send there can only fail. Said
+    // before `check`, whose reasons (a modifier wtype lacks) wouldn't matter there.
+    let desktop = match session {
+        Some("kde") => "KDE",
+        Some("gnome") => "GNOME",
+        _ => "",
+    };
+    if !dry_run && wayland && !desktop.is_empty() && !e.bind.key.trim().is_empty() {
+        // An espanso trigger is typed, not pressed.
+        let verb = if e.provider == "espanso" {
+            "type"
+        } else {
+            "press"
+        };
+        bail!(
+            "can't send keys under {desktop} on Wayland (no virtual-keyboard protocol for wtype): {verb} {} yourself",
+            e.bind.key
+        );
+    }
     check(e, wayland)?;
     let cmds = commands(window, e, wayland);
     if dry_run {
@@ -528,6 +550,7 @@ mod tests {
             &entry("espanso", ":date"),
             true,
             false,
+            None,
             &mut out,
             &never_run,
         )
@@ -543,6 +566,7 @@ mod tests {
             &entry("x", "super+b"),
             true,
             true,
+            None,
             &mut out,
             &never_run,
         )
@@ -572,9 +596,9 @@ mod tests {
     fn dry_run_into_a_closed_pipe() {
         let e = entry("x", "a");
         let mut closed = Broken(std::io::ErrorKind::BrokenPipe);
-        assert!(send_with(None, &e, true, false, &mut closed, &never_run).is_ok());
+        assert!(send_with(None, &e, true, false, None, &mut closed, &never_run).is_ok());
         let mut full = Broken(std::io::ErrorKind::StorageFull);
-        assert!(send_with(None, &e, true, false, &mut full, &never_run).is_err());
+        assert!(send_with(None, &e, true, false, None, &mut full, &never_run).is_err());
     }
 
     #[test]
@@ -589,6 +613,7 @@ mod tests {
             &entry("x", "super+b"),
             false,
             false,
+            None,
             &mut Vec::new(),
             &record,
         )
@@ -603,10 +628,92 @@ mod tests {
             &entry("x", "a exec x"),
             false,
             false,
+            None,
             &mut Vec::new(),
             &never_run
         )
         .is_err());
+    }
+
+    #[test]
+    fn kde_and_gnome_on_wayland_refuse_a_real_send() {
+        for (session, name) in [("kde", "KDE"), ("gnome", "GNOME")] {
+            let err = send_with(
+                None,
+                &entry("x", "super+b"),
+                false,
+                true,
+                Some(session),
+                &mut Vec::new(),
+                &never_run,
+            )
+            .unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                format!("can't send keys under {name} on Wayland (no virtual-keyboard protocol for wtype): press super+b yourself")
+            );
+            // `--print` still prints.
+            let mut out = Vec::new();
+            send_with(
+                None,
+                &entry("x", "super+b"),
+                true,
+                true,
+                Some(session),
+                &mut out,
+                &never_run,
+            )
+            .unwrap();
+            assert_eq!(
+                String::from_utf8(out).unwrap(),
+                "wtype -M logo -k b -m logo\n"
+            );
+        }
+        // An espanso trigger is to be typed.
+        let err = send_with(
+            None,
+            &entry("espanso", ":date"),
+            false,
+            true,
+            Some("kde"),
+            &mut Vec::new(),
+            &never_run,
+        )
+        .unwrap_err();
+        assert!(err.to_string().ends_with(": type :date yourself"), "{err}");
+        // A modifier wtype lacks: the desktop is the reason given, not wtype.
+        let err = send_with(
+            None,
+            &entry("x", "mod3+x"),
+            false,
+            true,
+            Some("gnome"),
+            &mut Vec::new(),
+            &never_run,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().starts_with("can't send keys under GNOME"),
+            "{err}"
+        );
+        // KDE on X11 and sway under Wayland send as before.
+        for (session, wayland) in [("kde", false), ("sway", true)] {
+            let ran = RefCell::new(0);
+            send_with(
+                Some("9"),
+                &entry("x", "super+b"),
+                false,
+                wayland,
+                Some(session),
+                &mut Vec::new(),
+                &|_| {
+                    *ran.borrow_mut() += 1;
+                    Ok(())
+                },
+            )
+            .unwrap();
+            assert_eq!(*ran.borrow(), 1, "{session}");
+        }
     }
 
     #[test]
