@@ -241,22 +241,14 @@ fn send_with(
     out: &mut dyn Write,
     run: &dyn Fn(&[Vec<String>]) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    check(e, wayland)?;
-    let cmds = commands(window, e, wayland);
-    if dry_run {
-        // A closed pipe (`--print | head`) is not an error.
-        return match out.write_all(render(&cmds).as_bytes()) {
-            Err(err) if err.kind() != std::io::ErrorKind::BrokenPipe => Err(err.into()),
-            _ => Ok(()),
-        };
-    }
-    // KWin and Mutter don't implement the virtual-keyboard protocol wtype needs, so a send there can only fail.
+    // KWin and Mutter don't implement the virtual-keyboard protocol wtype needs, so a send there can only fail. Said
+    // before `check`, whose reasons (a modifier wtype lacks) wouldn't matter there.
     let desktop = match session {
         Some("kde") => "KDE",
         Some("gnome") => "GNOME",
         _ => "",
     };
-    if wayland && !desktop.is_empty() {
+    if !dry_run && wayland && !desktop.is_empty() && !e.bind.key.trim().is_empty() {
         // An espanso trigger is typed, not pressed.
         let verb = if e.provider == "espanso" {
             "type"
@@ -267,6 +259,15 @@ fn send_with(
             "can't send keys under {desktop} on Wayland (no virtual-keyboard protocol for wtype): {verb} {} yourself",
             e.bind.key
         );
+    }
+    check(e, wayland)?;
+    let cmds = commands(window, e, wayland);
+    if dry_run {
+        // A closed pipe (`--print | head`) is not an error.
+        return match out.write_all(render(&cmds).as_bytes()) {
+            Err(err) if err.kind() != std::io::ErrorKind::BrokenPipe => Err(err.into()),
+            _ => Ok(()),
+        };
     }
     run(&cmds)
 }
@@ -680,6 +681,21 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().ends_with(": type :date yourself"), "{err}");
+        // A modifier wtype lacks: the desktop is the reason given, not wtype.
+        let err = send_with(
+            None,
+            &entry("x", "mod3+x"),
+            false,
+            true,
+            Some("gnome"),
+            &mut Vec::new(),
+            &never_run,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().starts_with("can't send keys under GNOME"),
+            "{err}"
+        );
         // KDE on X11 and sway under Wayland send as before.
         for (session, wayland) in [("kde", false), ("sway", true)] {
             let ran = RefCell::new(0);

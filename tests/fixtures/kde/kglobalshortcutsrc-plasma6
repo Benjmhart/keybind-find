@@ -34,8 +34,13 @@ mute=Volume Mute,Volume Mute,Mute
 [services][org.example.named.desktop]
 _launch=Meta+F
 
+[services][org.example.deleted.desktop]
+_launch=Meta+Z
+
 [services][org.example.notes.desktop]
+edit=Meta+Shift+E
 new=Meta+Shift+N
+stale=Meta+Shift+S
 
 [services][org.kde.dolphin.desktop]
 _launch=none

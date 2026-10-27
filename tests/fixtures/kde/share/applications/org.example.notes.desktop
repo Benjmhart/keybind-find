@@ -2,7 +2,7 @@
 Type=Application
 Name=Notes
 Exec=notes
-Actions=new;open;
+Actions=new; open; edit;
 
 [Desktop Action new]
 Name=New Note
@@ -17,3 +17,7 @@ X-KDE-Shortcuts=meta+shift+o
 Name=Not Listed In Actions
 Exec=notes --stale
 X-KDE-Shortcuts=Meta+Shift+S
+
+[Desktop Action edit]
+Name=Edit Note
+Exec=notes --edit

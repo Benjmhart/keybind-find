@@ -41,7 +41,7 @@ fn sheet_with(env: Env) -> anyhow::Result<(Sheet, Vec<String>)> {
         .collect();
     let (sheet, left_out) = parse(rc_text, &desktops(&data_dirs(env), &wanted));
     let mut notes = Vec::new();
-    if text.is_none() && sheet.binds.is_empty() {
+    if text.is_none() && sheet.binds.is_empty() && left_out.is_empty() {
         notes.push(format!("no {} and no launch shortcuts", rc.display()));
     }
     if !left_out.is_empty() {
@@ -85,10 +85,9 @@ fn data_dirs(env: Env) -> Vec<PathBuf> {
 struct Desktop {
     /// The file name, the `[services]` group's name: `org.kde.konsole.desktop`.
     file: String,
-    /// Its `Name` (the file name without `.desktop` when it has none).
-    name: String,
-    /// `_launch` or an action name, its description, and its keys (comma-separated, as written).
-    shortcuts: Vec<(String, String, String)>,
+    /// What can have a global shortcut: `_launch` (unless a `Service`) and each action in `Actions=`, with its
+    /// description and its default keys (comma-separated, as written), if any.
+    shortcuts: Vec<(String, String, Option<String>)>,
 }
 
 /// The `.desktop` files kglobalacceld reads, by file name: `kglobalaccel/` in every data dir, then `applications/`,
@@ -115,9 +114,11 @@ fn desktops(dirs: &[PathBuf], wanted: &BTreeSet<String>) -> Vec<Desktop> {
                 if seen.contains_key(&name) {
                     continue;
                 }
-                let text = std::fs::read(&path)
-                    .map(|b| String::from_utf8_lossy(&b).into_owned())
-                    .unwrap_or_default();
+                // An unreadable file hides nothing.
+                let Ok(bytes) = std::fs::read(&path) else {
+                    continue;
+                };
+                let text = String::from_utf8_lossy(&bytes);
                 let desktop = (text.contains("X-KDE-Shortcuts") || wanted.contains(&name))
                     .then(|| desktop(&name, &text, sub == "kglobalaccel"))
                     .flatten();
@@ -129,7 +130,7 @@ fn desktops(dirs: &[PathBuf], wanted: &BTreeSet<String>) -> Vec<Desktop> {
 }
 
 /// One `.desktop` file: `_launch` from `[Desktop Entry]` (unless `X-KDE-GlobalShortcutType=Service`), and each
-/// action listed in `Actions=` (its `[Desktop Action <a>]`), when it has `X-KDE-Shortcuts`. `None` for a `Hidden`
+/// action listed in `Actions=` (its `[Desktop Action <a>]`), with their `X-KDE-Shortcuts`. `None` for a `Hidden`
 /// (deleted) file, and for a `NoDisplay` one when `hidable`.
 fn desktop(file: &str, text: &str, hidable: bool) -> Option<Desktop> {
     let groups = ini(text);
@@ -141,26 +142,31 @@ fn desktop(file: &str, text: &str, hidable: bool) -> Option<Desktop> {
             .map(|(_, v)| v.as_str())
     };
     let entry = "Desktop Entry";
-    if get(entry, "Hidden") == Some("true") || hidable && get(entry, "NoDisplay") == Some("true") {
+    // KConfig's booleans.
+    let set = |key: &str| {
+        get(entry, key).is_some_and(|v| {
+            ["true", "1", "yes", "on"]
+                .iter()
+                .any(|t| v.eq_ignore_ascii_case(t))
+        })
+    };
+    if set("Hidden") || hidable && set("NoDisplay") {
         return None;
     }
-    let name = get(entry, "Name").unwrap_or(file.trim_end_matches(".desktop"));
+    let keys = |group: &str| get(group, "X-KDE-Shortcuts").map(str::to_string);
     let mut shortcuts = Vec::new();
-    let service = get(entry, "X-KDE-GlobalShortcutType") == Some("Service");
-    if let Some(keys) = get(entry, "X-KDE-Shortcuts").filter(|_| !service) {
-        shortcuts.push(("_launch".into(), format!("launch {name}"), keys.into()));
+    if get(entry, "X-KDE-GlobalShortcutType") != Some("Service") {
+        let name = get(entry, "Name").unwrap_or(file.trim_end_matches(".desktop"));
+        shortcuts.push(("_launch".into(), format!("launch {name}"), keys(entry)));
     }
     let actions = get(entry, "Actions").unwrap_or_default();
-    for action in actions.split(';').filter(|a| !a.is_empty()) {
+    for action in actions.split(';').map(str::trim).filter(|a| !a.is_empty()) {
         let group = format!("Desktop Action {action}");
-        if let Some(keys) = get(&group, "X-KDE-Shortcuts") {
-            let desc = get(&group, "Name").unwrap_or(action);
-            shortcuts.push((action.into(), desc.into(), keys.into()));
-        }
+        let desc = get(&group, "Name").unwrap_or(action);
+        shortcuts.push((action.into(), desc.into(), keys(&group)));
     }
     Some(Desktop {
         file: file.into(),
-        name: name.into(),
         shortcuts,
     })
 }
@@ -168,7 +174,8 @@ fn desktop(file: &str, text: &str, hidable: bool) -> Option<Desktop> {
 /// The sheet from `kglobalshortcutsrc`'s text and the `.desktop` defaults, and how many keys of each kind were left
 /// out. Each top-level group is a component (Plasma 5's `[<app>.desktop]` groups too); nested groups (other contexts,
 /// `$InverseAction`) and `$`-groups are skipped. `[services][<file>]` replaces that file's defaults, and so does a
-/// Plasma 5 top-level `[<file>]` group (listed as a component).
+/// Plasma 5 top-level `[<file>]` group (listed as a component). Like kglobalacceld, an override is read only for an
+/// action a found `.desktop` file has: one for a missing, deleted or unlisted one shortcuts nothing.
 fn parse(rc: &str, desktops: &[Desktop]) -> (Sheet, BTreeMap<&'static str, usize>) {
     let mut sheet = Sheet {
         title: "kde".into(),
@@ -202,7 +209,11 @@ fn parse(rc: &str, desktops: &[Desktop]) -> (Sheet, BTreeMap<&'static str, usize
                     overrides.insert((file.clone(), action.clone()), keys.clone());
                 }
             }
-            [component] if component != "services" && !component.starts_with('$') => {
+            [component]
+                if !component.is_empty()
+                    && component != "services"
+                    && !component.starts_with('$') =>
+            {
                 components.insert(component.as_str());
                 let category = entries
                     .iter()
@@ -228,28 +239,17 @@ fn parse(rc: &str, desktops: &[Desktop]) -> (Sheet, BTreeMap<&'static str, usize
         .filter(|d| !components.contains(d.file.as_str()))
     {
         for (action, desc, keys) in &d.shortcuts {
+            // An override also covers an action with no default (an app given a shortcut in System Settings).
             match overrides.remove(&(d.file.clone(), action.clone())) {
                 Some(keys) => add("launch", desc, action, &keys),
-                None => add("launch", desc, action, &keys.replace(',', "\t")),
+                None => add(
+                    "launch",
+                    desc,
+                    action,
+                    &keys.as_deref().unwrap_or_default().replace(',', "\t"),
+                ),
             }
         }
-    }
-    // An override with no default (an app given a shortcut in System Settings) still is a shortcut.
-    for ((file, action), keys) in overrides {
-        let desc = match action.as_str() {
-            "_launch" => {
-                let found = desktops
-                    .iter()
-                    .find(|d| d.file == file)
-                    .map(|d| d.name.as_str());
-                format!(
-                    "launch {}",
-                    found.unwrap_or(file.trim_end_matches(".desktop"))
-                )
-            }
-            a => a.to_string(),
-        };
-        add("launch", &desc, &action, &keys);
     }
     (sheet, left_out)
 }
@@ -274,8 +274,12 @@ fn ini(text: &str) -> Vec<Group> {
                 path.push(unescape(name));
                 rest = after;
             }
-            if path.len() > 1 && path.last().is_some_and(|p| p == "$i") {
+            if path.last().is_some_and(|p| p == "$i") {
                 path.pop();
+            }
+            // `[$i]` alone (the whole file immutable) or an unclosed `[` starts no group.
+            if path.is_empty() {
+                continue;
             }
             current = Some(match groups.iter().position(|(p, _)| *p == path) {
                 Some(i) => i,
@@ -383,7 +387,8 @@ fn chord_of(c: &str) -> Result<String, &'static str> {
             .and_then(|n| n.parse::<u8>().ok())
             .is_some_and(|n| (1..=35).contains(&n)) =>
         {
-            key.to_ascii_uppercase()
+            // `F05` hand-written is `F5`.
+            format!("F{}", key[1..].parse::<u8>().unwrap_or_default())
         }
         _ if key.eq_ignore_ascii_case("Backtab") => {
             out.push("shift");
@@ -610,19 +615,11 @@ mod tests {
             rows["Session Management"],
             ["super+l = Lock Session", "XF86ScreenSaver = Lock Session"]
         );
-        // `[services]` with no `.desktop` file found: still listed, by file name; `none` lists nothing.
-        assert_eq!(
-            rows["launch"],
-            [
-                "super+f = launch org.example.named",
-                "super+shift+n = new",
-                "ctrl+alt+k = launch org.kde.konsole"
-            ]
-        );
         // No `_k_friendly_name`: the group name is the category.
         assert_eq!(rows["org.kde.kmix"], ["XF86AudioMute = Mute"]);
-        // Nested groups (`$InverseAction`, another context) and `[$Version]` give nothing.
-        assert_eq!(rows.len(), 4);
+        // Nested groups (`$InverseAction`, another context) and `[$Version]` give nothing, and `[services]` without
+        // its `.desktop` files shortcuts nothing (kglobalacceld registers no service it can't find).
+        assert_eq!(rows.len(), 3, "{rows:?}");
         let action = |key: &str| {
             sheet
                 .binds
@@ -666,6 +663,7 @@ mod tests {
     #[test]
     fn desktop_defaults_and_services_overrides() {
         let wanted = BTreeSet::from(["org.example.named.desktop".to_string()]);
+        // `plain` has no shortcut but shadows the system copy that has one.
         let found = desktops(&share(&["share", "share-system", "missing"]), &wanted);
         let files: Vec<&str> = found.iter().map(|d| d.file.as_str()).collect();
         // Left out: the `NoDisplay` file in `kglobalaccel/` and its twin in `applications/` (the first file of a name
@@ -689,6 +687,8 @@ mod tests {
         assert_eq!(
             rows(&sheet)["launch"],
             [
+                // A shortcut given in System Settings to an app with none: described by the app's `Name`.
+                "super+f = launch Named App",
                 "super+y = launch No Display",
                 // No `Name`: the file name.
                 "super+u = launch org.example.noname",
@@ -696,6 +696,9 @@ mod tests {
                 // in lower case, still read); an action missing from `Actions=` isn't listed.
                 "super+shift+n = New Note",
                 "super+shift+o = open",
+                // An action with no default, given one in `[services]`; `Actions=` items may have spaces. An override
+                // for an action missing from `Actions=` (`stale`) or for a deleted file shortcuts nothing.
+                "super+shift+e = Edit Note",
                 // `X-KDE-GlobalShortcutType=Service`: its actions only.
                 "super+r = Run It",
                 "super+shift+r = Run It",
@@ -704,8 +707,6 @@ mod tests {
                 // Dolphin is `none` in `[services]`; Konsole's default is replaced.
                 "ctrl+alt+k = launch Konsole",
                 "Print = launch Spectacle",
-                // A shortcut given in System Settings to an app with none: described by the app's `Name`.
-                "super+f = launch Named App",
             ]
         );
         // No `kglobalshortcutsrc`: the defaults alone.
@@ -746,6 +747,8 @@ mod tests {
             ("ctrl+alt+t", "ctrl+alt+t"),
             ("META+esc", "super+Escape"),
             ("meta+f5", "super+F5"),
+            ("F05", "F5"),
+            ("backtab", "shift+Tab"),
         ] {
             assert_eq!(notation(qt), Ok(want.to_string()), "{qt}");
         }
@@ -757,9 +760,16 @@ mod tests {
             ("Hyper+K", "unknown Qt name"),
             ("F36", "unknown Qt name"),
             ("Meta+K, Num+1", "keypad"),
+            ("num+5", "keypad"),
         ] {
             assert_eq!(notation(qt), Err(kind), "{qt}");
         }
+        // Names are matched ignoring case and the first match wins, so no two may differ only in case.
+        let names: BTreeSet<String> = QT_KEYS
+            .iter()
+            .map(|(q, _)| q.to_ascii_lowercase())
+            .collect();
+        assert_eq!(names.len(), QT_KEYS.len());
         // Every key the table gives is one `run` will send.
         for (_, x) in QT_KEYS {
             assert!(
@@ -787,14 +797,16 @@ mod tests {
 
     #[test]
     fn ini_groups_and_keys_as_kconfig_reads_them() {
-        let text = "\u{feff}[kwin]\nA=1\nB[$e]=2\nA=3\n[kwin][$i]\nC=4\n[a\\x5db]\nD=5\n[kwin][Ctx]\nE=6\nno equals sign\n";
+        let text = "Before=0\n# comment\n[$i]\n[kwin\n[]\nOrphan=1\n[kwin]\nA=1\nB[$e]=2\nA=3\n[kwin][$i]\nC=4\n[a\\x5db]\nD=5\n[kwin][Ctx]\nE=6\nno equals sign\n";
         let groups = ini(text);
         let paths: Vec<Vec<String>> = groups.iter().map(|(p, _)| p.clone()).collect();
-        // A BOM is no part of the first group; `[$i]` marks the group immutable, not nested; names are unescaped.
+        // Lines before a group, comments, `[$i]` alone and an unclosed `[` start nothing; `[]` is a group with no name
+        // (`parse` skips it); `[$i]` after a group marks it immutable, not nested; names are unescaped.
         assert_eq!(
             paths,
             [
-                vec!["kwin".to_string()],
+                vec!["".to_string()],
+                vec!["kwin".into()],
                 vec!["a]b".into()],
                 vec!["kwin".into(), "Ctx".into()]
             ]
@@ -807,8 +819,17 @@ mod tests {
                 .map(|(k, v)| (k.as_str(), v.as_str()))
                 .collect()
         };
-        assert_eq!(pairs(0), [("B", "2"), ("A", "3"), ("C", "4")]);
-        assert_eq!(pairs(2), [("E", "6")]);
+        assert_eq!(pairs(0), [("Orphan", "1")]);
+        assert_eq!(pairs(1), [("B", "2"), ("A", "3"), ("C", "4")]);
+        assert_eq!(pairs(3), [("E", "6")]);
+        // A BOM is no part of the first group.
+        assert_eq!(
+            ini("\u{feff}[x]\nK=v\n"),
+            [(
+                vec!["x".to_string()],
+                vec![("K".to_string(), "v".to_string())]
+            )]
+        );
     }
 
     #[test]
@@ -888,9 +909,30 @@ mod tests {
             _ => None,
         };
         let result = sheet_with(&env);
+        // The whole path: `[services]` names the files read for their `Name`.
+        let share = format!("{}/tests/fixtures/kde/share", env!("CARGO_MANIFEST_DIR"));
+        let with_share = |k: &str| match k {
+            "XDG_DATA_HOME" => Some(share.clone()),
+            _ => env(k),
+        };
+        let launch = sheet_with(&with_share).map(|(s, _)| rows(&s).remove("launch"));
+        // An unreadable `kglobalshortcutsrc` (here a directory) drops the provider.
+        std::fs::create_dir_all(dir.join("unreadable/kglobalshortcutsrc")).unwrap();
+        let unreadable = format!("{config}/unreadable");
+        let bad = |k: &str| match k {
+            "XDG_CONFIG_HOME" => Some(unreadable.clone()),
+            _ => env(k),
+        };
+        let bad = sheet_with(&bad);
         let _ = std::fs::remove_dir_all(&dir);
         let (sheet, notes) = result.unwrap();
         assert!(!sheet.binds.is_empty());
+        let launch = launch.unwrap().unwrap_or_default();
+        assert!(
+            launch.contains(&"super+f = launch Named App".to_string()),
+            "{launch:?}"
+        );
+        assert!(format!("{:#}", bad.unwrap_err()).contains("reading"));
         assert_eq!(
             notes,
             ["leaving out 3 keys keybind-find can't send (keypad: 1, non-ASCII: 1, unknown Qt name: 1)"]

@@ -160,12 +160,12 @@ Keys keybind-find can't send (keypad keys, a key Qt names but no X keysym matche
 counted in one line. A modifier pressed alone (Plasma's launcher on `Meta`) is listed as `Super_L`.
 
 On X11 the focused window is read with `xdotool` as on any X11 window manager. On Wayland it comes from
-[`kdotool`](https://github.com/jinliu/kdotool) (0.3 for Plasma 6; not in Arch's or Debian's repositories: AUR or
+[`kdotool`](https://github.com/jinliu/kdotool) (Plasma 6; not in Arch's or Debian's repositories: AUR or
 `cargo install kdotool`); without it, that is one line and the list has only Plasma's shortcuts and espanso.
 
 On Wayland a pick is not sent: KWin doesn't offer the virtual-keyboard protocol that `wtype` needs, so keybind-find
-stops with an error naming the keys to press (`press super+e yourself`) instead. `--print` prints as anywhere else. The list shows with
-fuzzel, which works on KWin.
+stops with an error naming the keys to press (`press super+e yourself`) instead. `--print` prints as anywhere else.
+The list shows with fuzzel, which works on KWin.
 
 ## Install
 
@@ -264,8 +264,8 @@ Each app's provider needs that app (`nvim`, `herdr`, `tmux`, `espanso`), and is 
 - **Key search doesn't start.** The list opens in text search instead (type to filter), and the header says why:
   for example no `DISPLAY`, fzf older than 0.66, no `xmodmap`, or another program holding the keyboard.
 - **Wayland.** The fzf picker and key search are X11 only; on Wayland the list opens in fuzzel
-  (or `KEYBIND_FIND_PICKER`). Outside sway, only
-  XWayland windows are read.
+  (or `KEYBIND_FIND_PICKER`). The focused window is read under sway, Hyprland and KDE (with `kdotool`); under
+  other compositors no window is read, so no app's keys are listed.
 
 ## Development
 
