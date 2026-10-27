@@ -1,0 +1,45 @@
+{
+  "title": "YouTube",
+  "provider": "browser",
+  "window_title": "- YouTube",
+  "binds": {
+    "player": [
+      { "key": "k", "desc": "Pause/Play in player" },
+      { "key": "space", "desc": "Play/Pause" },
+      { "key": "m", "desc": "Mute/unmute the video" },
+      { "key": "j", "desc": "Seek backward 10 seconds" },
+      { "key": "l", "desc": "Seek forward 10 seconds" },
+      { "key": "Left", "desc": "Seek backward 5 seconds" },
+      { "key": "Right", "desc": "Seek forward 5 seconds" },
+      { "key": "Up", "desc": "Increase volume 5%" },
+      { "key": "Down", "desc": "Decrease volume 5%" },
+      { "key": "Home", "desc": "Seek to the beginning of the video" },
+      { "key": "End", "desc": "Seek to the last seconds of the video" },
+      { "key": "ctrl+Right", "desc": "Go to the next chapter" },
+      { "key": "ctrl+Left", "desc": "Go back to the previous chapter" },
+      { "key": "period", "desc": "While paused, skip to the next frame" },
+      { "key": "comma", "desc": "While paused, go back to the previous frame" },
+      { "key": "greater", "desc": "Speed up the video playback rate" },
+      { "key": "less", "desc": "Slow down the video playback rate" },
+      { "key": "0", "desc": "Seek to the beginning of the video" },
+      { "key": "1", "desc": "Seek to 10% of the video" },
+      { "key": "2", "desc": "Seek to 20% of the video" },
+      { "key": "3", "desc": "Seek to 30% of the video" },
+      { "key": "4", "desc": "Seek to 40% of the video" },
+      { "key": "5", "desc": "Seek to 50% of the video" },
+      { "key": "6", "desc": "Seek to 60% of the video" },
+      { "key": "7", "desc": "Seek to 70% of the video" },
+      { "key": "8", "desc": "Seek to 80% of the video" },
+      { "key": "9", "desc": "Seek to 90% of the video" },
+      { "key": "f", "desc": "Full screen" },
+      { "key": "c", "desc": "Closed captions and subtitles" },
+      { "key": "i", "desc": "Open the Miniplayer" }
+    ],
+    "navigation": [
+      { "key": "slash", "desc": "Go to search box" },
+      { "key": "N", "desc": "Next video" },
+      { "key": "P", "desc": "Previous video in a playlist" },
+      { "key": "question", "desc": "Show keyboard shortcuts" }
+    ]
+  }
+}

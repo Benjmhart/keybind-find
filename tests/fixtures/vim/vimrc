@@ -1,0 +1,29 @@
+" Made-up maps for keybind-find's vim provider tests (tests/fixtures/vim/map.txt is captured from this).
+let mapleader = " "
+echo "a vimrc that prints"
+nnoremap <leader>q :q<CR>
+nnoremap <C-W>x <C-W>c
+xnoremap <leader>y "+y
+vnoremap <leader>v :sort<CR>
+snoremap <C-s> <Esc>
+onoremap ip :<C-u>normal! vip<CR>
+noremap gh ^
+map Q gq
+sunmap Q
+inoremap jk <Esc>
+noremap! <C-a> <Home>
+cnoremap <C-e> <End>
+tnoremap <Esc><Esc> <C-\><C-n>
+lnoremap aa b
+nmap <leader>p <Plug>(fake-plug)
+nnoremap <Plug>(fake-plug) :echo "plug"<CR>
+nnoremap <buffer> <leader>b :echo "buffer"<CR>
+function! s:Hi()
+  echo "hi"
+endfunction
+nnoremap <leader>h :call <SID>Hi()<CR>
+nnoremap <leader>n <Nop>
+nnoremap <leader>l :echo "a long rhs with spaces"<CR>
+nnoremap <leader>abcdefghijkl :echo "a long lhs"<CR>
+nmap <leader>s *
+nnoremap é x

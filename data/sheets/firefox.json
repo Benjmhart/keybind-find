@@ -1,0 +1,111 @@
+{
+  "title": "Firefox 152 (support.mozilla.org, checked 2026-10-26)",
+  "provider": "firefox",
+  "binds": {
+    "navigation": [
+      { "key": "alt+Left", "desc": "Back" },
+      { "key": "ctrl+bracketleft", "desc": "Back" },
+      { "key": "alt+Right", "desc": "Forward" },
+      { "key": "ctrl+bracketright", "desc": "Forward" },
+      { "key": "alt+Home", "desc": "Home page" },
+      { "key": "F5", "desc": "Reload" },
+      { "key": "ctrl+r", "desc": "Reload" },
+      { "key": "ctrl+F5", "desc": "Reload, ignoring the cache" },
+      { "key": "ctrl+shift+r", "desc": "Reload, ignoring the cache" },
+      { "key": "Escape", "desc": "Stop loading" },
+      { "key": "ctrl+o", "desc": "Open a file" }
+    ],
+    "address bar": [
+      { "key": "ctrl+l", "desc": "Focus the address bar" },
+      { "key": "alt+d", "desc": "Focus the address bar" },
+      { "key": "F6", "desc": "Focus the address bar" },
+      { "key": "ctrl+k", "desc": "Focus the address bar (or search bar) for a web search" },
+      { "key": "ctrl+j", "desc": "Focus the address bar (or search bar) for a web search" },
+      { "key": "alt+Return", "desc": "Open the address in a new tab" },
+      { "key": "alt+shift+Return", "desc": "Open the address in a new background tab" },
+      { "key": "shift+Return", "desc": "Open the address in a new window" },
+      { "key": "ctrl+Return", "desc": "Complete a .com address" }
+    ],
+    "page": [
+      { "key": "ctrl+p", "desc": "Print" },
+      { "key": "ctrl+s", "desc": "Save page as" },
+      { "key": "ctrl+plus", "desc": "Zoom in" },
+      { "key": "ctrl+equal", "desc": "Zoom in" },
+      { "key": "ctrl+minus", "desc": "Zoom out" },
+      { "key": "ctrl+0", "desc": "Reset zoom" },
+      { "key": "ctrl+u", "desc": "Page source" },
+      { "key": "ctrl+i", "desc": "Page info" },
+      { "key": "ctrl+alt+r", "desc": "Toggle Reader view" },
+      { "key": "ctrl+shift+s", "desc": "Take a screenshot" },
+      { "key": "F7", "desc": "Caret browsing" },
+      { "key": "F11", "desc": "Toggle full screen" },
+      { "key": "shift+F10", "desc": "Context menu" }
+    ],
+    "find": [
+      { "key": "ctrl+f", "desc": "Find in page" },
+      { "key": "F3", "desc": "Find next" },
+      { "key": "ctrl+g", "desc": "Find next" },
+      { "key": "shift+F3", "desc": "Find previous" },
+      { "key": "ctrl+shift+g", "desc": "Find previous" },
+      { "key": "slash", "desc": "Quick find" },
+      { "key": "apostrophe", "desc": "Quick find in link text" }
+    ],
+    "tabs": [
+      { "key": "ctrl+t", "desc": "New tab" },
+      { "key": "ctrl+w", "desc": "Close tab" },
+      { "key": "ctrl+F4", "desc": "Close tab" },
+      { "key": "ctrl+shift+t", "desc": "Reopen the last closed tab or window" },
+      { "key": "ctrl+Next", "desc": "Next tab" },
+      { "key": "ctrl+Prior", "desc": "Previous tab" },
+      { "key": "ctrl+Tab", "desc": "Next tab" },
+      { "key": "ctrl+shift+Tab", "desc": "Previous tab" },
+      { "key": "alt+1", "desc": "Go to tab 1" },
+      { "key": "alt+2", "desc": "Go to tab 2" },
+      { "key": "alt+3", "desc": "Go to tab 3" },
+      { "key": "alt+4", "desc": "Go to tab 4" },
+      { "key": "alt+5", "desc": "Go to tab 5" },
+      { "key": "alt+6", "desc": "Go to tab 6" },
+      { "key": "alt+7", "desc": "Go to tab 7" },
+      { "key": "alt+8", "desc": "Go to tab 8" },
+      { "key": "alt+9", "desc": "Go to the last tab" },
+      { "key": "ctrl+shift+Prior", "desc": "Move tab left" },
+      { "key": "ctrl+shift+Next", "desc": "Move tab right" },
+      { "key": "ctrl+shift+Home", "desc": "Move tab to the start (tab focused)" },
+      { "key": "ctrl+shift+End", "desc": "Move tab to the end (tab focused)" },
+      { "key": "ctrl+m", "desc": "Mute or unmute the tab" },
+      { "key": "ctrl+alt+z", "desc": "Expand or collapse vertical tabs" }
+    ],
+    "window": [
+      { "key": "ctrl+n", "desc": "New window" },
+      { "key": "ctrl+shift+p", "desc": "New private window" },
+      { "key": "ctrl+shift+w", "desc": "Close window" },
+      { "key": "alt+F4", "desc": "Close window" },
+      { "key": "ctrl+shift+n", "desc": "Reopen the last closed window" },
+      { "key": "ctrl+q", "desc": "Quit" },
+      { "key": "F10", "desc": "Show the menu bar" }
+    ],
+    "history and bookmarks": [
+      { "key": "ctrl+h", "desc": "History sidebar" },
+      { "key": "ctrl+shift+h", "desc": "Library: history" },
+      { "key": "ctrl+shift+Delete", "desc": "Clear recent history" },
+      { "key": "ctrl+d", "desc": "Bookmark this page" },
+      { "key": "ctrl+b", "desc": "Bookmarks sidebar" },
+      { "key": "ctrl+shift+b", "desc": "Show or hide the bookmarks toolbar" },
+      { "key": "ctrl+shift+o", "desc": "Library: all bookmarks" },
+      { "key": "ctrl+shift+y", "desc": "Downloads" },
+      { "key": "ctrl+shift+a", "desc": "Add-ons" },
+      { "key": "shift+Escape", "desc": "Task manager" }
+    ],
+    "developer tools": [
+      { "key": "F12", "desc": "Toggle developer tools" },
+      { "key": "ctrl+shift+i", "desc": "Toggle developer tools" },
+      { "key": "ctrl+shift+k", "desc": "Web console" },
+      { "key": "ctrl+shift+c", "desc": "Inspector" },
+      { "key": "ctrl+shift+e", "desc": "Network" },
+      { "key": "shift+F7", "desc": "Style editor" },
+      { "key": "shift+F5", "desc": "Profiler" },
+      { "key": "ctrl+shift+m", "desc": "Responsive design mode" },
+      { "key": "ctrl+shift+j", "desc": "Browser console" }
+    ]
+  }
+}

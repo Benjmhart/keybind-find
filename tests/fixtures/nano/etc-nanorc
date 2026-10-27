@@ -1,0 +1,5 @@
+## A made-up system nanorc for keybind-find's nano provider tests.
+set tabsize 4
+include "~/syntax/*.nanorc"
+bind ^K cutrestoffile main
+bind M-2 copy main

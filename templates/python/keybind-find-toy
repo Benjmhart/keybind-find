@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""A keybind-find plugin for the toy format (standard library only).
+
+The toy format: one binding per line, `key = description`, optionally ending with ` ; scope=value` (where the
+binding applies). Copy this, rename it `keybind-find-<name>`, and change `parse` and `MANIFEST`.
+
+keybind-find sends the request (protocol version 1) on stdin: {"version": 1, "context": {...}, "inputs": [{"path",
+"text"}, ...]}. This prints the response on stdout: {"version": 1, "title", "provider", "binds": {category: [...]}}.
+On any error: one line on stderr and exit status 1; keybind-find shows the line and drops the plugin.
+"""
+
+import json
+import sys
+
+# What `keybind-find plugin add` writes into the user's config, and the defaults a stanza leaves out.
+MANIFEST = {
+    "version": 1,
+    "name": "toy",
+    "description": "The toy format's key file",
+    "inputs": ["~/.config/toy/keys.conf"],
+    "match": {"program": ["toy"]},
+    "queries": [],
+    "homepage": "https://example.com/keybind-find-toy",
+}
+
+
+def parse(text):
+    """The bindings in one input file. A ValueError names the line."""
+    binds = []
+    # Split on "\n" only (splitlines also splits on form feeds and more, shifting line numbers); a leading
+    # byte-order mark is not part of the first line.
+    for n, line in enumerate(text.lstrip("\ufeff").split("\n"), 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if " = " not in line:
+            raise ValueError(f"line {n}: not `key = description`")
+        key, rest = line.split(" = ", 1)
+        bind = {"key": key.strip(), "desc": rest.strip(), "action": ""}
+        # Report every binding with its scope; never drop one by guessing where the user is.
+        if " ; " in rest:
+            desc, scope = rest.split(" ; ", 1)
+            if "=" not in scope:
+                raise ValueError(f"line {n}: a scope is `name=value`")
+            name, value = (s.strip() for s in scope.split("=", 1))
+            # keybind-find's rule for a scope name or value: printable ASCII, no spaces, none of `,=[]`.
+            if not all(w and all("!" <= c <= "~" and c not in ",=[]" for c in w) for w in (name, value)):
+                raise ValueError(f"line {n}: a scope's name and value are printable ASCII words without , = [ or ]")
+            bind["desc"] = desc.strip()
+            bind["when"] = {name: value}
+        if not bind["desc"] or bind["desc"].startswith("; "):
+            raise ValueError(f"line {n}: no description")
+        binds.append(bind)
+    return binds
+
+
+def respond(request):
+    """The response for a request: every input's bindings, in one sheet."""
+    version = request.get("version")
+    if type(version) is not int or version != 1:
+        raise ValueError(f"request version {version} is not 1, the version this plugin speaks")
+    binds = []
+    # A missing `inputs` is none: an empty sheet (the user has no key file yet), not an error.
+    for i in request.get("inputs") or []:
+        try:
+            binds += parse(i["text"])
+        except ValueError as e:
+            raise ValueError(f"{i['path']}: {e}") from None
+    return {"version": 1, "title": "Toy", "provider": "toy", "binds": {"General": binds}}
+
+
+def main():
+    if sys.argv[1:] == ["--manifest"]:
+        print(json.dumps(MANIFEST))
+        return
+    try:
+        # Bytes, decoded as UTF-8 by json: the request is UTF-8 whatever the locale says.
+        print(json.dumps(respond(json.load(sys.stdin.buffer))))
+    except Exception as e:  # anything at all: one line, exit 1
+        print(" ".join(str(e).split()) or type(e).__name__, file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

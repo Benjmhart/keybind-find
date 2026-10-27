@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "title": "Toy",
+  "provider": "toy",
+  "binds": {
+    "General": [
+      {"key": "ctrl+s", "desc": "Save the file", "action": ""},
+      {"key": "ctrl+q", "desc": "Quit", "action": ""},
+      {"key": "ctrl+shift+z", "desc": "Redo", "action": ""},
+      {"key": "ctrl+w", "desc": "Delete the word before the cursor", "action": "", "when": {"mode": "insert"}}
+    ]
+  }
+}

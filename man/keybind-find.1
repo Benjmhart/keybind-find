@@ -1,0 +1,245 @@
+.TH KEYBIND-FIND 1 2026-10-27 "keybind-find 0.1.0-alpha.1" "User Commands"
+.SH NAME
+keybind-find \- search the keybindings for the focused window and run the one you pick
+.SH SYNOPSIS
+.B keybind\-find
+.RB [ \-\-print ]
+.br
+.B keybind\-find dump
+.RI [ provider ]
+.br
+.B keybind\-find keys
+.br
+.B keybind\-find plugin list
+.br
+.B keybind\-find plugin add
+.I name
+.br
+.B keybind\-find check\-plugin
+.IR name | path
+.RB [ \-\-input
+.IR file ]...
+.RB [ \-\-class
+.IR class ]
+.RB [ \-\-program
+.IR program ]
+.RB [ \-\-title
+.IR title ]
+.RB [ \-\-json ]
+.br
+.B keybind\-find
+.BR \-h | \-\-help
+.SH DESCRIPTION
+.B keybind\-find
+lists the keyboard shortcuts that apply to the focused window: the window manager's (xmonad, sway), the focused
+app's (alacritty, and nvim, herdr or tmux running in it; Vimium and web-app sheets in a browser), espanso's matches,
+and any sheets you wrote.
+The lists are read from the programs' own configuration.
+Pick one and keybind-find sends its keys to the window that had focus, or types the espanso trigger.
+It is meant to be bound to a hotkey, such as
+.BR Super+/ .
+.PP
+On X11 the list opens in
+.BR fzf (1)
+in an
+.BR alacritty (1)
+window (float it in your window manager by its class,
+.BR keybind\-find ),
+in key search: press a binding's keys to narrow the list, Enter to run it, Escape to search by text, and Escape
+again to close the list.
+Key search needs fzf 0.66 or newer and
+.BR xmodmap (1);
+without them the list opens in text search and its header says why.
+On Wayland it opens in
+.BR fuzzel (1).
+Wayland support is sway's: under another compositor only XWayland windows are read.
+On X11
+without fzf or alacritty it opens in
+.BR dmenu (1).
+.PP
+A provider that fails prints one line to standard error and is left out; the others still show.
+.SH COMMANDS
+.TP
+.B keybind\-find
+Show the list and send the binding picked.
+Cancelling the list sends nothing.
+.TP
+.B keybind\-find \-\-print
+The same flow, but print the commands that would send the keys instead of running them.
+Nothing is logged.
+.TP
+\fBkeybind\-find dump\fR [\fIprovider\fR]
+Print every sheet for the focused window as a JSON array, or with
+.IR provider ,
+that provider's sheet: one of
+.BR xmonad ,
+.BR espanso ,
+.BR nvim ,
+.BR herdr ,
+.BR sway ,
+.BR alacritty ,
+.BR sheets ,
+.BR tmux ,
+.BR vimium .
+.TP
+.B keybind\-find keys
+Grab the keyboard and print each key pressed, in keybind-find's key notation, until Escape or 30 seconds with no
+key (X11 only).
+.TP
+.B keybind\-find plugin list
+List the plugins installed: executables named
+.BI keybind\-find\- name
+on
+.BR PATH ,
+and executables in
+.IR ~/.config/keybind-find/plugins/ .
+Each line says whether a
+.B [[plugin]]
+stanza in the config runs it, then what its manifest says (the plugin's answer to
+.BR \-\-manifest ).
+Super+/ runs only the plugins a stanza names.
+.TP
+\fBkeybind\-find plugin add\fR \fIname\fR
+Append a commented
+.B [[plugin]]
+stanza for the installed plugin
+.I name
+to the config, with the plugin's path as its program and its default inputs and match, and print it.
+The config is created if missing and otherwise only appended to; a config that already has a stanza of that name or
+for that program, isn't valid TOML, or has a
+.B plugin
+key that isn't
+.B [[plugin]]
+stanzas, is refused and left as it is.
+.TP
+\fBkeybind\-find check\-plugin\fR \fIname\fR|\fIpath\fR
+Check a plugin, for its author: ask it for its manifest, run it as Super+/ would, and print one line per problem
+with where it is (category, index and key), then a summary.
+It checks that the manifest is valid JSON of version 1 with the fields it needs (a plugin that refuses
+.B \-\-manifest
+by exiting non-zero is allowed, and noted); that the response is valid JSON of
+version 1 in DMS's shape, with every key in the key notation, no empty descriptions, no key twice in one category
+and scope, and
+.B when
+values of the right type; the exit status (and stderr, when it fails); and each run time against the 3 s limit.
+The plugin is a path (with a
+.BR / ),
+a configured stanza's name, or an installed plugin's name.
+It is sent the files given with
+.B \-\-input
+(repeatable), else its stanza's inputs, else its manifest's default inputs, and a window with the
+.BR \-\-class ,
+.B \-\-program
+and
+.B \-\-title
+given; a note says when its match would not run it in that window.
+.B \-\-json
+prints the report as JSON instead, for agents and CI.
+Exits 0 only when there are no problems.
+.TP
+.BR \-h ", " \-\-help
+Print the usage line.
+.SH ENVIRONMENT
+.TP
+.B KEYBIND_FIND_PICKER
+A dmenu-style program to use as the picker instead of fzf, fuzzel or dmenu: it reads one line per binding on
+standard input and prints the chosen one.
+The value is split on whitespace and run without a shell.
+Empty counts as unset.
+.TP
+.B XDG_CONFIG_HOME
+Where
+.I keybind\-find/
+holds the config, sheets and Vimium backup (default
+.IR ~/.config ),
+and where sway, alacritty and herdr's configs are looked for.
+.TP
+.B XDG_STATE_HOME
+Where the usage log lives (default
+.IR ~/.local/state ).
+.TP
+.B XDG_CACHE_HOME
+Where keybind-find looks for the keymap xmonad writes (default
+.IR ~/.cache );
+it must match xmonad's own environment.
+.TP
+.B WAYLAND_DISPLAY
+Set and non-empty: Wayland (fuzzel, and
+.BR wtype (1)
+to send keys).
+.TP
+.B SWAYSOCK
+Set and non-empty together with
+.BR WAYLAND_DISPLAY :
+sway, read with
+.BR swaymsg (1).
+.TP
+.B HERDR_CONFIG_PATH
+herdr's
+.I config.toml
+when set, as herdr itself reads it.
+.TP
+.B XDG_RUNTIME_DIR
+Where the fzf picker keeps its list and sockets while open (else the temporary directory).
+.TP
+.BR FZF_DEFAULT_OPTS ", " FZF_DEFAULT_OPTS_FILE
+Ignored: the picker's fzf runs without them.
+.PP
+A relative XDG directory is ignored, as the XDG Base Directory specification says.
+.SH FILES
+Paths are shown with their defaults; the XDG variables above move them.
+.TP
+.I ~/.config/keybind-find/config.toml
+Rebinds keybind-find's own keys in the fzf picker (the
+.B [keys]
+table), and declares plugins
+.RB ( [[plugin]]
+stanzas).
+A config with an unknown field or clashing keys is refused as a whole: every key keeps its default, and the
+picker's header says why.
+.TP
+.I ~/.config/keybind-find/sheets/
+Your own sheets: JSON files matched by window class (and optionally title), and executables named after a window class that print
+one.
+.TP
+.I ~/.config/keybind-find/vimium-options.json
+A Vimium backup, for your Vimium remaps.
+.TP
+.I ~/.config/keybind-find/plugins/
+Plugins that aren't on
+.BR PATH .
+.TP
+.I ~/.cache/keybind-find/manifests.json
+The plugins' manifests, kept until a plugin's file changes, so a run doesn't ask each plugin again.
+.TP
+.I ~/.local/state/keybind-find/usage.tsv
+The usage log: one line per pick, with the time, provider and key.
+Delete it to reset the ranking.
+.TP
+.I ~/.cache/keybind-find/xmonad.keys
+xmonad's keymap, written by xmonad when its keybind-find key is pressed.
+.SH EXIT STATUS
+.TP
+.B 0
+Success, including a cancelled list.
+.TP
+.B 1
+An error, such as nothing to show, an unknown provider for
+.BR dump ,
+or a pick that couldn't be sent.
+.TP
+.B 2
+A usage error: unknown arguments, or arguments that aren't UTF-8.
+.SH SEE ALSO
+.BR fzf (1),
+.BR alacritty (1),
+.BR fuzzel (1),
+.BR dmenu (1),
+.BR xdotool (1),
+.BR wtype (1),
+.BR xmonad (1),
+.BR sway (1)
+.PP
+The README and
+.I docs/
+in the source tree describe sheets, the config and each provider in full.

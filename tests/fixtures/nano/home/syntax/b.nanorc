@@ -1,0 +1,3 @@
+## nano reads only syntax definitions from an included file: this bind is refused there.
+syntax "a" "\.a$"
+bind ^A exit main

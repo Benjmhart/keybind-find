@@ -1,0 +1,2 @@
+# A dotfile: *.dot must not read it.
+bindsym $mod+x exec hidden

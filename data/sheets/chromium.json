@@ -1,0 +1,96 @@
+{
+  "title": "Chrome 156 / Chromium (support.google.com and DevTools docs, checked 2026-10-26)",
+  "provider": "chromium",
+  "binds": {
+    "tabs": [
+      { "key": "ctrl+t", "desc": "New tab" },
+      { "key": "ctrl+w", "desc": "Close tab" },
+      { "key": "ctrl+F4", "desc": "Close tab" },
+      { "key": "ctrl+shift+t", "desc": "Reopen closed tabs, in the order closed" },
+      { "key": "ctrl+Tab", "desc": "Next tab" },
+      { "key": "ctrl+Next", "desc": "Next tab" },
+      { "key": "ctrl+shift+Tab", "desc": "Previous tab" },
+      { "key": "ctrl+Prior", "desc": "Previous tab" },
+      { "key": "ctrl+1", "desc": "Go to tab 1" },
+      { "key": "ctrl+2", "desc": "Go to tab 2" },
+      { "key": "ctrl+3", "desc": "Go to tab 3" },
+      { "key": "ctrl+4", "desc": "Go to tab 4" },
+      { "key": "ctrl+5", "desc": "Go to tab 5" },
+      { "key": "ctrl+6", "desc": "Go to tab 6" },
+      { "key": "ctrl+7", "desc": "Go to tab 7" },
+      { "key": "ctrl+8", "desc": "Go to tab 8" },
+      { "key": "ctrl+9", "desc": "Go to the last tab" },
+      { "key": "ctrl+shift+Prior", "desc": "Move tab left" },
+      { "key": "ctrl+shift+Next", "desc": "Move tab right" }
+    ],
+    "window": [
+      { "key": "ctrl+n", "desc": "New window" },
+      { "key": "ctrl+shift+n", "desc": "New private window (Incognito; InPrivate in Edge)" },
+      { "key": "ctrl+shift+w", "desc": "Close window" },
+      { "key": "alt+F4", "desc": "Close window" },
+      { "key": "alt+f x", "desc": "Quit" },
+      { "key": "F11", "desc": "Toggle full screen" },
+      { "key": "ctrl+shift+m", "desc": "Switch profile or browse as a guest" }
+    ],
+    "navigation": [
+      { "key": "alt+Left", "desc": "Back" },
+      { "key": "alt+Right", "desc": "Forward" },
+      { "key": "alt+Home", "desc": "Home page" },
+      { "key": "F5", "desc": "Reload" },
+      { "key": "ctrl+r", "desc": "Reload" },
+      { "key": "shift+F5", "desc": "Reload, ignoring the cache" },
+      { "key": "ctrl+shift+r", "desc": "Reload, ignoring the cache" },
+      { "key": "Escape", "desc": "Stop loading" },
+      { "key": "ctrl+o", "desc": "Open a file" }
+    ],
+    "address bar": [
+      { "key": "ctrl+l", "desc": "Focus the address bar" },
+      { "key": "alt+d", "desc": "Focus the address bar" },
+      { "key": "F6", "desc": "Focus the address bar" },
+      { "key": "ctrl+k", "desc": "Search from anywhere on the page" },
+      { "key": "ctrl+e", "desc": "Search from anywhere on the page" },
+      { "key": "ctrl+Return", "desc": "Add www. and .com and open" },
+      { "key": "ctrl+shift+Return", "desc": "Add www. and .com and open in a new window" },
+      { "key": "alt+Return", "desc": "Search in a new tab" }
+    ],
+    "page": [
+      { "key": "ctrl+p", "desc": "Print" },
+      { "key": "ctrl+s", "desc": "Save page" },
+      { "key": "ctrl+u", "desc": "Page source" },
+      { "key": "ctrl+d", "desc": "Bookmark this page" },
+      { "key": "ctrl+shift+d", "desc": "Bookmark all open tabs in a new folder" },
+      { "key": "ctrl+plus", "desc": "Zoom in" },
+      { "key": "ctrl+equal", "desc": "Zoom in" },
+      { "key": "ctrl+minus", "desc": "Zoom out" },
+      { "key": "ctrl+0", "desc": "Reset zoom" },
+      { "key": "F7", "desc": "Caret browsing" },
+      { "key": "ctrl+F6", "desc": "Skip to the page contents" }
+    ],
+    "find": [
+      { "key": "ctrl+f", "desc": "Find in page" },
+      { "key": "F3", "desc": "Find in page" },
+      { "key": "ctrl+g", "desc": "Find next" },
+      { "key": "ctrl+shift+g", "desc": "Find previous" }
+    ],
+    "browser": [
+      { "key": "alt+f", "desc": "Browser menu" },
+      { "key": "alt+e", "desc": "Browser menu" },
+      { "key": "ctrl+shift+b", "desc": "Show or hide the bookmarks bar" },
+      { "key": "ctrl+shift+o", "desc": "Bookmark manager" },
+      { "key": "ctrl+h", "desc": "History" },
+      { "key": "ctrl+j", "desc": "Downloads" },
+      { "key": "shift+Escape", "desc": "Task manager" },
+      { "key": "ctrl+shift+Delete", "desc": "Delete browsing data" },
+      { "key": "alt+shift+t", "desc": "Focus the first toolbar item" },
+      { "key": "F10", "desc": "Focus the last toolbar item" },
+      { "key": "alt+shift+a", "desc": "Focus inactive dialogs" },
+      { "key": "F1", "desc": "Help" }
+    ],
+    "developer tools": [
+      { "key": "F12", "desc": "Developer tools" },
+      { "key": "ctrl+shift+i", "desc": "Developer tools" },
+      { "key": "ctrl+shift+j", "desc": "Developer tools: Console" },
+      { "key": "ctrl+shift+c", "desc": "Developer tools: inspect an element" }
+    ]
+  }
+}

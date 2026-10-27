@@ -1,0 +1,76 @@
+{
+  "title": "Gmail (shortcuts on)",
+  "provider": "browser",
+  "window_title": "- Gmail",
+  "binds": {
+    "actions": [
+      { "key": "comma", "desc": "Move focus to toolbar" },
+      { "key": "x", "desc": "Select conversation" },
+      { "key": "s", "desc": "Toggle star" },
+      { "key": "e", "desc": "Archive" },
+      { "key": "m", "desc": "Mute conversation" },
+      { "key": "exclam", "desc": "Report as spam" },
+      { "key": "numbersign", "desc": "Delete" },
+      { "key": "r", "desc": "Reply" },
+      { "key": "R", "desc": "Reply in a new window" },
+      { "key": "a", "desc": "Reply all" },
+      { "key": "A", "desc": "Reply all in a new window" },
+      { "key": "f", "desc": "Forward" },
+      { "key": "F", "desc": "Forward in a new window" },
+      { "key": "N", "desc": "Update conversation" },
+      { "key": "z", "desc": "Undo last action" },
+      { "key": "I", "desc": "Mark as read" },
+      { "key": "U", "desc": "Mark as unread" },
+      { "key": "underscore", "desc": "Mark unread from the selected message" },
+      { "key": "plus", "desc": "Mark as important" },
+      { "key": "equal", "desc": "Mark as important" },
+      { "key": "minus", "desc": "Mark as not important" },
+      { "key": "b", "desc": "Snooze" },
+      { "key": "semicolon", "desc": "Expand entire conversation" },
+      { "key": "colon", "desc": "Collapse entire conversation" },
+      { "key": "T", "desc": "Add conversation to Tasks" }
+    ],
+    "go to": [
+      { "key": "g i", "desc": "Go to Inbox" },
+      { "key": "g s", "desc": "Go to Starred conversations" },
+      { "key": "g b", "desc": "Go to Snoozed conversations" },
+      { "key": "g t", "desc": "Go to Sent messages" },
+      { "key": "g d", "desc": "Go to Drafts" },
+      { "key": "g a", "desc": "Go to All mail" },
+      { "key": "g k", "desc": "Go to Tasks" },
+      { "key": "g l", "desc": "Go to label" }
+    ],
+    "select": [
+      { "key": "asterisk a", "desc": "Select all conversations" },
+      { "key": "asterisk n", "desc": "Deselect all conversations" },
+      { "key": "asterisk r", "desc": "Select read conversations" },
+      { "key": "asterisk u", "desc": "Select unread conversations" },
+      { "key": "asterisk s", "desc": "Select starred conversations" },
+      { "key": "asterisk t", "desc": "Select unstarred conversations" }
+    ],
+    "navigation": [
+      { "key": "g n", "desc": "Go to next page" },
+      { "key": "g p", "desc": "Go to previous page" },
+      { "key": "u", "desc": "Back to threadlist" },
+      { "key": "k", "desc": "Newer conversation" },
+      { "key": "j", "desc": "Older conversation" },
+      { "key": "o", "desc": "Open conversation" },
+      { "key": "p", "desc": "Previous message in an open conversation" },
+      { "key": "n", "desc": "Next message in an open conversation" },
+      { "key": "grave", "desc": "Go to next Inbox section" },
+      { "key": "asciitilde", "desc": "Go to previous Inbox section" }
+    ],
+    "application": [
+      { "key": "c", "desc": "Compose" },
+      { "key": "d", "desc": "Compose in a new tab" },
+      { "key": "slash", "desc": "Search mail" },
+      { "key": "q", "desc": "Search chat contacts" },
+      { "key": "period", "desc": "Open \"more actions\" menu" },
+      { "key": "v", "desc": "Open \"move to\" menu" },
+      { "key": "l", "desc": "Open \"label as\" menu" },
+      { "key": "question", "desc": "Open keyboard shortcut help" },
+      { "key": "ctrl+alt+comma", "desc": "Switch between the Calendar/Keep/Tasks sidebar and your inbox" },
+      { "key": "ctrl+alt+period", "desc": "Switch between the Calendar/Keep/Tasks sidebar and your inbox" }
+    ]
+  }
+}

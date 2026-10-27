@@ -1,0 +1,25 @@
+name: Provider request
+description: Ask for a program's keys to be listed.
+labels: [enhancement]
+body:
+  - type: input
+    id: program
+    attributes:
+      label: Program
+      placeholder: kitty
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Where its keymap can be read
+      description: >-
+        A command that prints it (like `tmux list-keys`), the config file and its format, and where its default keys
+        are defined (a docs page or a file in its source).
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: How you find out which window or terminal it is running in, versions, examples.

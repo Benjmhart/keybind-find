@@ -1,0 +1,61 @@
+[package]
+name = "keybind-find"
+version = "0.1.0-alpha.1"
+edition = "2021"
+description = "Search the keybindings for the focused window and run the one you pick"
+license = "MIT"
+repository = "https://github.com/Benjmhart/keybind-find"
+homepage = "https://github.com/Benjmhart/keybind-find"
+readme = "README.md"
+keywords = ["keybindings", "cheatsheet", "command-palette", "xmonad", "linux"]
+categories = ["command-line-utilities"]
+# The toolchain pinned in mise.toml.
+rust-version = "1.98"
+# `data/` is built in with `include_str!`. `tests/` fixtures are only read under `#[cfg(test)]`, so the packaged crate
+# builds without them (but its tests can't run). `docs/*.md` leaves out `docs/media/`. The `ci` task checks the list against
+# this one.
+include = [
+  "src/**",
+  "data/**",
+  "docs/*.md",
+  "man/**",
+  "/README.md",
+  "LICENSE",
+  "CHANGELOG.md",
+  "Cargo.toml",
+  "Cargo.lock",
+]
+
+[workspace]
+members = ["crates/keybind-find-sheet"]
+# So the gate's plain `cargo` commands (fmt, clippy, test, package) cover the sheet crate too.
+default-members = [".", "crates/keybind-find-sheet"]
+
+[dependencies]
+anyhow = "1"
+keybind-find-sheet = { path = "crates/keybind-find-sheet", version = "0.1.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+x11rb = "=0.14.0"
+
+# The .deb (story 5.5), built by `cargo deb` in release.yml from the static musl binary, so it needs no shared
+# libraries. The tools it drives are optional: X11 with fzf in alacritty is the default path, the rest are suggestions.
+[package.metadata.deb]
+# No email on purpose: the repository is the contact point.
+maintainer = "Benjmhart"
+copyright = "2026 Benjmhart"
+extended-description = """\
+Press one hotkey and get a searchable list of the keyboard shortcuts that work where you are: your window \
+manager's, the focused app's (nvim, tmux, herdr, alacritty, a web app) and your espanso snippets. Pick one and \
+keybind-find presses those keys for you."""
+section = "utils"
+depends = ""
+recommends = "xdotool, x11-utils, x11-xserver-utils, fzf, alacritty"
+suggests = "suckless-tools, fuzzel, wtype, libnotify-bin"
+assets = [
+  ["target/release/keybind-find", "usr/bin/", "755"],
+  ["man/keybind-find.1", "usr/share/man/man1/", "644"],
+  ["README.md", "usr/share/doc/keybind-find/", "644"],
+  ["CHANGELOG.md", "usr/share/doc/keybind-find/", "644"],
+]

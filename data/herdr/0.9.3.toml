@@ -1,0 +1,65 @@
+# herdr default keymap, read by keybind-find's herdr provider (story 1.5).
+# Source: herdrdev/herdr tag v0.9.3 (commit 7b116c0), Apache-2.0:
+#   src/config/model.rs  `impl Default for KeysConfig` (keys) and the `KeysConfig` field doc comments (descriptions)
+#   src/config/model.rs / src/config/keybinds.rs  DEFAULT_PREFIX
+# Keys use herdr's own syntax. `navigate_*` (navigate mode only) and `[keys.indexed]` are left out.
+# Unbound actions keep `keys = []` so a user binding gets a description.
+# Generated from the source at that tag; to support another herdr version, add a file next to this one.
+herdr_version = "0.9.3"
+source = "herdrdev/herdr@7b116c0"
+prefix = "ctrl+b"
+
+[actions]
+help = { keys = ["prefix+?"], desc = "Open keybinding help" }
+settings = { keys = ["prefix+s"], desc = "Open settings" }
+new_workspace = { keys = ["prefix+shift+n"], desc = "Create a new workspace" }
+new_worktree = { keys = ["prefix+shift+g"], desc = "Create a Git worktree from the selected workspace" }
+open_worktree = { keys = [], desc = "Open an existing Git worktree from the selected workspace" }
+remove_worktree = { keys = [], desc = "Delete the selected managed worktree checkout after confirmation" }
+rename_workspace = { keys = ["prefix+shift+w"], desc = "Rename the selected workspace" }
+close_workspace = { keys = ["prefix+shift+d"], desc = "Close the selected workspace" }
+workspace_picker = { keys = ["prefix+w"], desc = "Open the workspace navigation surface" }
+goto = { keys = ["prefix+g"], desc = "Open the session navigator" }
+detach = { keys = ["prefix+q"], desc = "Detach the current client from its Herdr server" }
+reload_config = { keys = ["prefix+shift+r"], desc = "Reload config.toml in the running app/server" }
+open_notification_target = { keys = ["prefix+o"], desc = "Focus the currently visible notification target" }
+previous_workspace = { keys = [], desc = "Select the previous workspace" }
+next_workspace = { keys = [], desc = "Select the next workspace" }
+previous_agent = { keys = [], desc = "Focus the previous agent shown in the agent panel" }
+next_agent = { keys = [], desc = "Focus the next agent shown in the agent panel" }
+focus_agent = { keys = [], desc = "Focus an agent by index 1-9" }
+remote_image_paste = { keys = ["ctrl+v"], desc = "Local-client shortcut that sends a clipboard image to a remote Herdr session" }
+new_tab = { keys = ["prefix+c"], desc = "Create a new tab in the active workspace" }
+rename_tab = { keys = ["prefix+shift+t"], desc = "Rename the active tab" }
+previous_tab = { keys = ["prefix+p"], desc = "Select the previous tab" }
+next_tab = { keys = ["prefix+n"], desc = "Select the next tab" }
+move_tab_previous = { keys = [], desc = "Move the active tab one position toward the front" }
+move_tab_next = { keys = [], desc = "Move the active tab one position toward the back" }
+switch_tab = { keys = ["prefix+1..9"], desc = "Switch to tab 1-9" }
+switch_workspace = { keys = [], desc = "Switch to workspace 1-9 from prefix mode" }
+close_tab = { keys = ["prefix+shift+x"], desc = "Close the active tab" }
+rename_pane = { keys = ["prefix+shift+p"], desc = "Rename the focused pane" }
+edit_scrollback = { keys = ["prefix+e"], desc = "Open the focused pane scrollback in $EDITOR" }
+clear_pane = { keys = [], desc = "clear pane" }
+copy_mode = { keys = ["prefix+["], desc = "Enter keyboard copy mode for the focused pane" }
+focus_pane_left = { keys = ["prefix+h"], desc = "Focus the pane to the left" }
+focus_pane_down = { keys = ["prefix+j"], desc = "Focus the pane below" }
+focus_pane_up = { keys = ["prefix+k"], desc = "Focus the pane above" }
+focus_pane_right = { keys = ["prefix+l"], desc = "Focus the pane to the right" }
+swap_pane_left = { keys = ["prefix+shift+h"], desc = "Swap the focused pane with the pane to the left" }
+swap_pane_down = { keys = ["prefix+shift+j"], desc = "Swap the focused pane with the pane below" }
+swap_pane_up = { keys = ["prefix+shift+k"], desc = "Swap the focused pane with the pane above" }
+swap_pane_right = { keys = ["prefix+shift+l"], desc = "Swap the focused pane with the pane to the right" }
+cycle_pane_next = { keys = ["prefix+tab"], desc = "Cycle to the next pane" }
+cycle_pane_previous = { keys = ["prefix+shift+tab"], desc = "Cycle to the previous pane" }
+last_pane = { keys = [], desc = "Focus the last focused pane across workspaces and tabs" }
+split_vertical = { keys = ["prefix+v"], desc = "Split pane vertically (side by side)" }
+split_horizontal = { keys = ["prefix+minus"], desc = "Split pane horizontally (stacked)" }
+close_pane = { keys = ["prefix+x"], desc = "Close the focused pane" }
+zoom = { keys = ["prefix+z"], desc = "Toggle zoom for the focused pane" }
+resize_mode = { keys = ["prefix+r"], desc = "Enter resize mode" }
+resize_pane_left = { keys = [], desc = "Resize the focused pane toward the left" }
+resize_pane_down = { keys = [], desc = "Resize the focused pane downward" }
+resize_pane_up = { keys = [], desc = "Resize the focused pane upward" }
+resize_pane_right = { keys = [], desc = "Resize the focused pane toward the right" }
+toggle_sidebar = { keys = ["prefix+b"], desc = "Toggle sidebar collapse" }

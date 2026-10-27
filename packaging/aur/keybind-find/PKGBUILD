@@ -1,0 +1,57 @@
+# Maintainer: Benjmhart
+# Builds from the release's source tarball, following https://wiki.archlinux.org/title/Rust_package_guidelines.
+pkgname=keybind-find
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Search the keybindings for the focused window and run the one you pick'
+arch=('x86_64')
+url='https://github.com/Benjmhart/keybind-find'
+license=('MIT')
+depends=('glibc' 'libgcc')
+makedepends=('cargo')
+# The nvim provider's tests run a real `nvim --headless`.
+checkdepends=('neovim')
+optdepends=(
+  'xdotool: X11: read the focused window and send the picked keys'
+  'xorg-xprop: X11: read the window class, title and pid'
+  'xorg-xmodmap: key search, and checking config.toml keys'
+  'fzf: the list on X11 (0.66+ for key search)'
+  'alacritty: the window fzf runs in'
+  'dmenu: the list on X11 without fzf or alacritty'
+  'fuzzel: the list on Wayland'
+  'wtype: Wayland: send the picked keys'
+  'libnotify: show errors when run from a hotkey'
+  'neovim: list the bindings of nvim'
+  'tmux: list the bindings of tmux and the program in its pane'
+  'espanso: list espanso snippets'
+)
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+# Placeholder: release day (story 5.11) runs `updpkgsums` and regenerates .SRCINFO.
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm0755 -t "$pkgdir/usr/bin/" "target/release/$pkgname"
+  install -Dm0644 -t "$pkgdir/usr/share/man/man1/" "man/$pkgname.1"
+  install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
+  install -Dm0644 -t "$pkgdir/usr/share/doc/$pkgname/" README.md CHANGELOG.md
+}

@@ -1,0 +1,41 @@
+name: Bug report
+description: Something keybind-find lists, sends or shows is wrong.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: input
+    id: wm
+    attributes:
+      label: Window manager or compositor, and X11 or Wayland
+      placeholder: xmonad 0.18 on X11
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal, and the program inside it if any
+      placeholder: alacritty 0.17.0 running nvim 0.11
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: "`keybind-find` (the release, or `cargo install --list | grep keybind-find`, or `git rev-parse --short HEAD` in a checkout), and the program the bug is about."
+    validations:
+      required: true
+  - type: textarea
+    id: dump
+    attributes:
+      label: "`keybind-find dump <provider>` output"
+      description: "Replace `<provider>` with the one that is wrong (`xmonad`, `sway`, `nvim`, `herdr`, `tmux`, `alacritty`, `vimium`, `espanso`, `sheets`), run `sleep 3; keybind-find dump <provider>` in a terminal, and focus the window in question within three seconds. Remove anything private."
+      render: json
+  - type: textarea
+    id: stderr
+    attributes:
+      label: stderr lines
+      description: "Run `sleep 3; keybind-find dump > /dev/null` in a terminal, focus the window in question within three seconds, and paste what the terminal printed."
+      render: text

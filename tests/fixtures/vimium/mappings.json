@@ -1,0 +1,4 @@
+{
+  "keyMappings": "# my keys\nunmap x\nmap X removeTab\nmap <c-d> \\\nscrollPageDown\nmapkey a b\nmap q noSuchCommand\n",
+  "settingsVersion": "2.4.2"
+}

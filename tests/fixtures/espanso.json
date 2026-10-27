@@ -1,0 +1,7 @@
+[
+  {"triggers":[":date"],"replace":"2026-01-01","label":"Today's date"},
+  {"triggers":[":sig",":signature"],"replace":"Best regards,\nA. Example","label":null},
+  {"triggers":[":lorem"],"replace":"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt.","label":null},
+  {"triggers":[],"replace":"orphan","label":"no trigger"},
+  {"triggers":[":addr"],"replace":"1 Example Street, Nowhere","label":""}
+]

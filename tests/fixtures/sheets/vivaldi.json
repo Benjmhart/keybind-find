@@ -1,0 +1,13 @@
+{
+  "title": "Vivaldi",
+  "provider": "vivaldi",
+  "binds": {
+    "tabs": [
+      { "key": "ctrl+t", "desc": "New tab", "action": "" },
+      { "key": "ctrl+w", "desc": "Close tab", "action": "" }
+    ],
+    "panels": [
+      { "key": "ctrl+shift+b", "desc": "Toggle bookmarks panel", "action": "" }
+    ]
+  }
+}

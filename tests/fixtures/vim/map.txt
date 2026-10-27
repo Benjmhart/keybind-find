@@ -1,0 +1,28 @@
+
+KEYBIND-FIND-VIM
+
+n  <Space>b    *@:echo "buffer"<CR>
+n  <Space>s      *
+n  <Space>abcdefghijkl * :echo "a long lhs"<CR>
+n  <Space>l    * :echo "a long rhs with spaces"<CR>
+n  <Space>n    * <Nop>
+n  <Space>h    * :call <SNR>1_Hi()<CR>
+n  <Space>p      <Plug>(fake-plug)
+v  <Space>v    * :sort<CR>
+x  <Space>y    * "+y
+n  <Space>q    * :q<CR>
+noxQ             gq
+   gh          * ^
+o  ip          * :<C-U>normal! vip<CR>
+n  <Plug>(fake-plug) * :echo "plug"<CR>
+s  <C-S>       * <Esc>
+n  <C-W>x      * <C-W>c
+n  é           * x
+
+c  <C-E>       * <End>
+!  <C-A>       * <Home>
+i  jk          * <Esc>
+
+t  <Esc><Esc>  * <C-\><C-N>
+
+l  aa          * b

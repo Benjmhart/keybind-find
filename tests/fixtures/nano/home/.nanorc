@@ -1,0 +1,23 @@
+## A made-up user nanorc for keybind-find's nano provider tests.
+include "~/syntax/*.nanorc"
+include ~/syntax/a.nanorc
+include "~/missing/*.nanorc"
+include "~/syntax/[ab].nanorc"
+set autoindent
+bind ^S writeout main
+bind m-w whereis all
+bind ^T "{cut}{paste}" main
+unbind ^J main
+unbind M-u all
+unbind ^_ main
+bind ^H help browser
+bind ^K cut main
+bind Sh-M-x copy main
+bind ^E nosuchfunction main
+bind M-1 tofiles main
+bind M-k up main
+bind ^1 copy main
+bind Enter cut main
+bind ^L savefile main extra words
+syntax "x" "\.x$"
+color red "bind ^Y exit main"

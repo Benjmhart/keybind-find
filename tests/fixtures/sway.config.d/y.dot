@@ -1,0 +1,2 @@
+# Included through *.dot.
+bindsym $mod+y exec y-dot

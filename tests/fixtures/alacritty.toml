@@ -1,0 +1,62 @@
+# Synthetic alacritty config for the alacritty provider's tests.
+[font]
+size = 12.0
+
+[[keyboard.bindings]]
+key = "N"
+mods = "Control|Alt"
+action = "SpawnNewInstance"
+
+[[keyboard.bindings]]
+key = "Return"
+mods = "Control"
+chars = "\u001B\r"
+
+# Overrides the default ctrl+shift+c (Copy).
+[[keyboard.bindings]]
+key = "C"
+mods = "Control|Shift"
+action = "ToggleFullscreen"
+
+# Unbinds the default ctrl+shift+f (SearchForward).
+[[keyboard.bindings]]
+key = "F"
+mods = "Control|Shift"
+action = "None"
+
+# Vi mode: a new binding, and one replacing the default ctrl+y (ScrollLineUp).
+[[keyboard.bindings]]
+key = "x"
+mode = "Vi"
+action = "ClearSelection"
+
+[[keyboard.bindings]]
+key = "y"
+mods = "Control"
+mode = "Vi|~Search"
+action = "Copy"
+
+[[keyboard.bindings]]
+key = "T"
+mods = "Super"
+command = "alacritty"
+
+[[keyboard.bindings]]
+key = "H"
+mods = "Control | Alt"
+command = { program = "alacritty", args = ["-e", "htop", "-d", "5"] }
+
+[[keyboard.bindings]]
+key = "F12"
+mods = "Shift|Control"
+action = "FrobnicateWidgets"
+
+# Action names match ignoring case.
+[[keyboard.bindings]]
+key = "F11"
+mods = "Control|Shift"
+action = "toggleVIMode"
+
+[[mouse.bindings]]
+mouse = "Middle"
+action = "PasteSelection"

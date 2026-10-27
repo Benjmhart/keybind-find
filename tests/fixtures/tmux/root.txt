@@ -1,0 +1,6 @@
+ M-h                       select-pane -L
+ MouseDown1Pane            select-pane -t = \; send-keys -M
+ MouseDrag1Border          resize-pane -M
+ WheelUpPane               if-shell -F "#{||:#{alternate_on},#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -e }
+ DoubleClick1Pane          select-pane -t = \; if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -H ; send-keys -X select-word ; run-shell -d 0.3 ; send-keys -X copy-pipe-and-cancel }
+ M-MouseDrag1Border        move-pane -M

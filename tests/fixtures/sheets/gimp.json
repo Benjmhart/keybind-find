@@ -1,0 +1,10 @@
+{
+  "title": "GIMP",
+  "provider": "gimp",
+  "binds": {
+    "tools": [
+      { "key": "m", "desc": "Move tool", "action": "" },
+      { "key": "r", "desc": "Rectangle select", "action": "" }
+    ]
+  }
+}

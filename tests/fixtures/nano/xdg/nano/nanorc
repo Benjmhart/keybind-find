@@ -1,0 +1,2 @@
+## A made-up XDG nanorc: read only when there is no readable ~/.nanorc.
+bind M-3 writeout main

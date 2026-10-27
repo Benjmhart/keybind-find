@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""A keybind-find picker frontend that shows the list in rofi (stdlib only).
+
+keybind-find runs it with `[picker] kind = "json"` and writes the request (protocol version 1) to its stdin:
+{"version": 1, "context": {...}, "entries": [{"id", "key", "desc", "program", "when", "tags"}, ...]}, the entries
+in ranked order. It prints the chosen entry's id; printing nothing, or exiting non-zero, is a cancel.
+"""
+
+import html
+import json
+import subprocess
+import sys
+
+KEY_CAP, DESC_CAP = 28, 60
+
+
+def clean(s):
+    """One line: control characters (line breaks, tabs) become spaces, so the columns stay put."""
+    return "".join(" " if ord(c) < 32 or ord(c) == 127 else c for c in s)
+
+
+def rows(entries):
+    """One rofi row per entry: key, description and program padded into columns, then the scope tags, dimmed."""
+    keys = [clean(e["key"]) for e in entries]
+    descs = [clean(e["desc"]) for e in entries]
+    kw = min(max(map(len, keys), default=0), KEY_CAP)
+    dw = min(max(map(len, descs), default=0), DESC_CAP)
+    out = []
+    for e, k, d in zip(entries, keys, descs):
+        row = f"{html.escape(k.ljust(kw))}  {html.escape(d.ljust(dw))}  {html.escape(clean(e['program']))}"
+        tags = " ".join(e.get("tags", []))
+        if tags:
+            row += f"  <span alpha='50%'>{html.escape(clean(tags))}</span>"
+        out.append(row)
+    return out
+
+
+def main():
+    request = json.load(sys.stdin)
+    if request.get("version") != 1:
+        sys.exit(f"keybind-find-rofi: request version {request.get('version')} is not 1")
+    entries = request["entries"]
+    try:
+        chosen = subprocess.run(
+            ["rofi", "-dmenu", "-i", "-format", "i", "-markup-rows", "-no-custom", "-p", "keys"],
+            input="\n".join(rows(entries)) + "\n",
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        sys.exit("keybind-find-rofi: rofi is not installed")
+    rc = chosen.returncode
+    # Escape exits 1, and rofi may warn on every run (a deprecated option): that stays quiet. Any other failure's
+    # complaints go on to keybind-find, which shows them; a signal (rc < 0) says so, as it would be lost in a code.
+    if rc not in (0, 1):
+        sys.stderr.write(chosen.stderr)
+    if rc < 0:
+        sys.exit(f"keybind-find-rofi: rofi was killed by signal {-rc}")
+    # Anything that isn't a row's index is a cancel too.
+    line = chosen.stdout.strip()
+    if rc != 0 or not line.isdigit() or int(line) >= len(entries):
+        sys.exit(rc or 1)
+    print(entries[int(line)]["id"])
+
+
+if __name__ == "__main__":
+    main()

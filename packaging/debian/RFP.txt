@@ -1,0 +1,48 @@
+Subject: RFP: keybind-find -- search the keybindings for the focused window and run one
+Package: wnpp
+Severity: wishlist
+
+* Package name    : keybind-find
+  Version         : 0.1.0
+  Upstream Contact: Benjmhart (https://github.com/Benjmhart/keybind-find/issues)
+* URL             : https://github.com/Benjmhart/keybind-find
+* License         : MIT
+  Programming Lang: Rust
+  Description     : search the keybindings for the focused window and run one
+
+ Press one hotkey and get a searchable list of the keyboard shortcuts that
+ work where you are: the window manager's (xmonad, sway), the focused app's
+ (nvim, tmux, herdr, alacritty, a web app in a browser) and espanso snippets.
+ Pick one and keybind-find presses those keys for you. On X11 the list can
+ also be searched by pressing the keys themselves.
+ .
+ It reads each program's own config, so the list matches the user's setup.
+
+Upstream ships a static musl binary and a .deb (built with cargo-deb) on each
+GitHub release; this request is for a proper Debian package.
+
+Packaging notes. The direct Rust dependencies and their versions in Debian
+(api.ftp-master.debian.org madison, checked 2026-10-25; trixie is stable,
+forky testing, sid unstable):
+
+  crate       needs     source package      trixie    forky     sid
+  serde       1         rust-serde          1.0.217   1.0.229   1.0.229
+  serde_json  1         rust-serde-json     1.0.139   1.0.151   1.0.154
+  toml        0.8       rust-toml           0.8.19    1.1.6     1.1.6
+                        rust-toml-0.8       -         0.8.20    0.8.20
+  anyhow      1         rust-anyhow         1.0.95    1.0.103   1.0.104
+  x11rb       =0.14.0   rust-x11rb          0.13.0    0.13.2    0.13.2
+
+The indirect crates in Cargo.lock are all in sid, at the locked version or a
+patch release away (toml 0.8's chain as rust-toml-edit-0.22,
+rust-toml-datetime-0.6 and rust-serde-spanned-0.6), except: x11rb-protocol
+(below); toml_write, which Debian's toml 0.8.20 doesn't use; hashbrown, 0.16
+in sid against 0.17 locked (through indexmap). Two gaps as of that date:
+- x11rb is pinned to exactly 0.14.0 upstream; Debian has 0.13.2. It needs
+  rust-x11rb (and rust-x11rb-protocol) 0.14 in Debian, or a patch to 0.13.
+- Cargo.toml declares rust-version 1.98; sid has rustc 1.97.1 (1.98.1 is in
+  experimental).
+
+Runtime tools are all optional, by what the user runs: xdotool, x11-utils
+(xprop), x11-xserver-utils (xmodmap), fzf, alacritty, suckless-tools (dmenu),
+fuzzel, wtype, libnotify-bin, neovim, tmux. The tests need neovim.

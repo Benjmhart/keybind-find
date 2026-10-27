@@ -1,0 +1,88 @@
+#!/usr/bin/env lua
+-- A keybind-find plugin for the toy format (Lua 5.1 to 5.4 or LuaJIT, with the bundled json.lua beside it).
+--
+-- The toy format: one binding per line, `key = description`, optionally ending with ` ; scope=value` (where the
+-- binding applies). Copy this, rename it `keybind-find-<name>`, and change `parse` and `MANIFEST`.
+--
+-- keybind-find sends the request (protocol version 1) on stdin: {"version": 1, "context": {...}, "inputs":
+-- [{"path", "text"}, ...]}. This prints the response on stdout: {"version": 1, "title", "provider", "binds":
+-- {category: [...]}}. On any error: one line on stderr and exit status 1; keybind-find shows the line and drops
+-- the plugin.
+
+-- json.lua sits next to this file: install both in one folder (a symlink to this file from elsewhere won't find it).
+local here = (arg[0]:match("^(.*)/") or ".")
+package.path = here .. "/?.lua;" .. package.path
+local json = require("json")
+
+-- What `keybind-find plugin add` writes into the user's config, and the defaults a stanza leaves out.
+local MANIFEST = {
+  version = 1,
+  name = "toy",
+  description = "The toy format's key file",
+  inputs = json.array({ "~/.config/toy/keys.conf" }),
+  match = { program = json.array({ "toy" }) },
+  queries = json.array(),
+  homepage = "https://example.com/keybind-find-toy",
+}
+
+local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
+
+-- The bindings in one input file, appended to `binds`. An error names the line.
+local function parse(text, binds)
+  local n = 0
+  -- A leading byte-order mark is not part of the first line.
+  text = text:gsub("^\239\187\191", "")
+  for raw in (text .. "\n"):gmatch("([^\n]*)\n") do
+    n = n + 1
+    local line = trim((raw:gsub("\r$", "")))
+    if line ~= "" and line:sub(1, 1) ~= "#" then
+      local key, rest = line:match("^(.-) = (.*)$")
+      if not key then error(("line %d: not `key = description`"):format(n), 0) end
+      local bind = { key = trim(key), desc = trim(rest), action = "" }
+      -- Report every binding with its scope; never drop one by guessing where the user is.
+      local desc, scope = rest:match("^(.-) ; (.*)$")
+      if desc then
+        local name, value = scope:match("^(.-)=(.*)$")
+        if not name then error(("line %d: a scope is `name=value`"):format(n), 0) end
+        name, value = trim(name), trim(value)
+        -- keybind-find's rule for a scope name or value: printable ASCII, no spaces, none of `,=[]`.
+        local function word(w) return w:match("^[!-~]+$") and not w:find("[,=%[%]]") end
+        if not word(name) or not word(value) then
+          error(("line %d: a scope's name and value are printable ASCII words without , = [ or ]"):format(n), 0)
+        end
+        bind.desc = trim(desc)
+        bind.when = { [name] = value }
+      end
+      if bind.desc == "" or bind.desc:sub(1, 2) == "; " then error(("line %d: no description"):format(n), 0) end
+      binds[#binds + 1] = bind
+    end
+  end
+end
+
+-- The response for a request: every input's bindings, in one sheet.
+local function respond(request)
+  if request.version ~= 1 then
+    error(("request version %s is not 1, the version this plugin speaks"):format(tostring(request.version)), 0)
+  end
+  local binds = json.array()
+  -- A missing `inputs` is none: an empty sheet (the user has no key file yet), not an error.
+  local inputs = request.inputs
+  if inputs == nil or inputs == json.null then inputs = {} end
+  for _, input in ipairs(inputs) do
+    local ok, err = pcall(parse, input.text, binds)
+    if not ok then error(input.path .. ": " .. tostring(err), 0) end
+  end
+  return { version = 1, title = "Toy", provider = "toy", binds = { General = binds } }
+end
+
+if arg[1] == "--manifest" then
+  print(json.encode(MANIFEST))
+  os.exit(0)
+end
+local ok, out = pcall(function() return json.encode(respond(json.decode(io.read("*a")))) end)
+if ok then
+  print(out)
+else
+  io.stderr:write((tostring(out):gsub("%s+", " ")), "\n")
+  os.exit(1)
+end

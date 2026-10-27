@@ -1,0 +1,21 @@
+# A neutral lesskey source file for the tests (lesskey source format, less 582 and newer).
+#command
+j back-line
+\ej forw-line
+^X^G goto-end
+\kd forw-screen
+B set-mark b/next\n  # an extra string, then a comment
+ZZ invalid
+r noaction
+\\ noaction q
+\kp1 forw-line
+x
+^
+#version >= 600  Q quit
+^] goto-end
+
+#line-edit
+^A home
+
+#env
+LESS = -R

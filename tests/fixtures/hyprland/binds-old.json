@@ -1,0 +1,44 @@
+[
+    {
+        "locked": false,
+        "mouse": false,
+        "release": false,
+        "repeat": false,
+        "non_consuming": false,
+        "modmask": 64,
+        "submap": "",
+        "key": "Q",
+        "keycode": 0,
+        "catch_all": false,
+        "dispatcher": "exec",
+        "arg": "kitty"
+    },
+    {
+        "locked": false,
+        "mouse": false,
+        "release": false,
+        "repeat": false,
+        "non_consuming": false,
+        "modmask": 64,
+        "submap": "",
+        "key": "1",
+        "keycode": 0,
+        "catch_all": false,
+        "dispatcher": "workspace",
+        "arg": "1"
+    },
+    {
+        "locked": false,
+        "mouse": false,
+        "release": false,
+        "repeat": false,
+        "non_consuming": false,
+        "modmask": 65,
+        "submap": "",
+        "key": "F",
+        "keycode": 0,
+        "catch_all": false,
+        "dispatcher": "fullscreen",
+        "arg": "0"
+    }
+]

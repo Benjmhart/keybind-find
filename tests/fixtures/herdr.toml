@@ -1,0 +1,23 @@
+# Synthetic herdr config for the herdr provider's tests (not anyone's real config).
+onboarding = false
+
+# Plugin actions, titled from herdr-plugins.json. prefix+shift+k is swap_pane_up by default, so the second displaces it.
+[[keys.command]]
+key = "prefix+u"
+type = "plugin_action"
+command = "example-plugin.open"
+description = "open the example"
+
+[[keys.command]]
+key = "prefix+shift+k"
+type = "plugin_action"
+command = "example-plugin.back"
+description = "go back"
+
+# Extra chords next to the defaults, and two actions unbound.
+[keys]
+new_tab = ["prefix+t", "prefix+c"]
+zoom = ["prefix+f", "prefix+z"]
+split_vertical = ["prefix+shift+v", "prefix+v"]
+resize_mode = ""
+toggle_sidebar = ""

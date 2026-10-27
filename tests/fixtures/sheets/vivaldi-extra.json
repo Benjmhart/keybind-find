@@ -1,0 +1,9 @@
+{
+  "title": "Vivaldi (more)",
+  "provider": "vivaldi",
+  "binds": {
+    "tabs": [
+      { "key": "ctrl+shift+t", "desc": "Reopen closed tab" }
+    ]
+  }
+}

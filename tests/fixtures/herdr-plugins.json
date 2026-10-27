@@ -1,0 +1,10 @@
+[
+  {
+    "plugin_id": "example-plugin",
+    "actions": [
+      { "id": "open", "title": "Example: open" },
+      { "id": "back", "title": "Example: back" },
+      { "id": "open-side", "title": "Example: side pane" }
+    ]
+  }
+]

@@ -1,0 +1,151 @@
+# Vimium default keys and commands, read by keybind-find's vimium provider (story 4.5).
+# Source: Vimium 2.4.2 (philc/vimium tag v2.4.2, MIT), as installed from the Chrome Web Store:
+#   background_scripts/commands.js      defaultKeyMappings (keys in Vimium's notation; a value's first word is the command)
+#   background_scripts/all_commands.js  allCommands (name, desc, group)
+# Generated from that source; to support another Vimium version, add a file next to this one.
+vimium_version = "2.4.2"
+
+[keys]
+"j" = "scrollDown"
+"k" = "scrollUp"
+"h" = "scrollLeft"
+"l" = "scrollRight"
+"gg" = "scrollToTop"
+"G" = "scrollToBottom"
+"zH" = "scrollToLeft"
+"zL" = "scrollToRight"
+"<c-e>" = "scrollDown"
+"<c-y>" = "scrollUp"
+"d" = "scrollPageDown"
+"u" = "scrollPageUp"
+"r" = "reload"
+"R" = "reload hard"
+"yy" = "copyCurrentUrl"
+"p" = "openCopiedUrlInCurrentTab"
+"P" = "openCopiedUrlInNewTab"
+"gi" = "focusInput"
+"[[" = "goPrevious"
+"]]" = "goNext"
+"gf" = "nextFrame"
+"gF" = "mainFrame"
+"gu" = "goUp"
+"gU" = "goToRoot"
+"i" = "enterInsertMode"
+"v" = "enterVisualMode"
+"V" = "enterVisualLineMode"
+"f" = "LinkHints.activateMode"
+"F" = "LinkHints.activateModeToOpenInNewTab"
+"<a-f>" = "LinkHints.activateModeWithQueue"
+"yf" = "LinkHints.activateModeToCopyLinkUrl"
+"/" = "enterFindMode"
+"n" = "performFind"
+"N" = "performBackwardsFind"
+"*" = "findSelected"
+"#" = "findSelectedBackwards"
+"o" = "Vomnibar.activate"
+"O" = "Vomnibar.activateInNewTab"
+"T" = "Vomnibar.activateTabSelection"
+"b" = "Vomnibar.activateBookmarks"
+"B" = "Vomnibar.activateBookmarksInNewTab"
+"ge" = "Vomnibar.activateEditUrl"
+"gE" = "Vomnibar.activateEditUrlInNewTab"
+"H" = "goBack"
+"L" = "goForward"
+"K" = "nextTab"
+"J" = "previousTab"
+"gt" = "nextTab"
+"gT" = "previousTab"
+"^" = "visitPreviousTab"
+"<<" = "moveTabLeft"
+">>" = "moveTabRight"
+"g0" = "firstTab"
+"g$" = "lastTab"
+"W" = "moveTabToNewWindow"
+"t" = "createTab"
+"yt" = "duplicateTab"
+"x" = "removeTab"
+"X" = "restoreTab"
+"<a-p>" = "togglePinTab"
+"<a-m>" = "toggleMuteTab"
+"zi" = "zoomIn"
+"zo" = "zoomOut"
+"z0" = "zoomReset"
+"m" = "Marks.activateCreateMode"
+"`" = "Marks.activateGotoMode"
+"?" = "showHelp"
+"gs" = "toggleViewSource"
+
+[commands]
+"scrollDown" = { desc = "Scroll down", group = "navigation" }
+"scrollUp" = { desc = "Scroll up", group = "navigation" }
+"scrollToTop" = { desc = "Scroll to the top of the page", group = "navigation" }
+"scrollToBottom" = { desc = "Scroll to the bottom of the page", group = "navigation" }
+"scrollPageDown" = { desc = "Scroll a half page down", group = "navigation" }
+"scrollPageUp" = { desc = "Scroll a half page up", group = "navigation" }
+"scrollFullPageDown" = { desc = "Scroll a full page down", group = "navigation" }
+"scrollFullPageUp" = { desc = "Scroll a full page up", group = "navigation" }
+"scrollLeft" = { desc = "Scroll left", group = "navigation" }
+"scrollRight" = { desc = "Scroll right", group = "navigation" }
+"scrollToLeft" = { desc = "Scroll all the way to the left", group = "navigation" }
+"scrollToRight" = { desc = "Scroll all the way to the right", group = "navigation" }
+"reload" = { desc = "Reload the page", group = "navigation" }
+"copyCurrentUrl" = { desc = "Copy the current URL to the clipboard", group = "navigation" }
+"openCopiedUrlInCurrentTab" = { desc = "Open the clipboard's URL in the current tab", group = "navigation" }
+"openCopiedUrlInNewTab" = { desc = "Open the clipboard's URL in a new tab", group = "navigation" }
+"goUp" = { desc = "Go up the URL hierarchy", group = "navigation" }
+"goToRoot" = { desc = "Go to the root of current URL hierarchy", group = "navigation" }
+"enterInsertMode" = { desc = "Enter insert mode", group = "navigation" }
+"enterVisualMode" = { desc = "Enter visual mode", group = "navigation" }
+"enterVisualLineMode" = { desc = "Enter visual line mode", group = "navigation" }
+"passNextKey" = { desc = "Pass the next key to the page", group = "navigation" }
+"focusInput" = { desc = "Focus the first text input on the page", group = "navigation" }
+"LinkHints.activateMode" = { desc = "Open a link in the current tab", group = "navigation" }
+"LinkHints.activateModeToOpenInNewTab" = { desc = "Open a link in a new tab", group = "navigation" }
+"LinkHints.activateModeToOpenInNewForegroundTab" = { desc = "Open a link in a new tab & switch to it", group = "navigation" }
+"LinkHints.activateModeWithQueue" = { desc = "Open multiple links in a new tab", group = "navigation" }
+"LinkHints.activateModeToDownloadLink" = { desc = "Download link url", group = "navigation" }
+"LinkHints.activateModeToOpenIncognito" = { desc = "Open a link in incognito window", group = "navigation" }
+"LinkHints.activateModeToCopyLinkUrl" = { desc = "Copy a link URL to the clipboard", group = "navigation" }
+"goPrevious" = { desc = "Follow the link labeled previous or <", group = "navigation" }
+"goNext" = { desc = "Follow the link labeled next or >", group = "navigation" }
+"nextFrame" = { desc = "Select the next frame on the page", group = "navigation" }
+"mainFrame" = { desc = "Select the page's main/top frame", group = "navigation" }
+"Marks.activateCreateMode" = { desc = "Create a new mark", group = "navigation" }
+"Marks.activateGotoMode" = { desc = "Jump to a mark", group = "navigation" }
+"Vomnibar.activate" = { desc = "Open URL, bookmark or history entry", group = "vomnibar" }
+"Vomnibar.activateInNewTab" = { desc = "Open URL, bookmark or history entry in a new tab", group = "vomnibar" }
+"Vomnibar.activateBookmarks" = { desc = "Open a bookmark", group = "vomnibar" }
+"Vomnibar.activateBookmarksInNewTab" = { desc = "Open a bookmark in a new tab", group = "vomnibar" }
+"Vomnibar.activateTabSelection" = { desc = "Search through your open tabs", group = "vomnibar" }
+"Vomnibar.activateEditUrl" = { desc = "Edit the current URL", group = "vomnibar" }
+"Vomnibar.activateEditUrlInNewTab" = { desc = "Edit the current URL and open in a new tab", group = "vomnibar" }
+"enterFindMode" = { desc = "Enter find mode.", group = "find" }
+"performFind" = { desc = "Cycle forward to the next find match", group = "find" }
+"performBackwardsFind" = { desc = "Cycle backward to the previous find match", group = "find" }
+"findSelected" = { desc = "Find the selected text", group = "find" }
+"findSelectedBackwards" = { desc = "Find the selected text, searching backwards", group = "find" }
+"goBack" = { desc = "Go back in history", group = "history" }
+"goForward" = { desc = "Go forward in history", group = "history" }
+"createTab" = { desc = "Create new tab", group = "tabs" }
+"previousTab" = { desc = "Go one tab left", group = "tabs" }
+"nextTab" = { desc = "Go one tab right", group = "tabs" }
+"visitPreviousTab" = { desc = "Go to previously-visited tab", group = "tabs" }
+"firstTab" = { desc = "Go to the first tab", group = "tabs" }
+"lastTab" = { desc = "Go to the last tab", group = "tabs" }
+"duplicateTab" = { desc = "Duplicate current tab", group = "tabs" }
+"togglePinTab" = { desc = "Pin or unpin current tab", group = "tabs" }
+"toggleMuteTab" = { desc = "Mute or unmute current tab", group = "tabs" }
+"removeTab" = { desc = "Close current tab", group = "tabs" }
+"restoreTab" = { desc = "Restore closed tab", group = "tabs" }
+"moveTabToNewWindow" = { desc = "Move tab to new window", group = "tabs" }
+"closeTabsOnLeft" = { desc = "Close tabs on the left", group = "tabs" }
+"closeTabsOnRight" = { desc = "Close tabs on the right", group = "tabs" }
+"closeOtherTabs" = { desc = "Close all other tabs", group = "tabs" }
+"moveTabLeft" = { desc = "Move tab to the left", group = "tabs" }
+"moveTabRight" = { desc = "Move tab to the right", group = "tabs" }
+"setZoom" = { desc = "Set zoom", group = "tabs" }
+"zoomIn" = { desc = "Zoom in", group = "tabs" }
+"zoomOut" = { desc = "Zoom out", group = "tabs" }
+"zoomReset" = { desc = "Reset zoom", group = "tabs" }
+"toggleViewSource" = { desc = "View page source", group = "misc" }
+"showHelp" = { desc = "Show help", group = "misc" }

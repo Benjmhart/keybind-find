@@ -1,0 +1,1605 @@
+[
+ {
+  "section": "default",
+  "comment": "don't do anything",
+  "key": "MBTN_LEFT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "ignore"
+ },
+ {
+  "section": "default",
+  "comment": "toggle fullscreen",
+  "key": "MBTN_LEFT_DBL",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle fullscreen"
+ },
+ {
+  "section": "default",
+  "comment": "toggle pause/playback mode",
+  "key": "MBTN_RIGHT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle pause"
+ },
+ {
+  "section": "default",
+  "comment": "skip to the previous file",
+  "key": "MBTN_BACK",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "playlist-prev"
+ },
+ {
+  "section": "default",
+  "comment": "skip to the next file",
+  "key": "MBTN_FORWARD",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "playlist-next"
+ },
+ {
+  "section": "default",
+  "comment": "pan around the clicked point",
+  "key": "Ctrl+MBTN_LEFT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding positioning/drag-to-pan"
+ },
+ {
+  "section": "default",
+  "key": "WHEEL_UP",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add volume 2"
+ },
+ {
+  "section": "default",
+  "key": "WHEEL_DOWN",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add volume -2"
+ },
+ {
+  "section": "default",
+  "comment": "seek 10 seconds backward",
+  "key": "WHEEL_LEFT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "seek -10"
+ },
+ {
+  "section": "default",
+  "comment": "seek 10 seconds forward",
+  "key": "WHEEL_RIGHT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "seek 10"
+ },
+ {
+  "section": "default",
+  "comment": "seek 5 seconds forward",
+  "key": "RIGHT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "seek  5"
+ },
+ {
+  "section": "default",
+  "comment": "seek 5 seconds backward",
+  "key": "LEFT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "seek -5"
+ },
+ {
+  "section": "default",
+  "comment": "seek 1 minute forward",
+  "key": "UP",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "seek  60"
+ },
+ {
+  "section": "default",
+  "comment": "seek 1 minute backward",
+  "key": "DOWN",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "seek -60"
+ },
+ {
+  "section": "default",
+  "comment": "seek exactly 1 second forward",
+  "key": "Shift+RIGHT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "no-osd seek  1 exact"
+ },
+ {
+  "section": "default",
+  "comment": "seek exactly 1 second backward",
+  "key": "Shift+LEFT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "no-osd seek -1 exact"
+ },
+ {
+  "section": "default",
+  "comment": "seek exactly 5 seconds forward",
+  "key": "Shift+UP",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "no-osd seek  5 exact"
+ },
+ {
+  "section": "default",
+  "comment": "seek exactly 5 seconds backward",
+  "key": "Shift+DOWN",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "no-osd seek -5 exact"
+ },
+ {
+  "section": "default",
+  "comment": "seek to the previous subtitle",
+  "key": "Ctrl+LEFT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "no-osd sub-seek -1"
+ },
+ {
+  "section": "default",
+  "comment": "seek to the next subtitle",
+  "key": "Ctrl+RIGHT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "no-osd sub-seek  1"
+ },
+ {
+  "section": "default",
+  "comment": "change subtitle timing such that the previous subtitle is displayed",
+  "key": "Shift+Ctrl+LEFT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "sub-step -1"
+ },
+ {
+  "section": "default",
+  "comment": "change subtitle timing such that the next subtitle is displayed",
+  "key": "Shift+Ctrl+RIGHT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "sub-step 1"
+ },
+ {
+  "section": "default",
+  "comment": "move the video right",
+  "key": "Alt+LEFT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-pan-x  0.1"
+ },
+ {
+  "section": "default",
+  "comment": "move the video left",
+  "key": "Alt+RIGHT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-pan-x -0.1"
+ },
+ {
+  "section": "default",
+  "comment": "move the video down",
+  "key": "Alt+UP",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-pan-y  0.1"
+ },
+ {
+  "section": "default",
+  "comment": "move the video up",
+  "key": "Alt+DOWN",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-pan-y -0.1"
+ },
+ {
+  "section": "default",
+  "comment": "zoom in",
+  "key": "Alt++",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-zoom   0.1"
+ },
+ {
+  "section": "default",
+  "comment": "zoom in",
+  "key": "ZOOMIN",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-zoom   0.1"
+ },
+ {
+  "section": "default",
+  "comment": "zoom out",
+  "key": "Alt+-",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-zoom  -0.1"
+ },
+ {
+  "section": "default",
+  "comment": "zoom out",
+  "key": "ZOOMOUT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-zoom  -0.1"
+ },
+ {
+  "section": "default",
+  "comment": "zoom in",
+  "key": "Alt+KP_ADD",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-zoom  0.1"
+ },
+ {
+  "section": "default",
+  "comment": "zoom out",
+  "key": "Alt+KP_SUBTRACT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-zoom -0.1"
+ },
+ {
+  "section": "default",
+  "comment": "zoom in towards the cursor",
+  "key": "Ctrl+WHEEL_UP",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding positioning/cursor-centric-zoom  0.1"
+ },
+ {
+  "section": "default",
+  "comment": "zoom out towards the cursor",
+  "key": "Ctrl+WHEEL_DOWN",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding positioning/cursor-centric-zoom -0.1"
+ },
+ {
+  "section": "default",
+  "comment": "reset zoom and pan settings",
+  "key": "Alt+BS",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "set video-zoom 0; no-osd set panscan 0; no-osd set video-pan-x 0; no-osd set video-pan-y 0; no-osd set video-align-x 0; no-osd set video-align-y 0"
+ },
+ {
+  "section": "default",
+  "comment": "seek to the start",
+  "key": "HOME",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "seek 0 absolute"
+ },
+ {
+  "section": "default",
+  "comment": "seek to the next chapter",
+  "key": "PGUP",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add chapter 1"
+ },
+ {
+  "section": "default",
+  "comment": "seek to the previous chapter",
+  "key": "PGDWN",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add chapter -1"
+ },
+ {
+  "section": "default",
+  "comment": "seek 10 minutes forward",
+  "key": "Shift+PGUP",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "seek 600"
+ },
+ {
+  "section": "default",
+  "comment": "seek 10 minutes backward",
+  "key": "Shift+PGDWN",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "seek -600"
+ },
+ {
+  "section": "default",
+  "comment": "decrease the playback speed",
+  "key": "[",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "multiply speed 1/1.1"
+ },
+ {
+  "section": "default",
+  "comment": "increase the playback speed",
+  "key": "]",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "multiply speed 1.1"
+ },
+ {
+  "section": "default",
+  "comment": "halve the playback speed",
+  "key": "{",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "multiply speed 0.5"
+ },
+ {
+  "section": "default",
+  "comment": "double the playback speed",
+  "key": "}",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "multiply speed 2.0"
+ },
+ {
+  "section": "default",
+  "comment": "reset the speed to normal",
+  "key": "BS",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "set speed 1.0"
+ },
+ {
+  "section": "default",
+  "comment": "undo the previous (or marked) seek",
+  "key": "Shift+BS",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "revert-seek"
+ },
+ {
+  "section": "default",
+  "comment": "mark the position for revert-seek",
+  "key": "Shift+Ctrl+BS",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "revert-seek mark"
+ },
+ {
+  "section": "default",
+  "key": "q",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "quit"
+ },
+ {
+  "section": "default",
+  "comment": "exit and remember the playback position",
+  "key": "Q",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "quit-watch-later"
+ },
+ {
+  "section": "default",
+  "comment": "leave fullscreen",
+  "key": "ESC",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "set fullscreen no"
+ },
+ {
+  "section": "default",
+  "comment": "toggle pause/playback mode",
+  "key": "p",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle pause"
+ },
+ {
+  "section": "default",
+  "comment": "advance one frame and pause",
+  "key": ".",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "frame-step"
+ },
+ {
+  "section": "default",
+  "comment": "go back by one frame and pause",
+  "key": ",",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "frame-back-step"
+ },
+ {
+  "section": "default",
+  "comment": "toggle pause/playback mode",
+  "key": "SPACE",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle pause"
+ },
+ {
+  "section": "default",
+  "comment": "skip to the next file",
+  "key": ">",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "playlist-next"
+ },
+ {
+  "section": "default",
+  "comment": "skip to the next file",
+  "key": "ENTER",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "playlist-next"
+ },
+ {
+  "section": "default",
+  "comment": "skip to the previous file",
+  "key": "<",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "playlist-prev"
+ },
+ {
+  "section": "default",
+  "comment": "skip to the first file",
+  "key": "Shift+HOME",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "no-osd set playlist-pos 0"
+ },
+ {
+  "section": "default",
+  "comment": "skip to the last file",
+  "key": "Shift+END",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "no-osd set playlist-pos-1 ${playlist-count}"
+ },
+ {
+  "section": "default",
+  "comment": "toggle displaying the OSD on user interaction or always",
+  "key": "O",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "no-osd cycle-values osd-level 3 1"
+ },
+ {
+  "section": "default",
+  "comment": "show playback progress",
+  "key": "o",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "show-progress"
+ },
+ {
+  "section": "default",
+  "comment": "show playback progress",
+  "key": "P",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "show-progress"
+ },
+ {
+  "section": "default",
+  "comment": "display information and statistics",
+  "key": "i",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding stats/display-stats"
+ },
+ {
+  "section": "default",
+  "comment": "toggle displaying information and statistics",
+  "key": "I",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding stats/display-stats-toggle"
+ },
+ {
+  "section": "default",
+  "comment": "toggle displaying key bindings",
+  "key": "?",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding stats/display-page-4-toggle"
+ },
+ {
+  "section": "default",
+  "comment": "open the console",
+  "key": "`",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding commands/open"
+ },
+ {
+  "section": "default",
+  "comment": "shift subtitles 100 ms earlier",
+  "key": "z",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add sub-delay -0.1"
+ },
+ {
+  "section": "default",
+  "comment": "delay subtitles by 100 ms",
+  "key": "Z",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add sub-delay +0.1"
+ },
+ {
+  "section": "default",
+  "comment": "delay subtitles by 100 ms",
+  "key": "x",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add sub-delay +0.1"
+ },
+ {
+  "section": "default",
+  "comment": "change audio/video sync by delaying the audio",
+  "key": "Ctrl++",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add audio-delay  0.100"
+ },
+ {
+  "section": "default",
+  "comment": "change audio/video sync by shifting the audio earlier",
+  "key": "Ctrl+-",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add audio-delay -0.100"
+ },
+ {
+  "section": "default",
+  "comment": "change audio/video sync by delaying the audio",
+  "key": "Ctrl+KP_ADD",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add audio-delay  0.100"
+ },
+ {
+  "section": "default",
+  "comment": "change audio/video sync by shifting the audio earlier",
+  "key": "Ctrl+KP_SUBTRACT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add audio-delay -0.100"
+ },
+ {
+  "section": "default",
+  "comment": "increase the subtitle font size",
+  "key": "G",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add sub-scale +0.1"
+ },
+ {
+  "section": "default",
+  "comment": "decrease the subtitle font size",
+  "key": "F",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add sub-scale -0.1"
+ },
+ {
+  "section": "default",
+  "key": "9",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add volume -2"
+ },
+ {
+  "section": "default",
+  "key": "/",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add volume -2"
+ },
+ {
+  "section": "default",
+  "key": "KP_DIVIDE",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add volume -2"
+ },
+ {
+  "section": "default",
+  "key": "0",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add volume 2"
+ },
+ {
+  "section": "default",
+  "key": "*",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add volume 2"
+ },
+ {
+  "section": "default",
+  "key": "KP_MULTIPLY",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add volume 2"
+ },
+ {
+  "section": "default",
+  "comment": "toggle mute",
+  "key": "m",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle mute"
+ },
+ {
+  "section": "default",
+  "key": "1",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add contrast -1"
+ },
+ {
+  "section": "default",
+  "key": "2",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add contrast 1"
+ },
+ {
+  "section": "default",
+  "key": "3",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add brightness -1"
+ },
+ {
+  "section": "default",
+  "key": "4",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add brightness 1"
+ },
+ {
+  "section": "default",
+  "key": "5",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add gamma -1"
+ },
+ {
+  "section": "default",
+  "key": "6",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add gamma 1"
+ },
+ {
+  "section": "default",
+  "key": "7",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add saturation -1"
+ },
+ {
+  "section": "default",
+  "key": "8",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add saturation 1"
+ },
+ {
+  "section": "default",
+  "comment": "halve the window size",
+  "key": "Alt+0",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "set window-scale 0.5"
+ },
+ {
+  "section": "default",
+  "comment": "reset the window size",
+  "key": "Alt+1",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "set window-scale 1.0"
+ },
+ {
+  "section": "default",
+  "comment": "double the window size",
+  "key": "Alt+2",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "set window-scale 2.0"
+ },
+ {
+  "section": "default",
+  "comment": "toggle the debanding filter",
+  "key": "b",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle deband"
+ },
+ {
+  "section": "default",
+  "comment": "cycle the deinterlacing filter",
+  "key": "d",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle deinterlace"
+ },
+ {
+  "section": "default",
+  "comment": "move subtitles up",
+  "key": "r",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add sub-pos -1"
+ },
+ {
+  "section": "default",
+  "comment": "move subtitles down",
+  "key": "R",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add sub-pos +1"
+ },
+ {
+  "section": "default",
+  "comment": "move subtitles down",
+  "key": "t",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add sub-pos +1"
+ },
+ {
+  "section": "default",
+  "comment": "hide or show the subtitles",
+  "key": "v",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle sub-visibility"
+ },
+ {
+  "section": "default",
+  "comment": "hide or show the secondary subtitles",
+  "key": "Alt+v",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle secondary-sub-visibility"
+ },
+ {
+  "section": "default",
+  "comment": "cycle which video data gets used in ASS rendering to fix broken files",
+  "key": "V",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle sub-ass-use-video-data"
+ },
+ {
+  "section": "default",
+  "comment": "toggle overriding SSA/ASS subtitle styles with the normal styles",
+  "key": "u",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle-values sub-ass-override \"force\" \"scale\""
+ },
+ {
+  "section": "default",
+  "comment": "switch subtitle track",
+  "key": "j",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle sub"
+ },
+ {
+  "section": "default",
+  "comment": "switch subtitle track backwards",
+  "key": "J",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle sub down"
+ },
+ {
+  "section": "default",
+  "comment": "switch audio track",
+  "key": "SHARP",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle audio"
+ },
+ {
+  "section": "default",
+  "comment": "switch video track",
+  "key": "_",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle video"
+ },
+ {
+  "section": "default",
+  "comment": "toggle placing the video on top of other windows",
+  "key": "T",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle ontop"
+ },
+ {
+  "section": "default",
+  "comment": "toggle fullscreen",
+  "key": "f",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle fullscreen"
+ },
+ {
+  "section": "default",
+  "comment": "take a screenshot of the video in its original resolution with subtitles",
+  "key": "s",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "screenshot"
+ },
+ {
+  "section": "default",
+  "comment": "take a screenshot of the video in its original resolution without subtitles",
+  "key": "S",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "screenshot video"
+ },
+ {
+  "section": "default",
+  "comment": "take a screenshot of the window with OSD and subtitles",
+  "key": "Ctrl+s",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "screenshot window"
+ },
+ {
+  "section": "default",
+  "comment": "automatically screenshot every frame; issue this command again to stop taking screenshots",
+  "key": "Alt+s",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "screenshot each-frame"
+ },
+ {
+  "section": "default",
+  "comment": "decrease panscan",
+  "key": "w",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add panscan -0.1"
+ },
+ {
+  "section": "default",
+  "comment": "shrink black bars by cropping the video",
+  "key": "W",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add panscan +0.1"
+ },
+ {
+  "section": "default",
+  "comment": "shrink black bars by cropping the video",
+  "key": "e",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add panscan +0.1"
+ },
+ {
+  "section": "default",
+  "comment": "cycle the video aspect ratio",
+  "key": "A",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle-values video-aspect-override \"16:9\" \"4:3\" \"2.35:1\" \"no\""
+ },
+ {
+  "section": "default",
+  "key": "POWER",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "quit"
+ },
+ {
+  "section": "default",
+  "comment": "toggle pause/playback mode",
+  "key": "PLAY",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle pause"
+ },
+ {
+  "section": "default",
+  "comment": "toggle pause/playback mode",
+  "key": "PAUSE",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle pause"
+ },
+ {
+  "section": "default",
+  "comment": "toggle pause/playback mode",
+  "key": "PLAYPAUSE",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle pause"
+ },
+ {
+  "section": "default",
+  "comment": "unpause",
+  "key": "PLAYONLY",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "set pause no"
+ },
+ {
+  "section": "default",
+  "comment": "pause",
+  "key": "PAUSEONLY",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "set pause yes"
+ },
+ {
+  "section": "default",
+  "key": "STOP",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "quit"
+ },
+ {
+  "section": "default",
+  "comment": "seek 1 minute forward",
+  "key": "FORWARD",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "seek 60"
+ },
+ {
+  "section": "default",
+  "comment": "seek 1 minute backward",
+  "key": "REWIND",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "seek -60"
+ },
+ {
+  "section": "default",
+  "comment": "skip to the next file",
+  "key": "NEXT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "playlist-next"
+ },
+ {
+  "section": "default",
+  "comment": "skip to the previous file",
+  "key": "PREV",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "playlist-prev"
+ },
+ {
+  "section": "default",
+  "key": "VOLUME_UP",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add volume 2"
+ },
+ {
+  "section": "default",
+  "key": "VOLUME_DOWN",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add volume -2"
+ },
+ {
+  "section": "default",
+  "comment": "toggle mute",
+  "key": "MUTE",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle mute"
+ },
+ {
+  "section": "default",
+  "key": "CLOSE_WIN",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "quit"
+ },
+ {
+  "section": "default",
+  "key": "Ctrl+w",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "quit"
+ },
+ {
+  "section": "default",
+  "comment": "switch edition",
+  "key": "E",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle edition"
+ },
+ {
+  "section": "default",
+  "comment": "set/clear A-B loop points",
+  "key": "l",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "ab-loop"
+ },
+ {
+  "section": "default",
+  "comment": "toggle infinite looping",
+  "key": "L",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle-values loop-file \"inf\" \"no\""
+ },
+ {
+  "section": "default",
+  "key": "Ctrl+c",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "quit 4"
+ },
+ {
+  "section": "default",
+  "comment": "append the copied path",
+  "key": "Ctrl+v",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "loadfile ${clipboard/text} append-play; show-text '+ ${clipboard/text}'"
+ },
+ {
+  "section": "default",
+  "comment": "cycle OSC visibility between never, auto (mouse-move) and always",
+  "key": "DEL",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding osc/visibility"
+ },
+ {
+  "section": "default",
+  "comment": "toggle hardware decoding",
+  "key": "Ctrl+h",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "cycle-values hwdec \"no\" \"auto\""
+ },
+ {
+  "section": "default",
+  "comment": "show the playlist",
+  "key": "F8",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "show-text ${playlist}"
+ },
+ {
+  "section": "default",
+  "comment": "show the list of video, audio and sub tracks",
+  "key": "F9",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "show-text ${track-list}"
+ },
+ {
+  "section": "default",
+  "key": "g",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "ignore"
+ },
+ {
+  "section": "default",
+  "key": "g-p",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/select-playlist"
+ },
+ {
+  "section": "default",
+  "key": "g-s",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/select-sid"
+ },
+ {
+  "section": "default",
+  "key": "g-S",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/select-secondary-sid"
+ },
+ {
+  "section": "default",
+  "key": "g-a",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/select-aid"
+ },
+ {
+  "section": "default",
+  "key": "g-v",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/select-vid"
+ },
+ {
+  "section": "default",
+  "key": "g-t",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/select-track"
+ },
+ {
+  "section": "default",
+  "key": "g-c",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/select-chapter"
+ },
+ {
+  "section": "default",
+  "key": "g-e",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/select-edition"
+ },
+ {
+  "section": "default",
+  "key": "g-l",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/select-subtitle-line"
+ },
+ {
+  "section": "default",
+  "key": "g-d",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/select-audio-device"
+ },
+ {
+  "section": "default",
+  "key": "g-h",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/select-watch-history"
+ },
+ {
+  "section": "default",
+  "key": "g-w",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/select-watch-later"
+ },
+ {
+  "section": "default",
+  "key": "g-b",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/select-binding"
+ },
+ {
+  "section": "default",
+  "key": "g-r",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/show-properties"
+ },
+ {
+  "section": "default",
+  "key": "g-m",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/menu"
+ },
+ {
+  "section": "default",
+  "key": "MENU",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/menu"
+ },
+ {
+  "section": "default",
+  "key": "Ctrl+p",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "script-binding select/menu"
+ },
+ {
+  "section": "default",
+  "comment": "rotate video counterclockwise by 1 degree",
+  "key": "Alt+KP1",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-rotate -1"
+ },
+ {
+  "section": "default",
+  "comment": "reset rotation",
+  "key": "Alt+KP5",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "set video-rotate  0"
+ },
+ {
+  "section": "default",
+  "comment": "rotate video clockwise by 1 degree",
+  "key": "Alt+KP3",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-rotate  1"
+ },
+ {
+  "section": "default",
+  "comment": "zoom out video",
+  "key": "KP1",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-zoom    -0.01"
+ },
+ {
+  "section": "default",
+  "comment": "scale down video vertically",
+  "key": "KP2",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-scale-y -0.01"
+ },
+ {
+  "section": "default",
+  "comment": "scale down video horizontally",
+  "key": "KP4",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-scale-x -0.01"
+ },
+ {
+  "section": "default",
+  "comment": "reset video scale",
+  "key": "KP5",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "set video-scale-x  1.00; set video-scale-y 1; set video-zoom 0"
+ },
+ {
+  "section": "default",
+  "comment": "scale up video horizontally",
+  "key": "KP6",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-scale-x  0.01"
+ },
+ {
+  "section": "default",
+  "comment": "scale up video vertically",
+  "key": "KP8",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-scale-y  0.01"
+ },
+ {
+  "section": "default",
+  "comment": "zoom in video",
+  "key": "KP9",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-zoom     0.01"
+ },
+ {
+  "section": "default",
+  "comment": "move video left and down",
+  "key": "Ctrl+KP1",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-pan-x -0.01; add video-pan-y  0.01"
+ },
+ {
+  "section": "default",
+  "comment": "move video down",
+  "key": "Ctrl+KP2",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-pan-y  0.01"
+ },
+ {
+  "section": "default",
+  "comment": "move video right and down",
+  "key": "Ctrl+KP3",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-pan-x  0.01; add video-pan-y  0.01"
+ },
+ {
+  "section": "default",
+  "comment": "move video left",
+  "key": "Ctrl+KP4",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-pan-x -0.01"
+ },
+ {
+  "section": "default",
+  "comment": "reset video position",
+  "key": "Ctrl+KP5",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "set video-pan-x  0.00; set video-pan-y  0.00"
+ },
+ {
+  "section": "default",
+  "comment": "move video right",
+  "key": "Ctrl+KP6",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-pan-x  0.01"
+ },
+ {
+  "section": "default",
+  "comment": "move video left and up",
+  "key": "Ctrl+KP7",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-pan-x -0.01; add video-pan-y -0.01"
+ },
+ {
+  "section": "default",
+  "comment": "move video up",
+  "key": "Ctrl+KP8",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-pan-y -0.01"
+ },
+ {
+  "section": "default",
+  "comment": "move video right and up",
+  "key": "Ctrl+KP9",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-pan-x  0.01; add video-pan-y -0.01"
+ },
+ {
+  "section": "default",
+  "comment": "align video left and down",
+  "key": "Ctrl+KP_END",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-align-x -0.01; add video-align-y  0.01"
+ },
+ {
+  "section": "default",
+  "comment": "align video down",
+  "key": "Ctrl+KP_DOWN",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-align-y  0.01"
+ },
+ {
+  "section": "default",
+  "comment": "align video right and down",
+  "key": "Ctrl+KP_PGDWN",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-align-x  0.01; add video-align-y  0.01"
+ },
+ {
+  "section": "default",
+  "comment": "align video left",
+  "key": "Ctrl+KP_LEFT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-align-x -0.01"
+ },
+ {
+  "section": "default",
+  "comment": "reset video alignment",
+  "key": "Ctrl+KP_BEGIN",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "set video-align-x  0.00; set video-align-y  0.00"
+ },
+ {
+  "section": "default",
+  "comment": "align video right",
+  "key": "Ctrl+KP_RIGHT",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-align-x  0.01"
+ },
+ {
+  "section": "default",
+  "comment": "align video left and up",
+  "key": "Ctrl+KP_HOME",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-align-x -0.01; add video-align-y -0.01"
+ },
+ {
+  "section": "default",
+  "comment": "align video up",
+  "key": "Ctrl+KP_UP",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-align-y -0.01"
+ },
+ {
+  "section": "default",
+  "comment": "align video right and up",
+  "key": "Ctrl+KP_PGUP",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add video-align-x  0.01; add video-align-y -0.01"
+ },
+ {
+  "section": "default",
+  "comment": "seek to the previous chapter",
+  "key": "!",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add chapter -1"
+ },
+ {
+  "section": "default",
+  "comment": "seek to the next chapter",
+  "key": "@",
+  "priority": 0,
+  "is_weak": true,
+  "cmd": "add chapter 1"
+ },
+ {
+  "section": "encode",
+  "key": "q",
+  "priority": -1,
+  "is_weak": true,
+  "cmd": "quit 4"
+ },
+ {
+  "section": "encode",
+  "key": "ESC",
+  "priority": -1,
+  "is_weak": true,
+  "cmd": "quit 4"
+ },
+ {
+  "section": "encode",
+  "key": "CLOSE_WIN",
+  "priority": -1,
+  "is_weak": true,
+  "cmd": "quit 4"
+ },
+ {
+  "section": "showhide",
+  "owner": "osc",
+  "priority": 24,
+  "key": "MOUSE_MOVE",
+  "is_weak": false,
+  "cmd": "script-binding osc/__keybinding1"
+ },
+ {
+  "section": "showhide",
+  "owner": "osc",
+  "priority": 24,
+  "key": "MOUSE_LEAVE",
+  "is_weak": false,
+  "cmd": "script-binding osc/__keybinding2"
+ },
+ {
+  "section": "showhide_wc",
+  "owner": "osc",
+  "priority": 25,
+  "key": "MOUSE_MOVE",
+  "is_weak": false,
+  "cmd": "script-binding osc/__keybinding3"
+ },
+ {
+  "section": "showhide_wc",
+  "owner": "osc",
+  "priority": 25,
+  "key": "MOUSE_LEAVE",
+  "is_weak": false,
+  "cmd": "script-binding osc/__keybinding4"
+ },
+ {
+  "section": "input",
+  "owner": "osc",
+  "priority": -1,
+  "key": "MBTN_LEFT",
+  "is_weak": false,
+  "cmd": "script-binding osc/__keybinding5"
+ },
+ {
+  "section": "input",
+  "owner": "osc",
+  "priority": -1,
+  "key": "MBTN_MID",
+  "is_weak": false,
+  "cmd": "script-binding osc/__keybinding6"
+ },
+ {
+  "section": "input",
+  "owner": "osc",
+  "priority": -1,
+  "key": "MBTN_RIGHT",
+  "is_weak": false,
+  "cmd": "script-binding osc/__keybinding7"
+ },
+ {
+  "section": "input",
+  "owner": "osc",
+  "priority": -1,
+  "key": "Shift+MBTN_LEFT",
+  "is_weak": false,
+  "cmd": "script-binding osc/__keybinding8"
+ },
+ {
+  "section": "input",
+  "owner": "osc",
+  "priority": -1,
+  "key": "WHEEL_UP",
+  "is_weak": false,
+  "cmd": "script-binding osc/__keybinding9"
+ },
+ {
+  "section": "input",
+  "owner": "osc",
+  "priority": -1,
+  "key": "WHEEL_DOWN",
+  "is_weak": false,
+  "cmd": "script-binding osc/__keybinding10"
+ },
+ {
+  "section": "input",
+  "owner": "osc",
+  "priority": -1,
+  "key": "MBTN_LEFT_DBL",
+  "is_weak": false,
+  "cmd": "ignore"
+ },
+ {
+  "section": "input",
+  "owner": "osc",
+  "priority": -1,
+  "key": "Shift+MBTN_LEFT_DBL",
+  "is_weak": false,
+  "cmd": "ignore"
+ },
+ {
+  "section": "input",
+  "owner": "osc",
+  "priority": -1,
+  "key": "MBTN_RIGHT_DBL",
+  "is_weak": false,
+  "cmd": "ignore"
+ },
+ {
+  "section": "window-controls",
+  "owner": "osc",
+  "priority": -1,
+  "key": "MBTN_LEFT",
+  "is_weak": false,
+  "cmd": "script-binding osc/__keybinding11"
+ }
+]

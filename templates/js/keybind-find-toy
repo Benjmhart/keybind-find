@@ -1,0 +1,94 @@
+#!/usr/bin/env node
+// A keybind-find plugin for the toy format (Node, standard library only).
+//
+// The toy format: one binding per line, `key = description`, optionally ending with ` ; scope=value` (where the
+// binding applies). Copy this, rename it `keybind-find-<name>`, and change `parse` and `MANIFEST`.
+//
+// keybind-find sends the request (protocol version 1) on stdin: {"version": 1, "context": {...}, "inputs":
+// [{"path", "text"}, ...]}. This prints the response on stdout: {"version": 1, "title", "provider", "binds":
+// {category: [...]}}. On any error: one line on stderr and exit status 1; keybind-find shows the line and drops
+// the plugin.
+"use strict";
+
+// What `keybind-find plugin add` writes into the user's config, and the defaults a stanza leaves out.
+const MANIFEST = {
+  version: 1,
+  name: "toy",
+  description: "The toy format's key file",
+  inputs: ["~/.config/toy/keys.conf"],
+  match: { program: ["toy"] },
+  queries: [],
+  homepage: "https://example.com/keybind-find-toy",
+};
+
+// The bindings in one input file. An error names the line.
+function parse(text) {
+  const binds = [];
+  // A leading byte-order mark is not part of the first line.
+  text.replace(/^\uFEFF/, "").split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.trim();
+    if (line === "" || line.startsWith("#")) return;
+    const eq = line.indexOf(" = ");
+    if (eq < 0) throw new Error(`line ${i + 1}: not \`key = description\``);
+    const key = line.slice(0, eq).trim();
+    let desc = line.slice(eq + 3).trim();
+    const bind = { key, desc, action: "" };
+    // Report every binding with its scope; never drop one by guessing where the user is.
+    const semi = desc.indexOf(" ; ");
+    if (semi >= 0) {
+      const scope = desc.slice(semi + 3);
+      const at = scope.indexOf("=");
+      if (at < 0) throw new Error(`line ${i + 1}: a scope is \`name=value\``);
+      const name = scope.slice(0, at).trim();
+      const value = scope.slice(at + 1).trim();
+      // keybind-find's rule for a scope name or value: printable ASCII, no spaces, none of `,=[]`.
+      const word = (w) => /^[!-~]+$/.test(w) && !/[,=[\]]/.test(w);
+      if (!word(name) || !word(value)) {
+        throw new Error(`line ${i + 1}: a scope's name and value are printable ASCII words without , = [ or ]`);
+      }
+      bind.desc = desc.slice(0, semi).trim();
+      bind.when = { [name]: value };
+    }
+    if (bind.desc === "" || bind.desc.startsWith("; ")) throw new Error(`line ${i + 1}: no description`);
+    binds.push(bind);
+  });
+  return binds;
+}
+
+// The response for a request: every input's bindings, in one sheet.
+function respond(request) {
+  if (request.version !== 1) {
+    throw new Error(`request version ${request.version} is not 1, the version this plugin speaks`);
+  }
+  const binds = [];
+  // A missing `inputs` is none: an empty sheet (the user has no key file yet), not an error.
+  for (const input of request.inputs ?? []) {
+    try {
+      binds.push(...parse(input.text));
+    } catch (e) {
+      throw new Error(`${input.path}: ${e.message}`);
+    }
+  }
+  return { version: 1, title: "Toy", provider: "toy", binds: { General: binds } };
+}
+
+function main() {
+  if (process.argv[2] === "--manifest") {
+    process.stdout.write(JSON.stringify(MANIFEST) + "\n");
+    return;
+  }
+  let text = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => (text += chunk));
+  process.stdin.on("end", () => {
+    try {
+      process.stdout.write(JSON.stringify(respond(JSON.parse(text))) + "\n");
+    } catch (e) {
+      process.stderr.write(String(e.message || e).replace(/\s+/g, " ") + "\n");
+      process.exitCode = 1;
+    }
+  });
+}
+
+if (require.main === module) main();
+module.exports = { parse, respond };

@@ -1,0 +1,69 @@
+{
+  "title": "GitHub",
+  "provider": "browser",
+  "window_title": "github.com",
+  "binds": {
+    "site": [
+      { "key": "s", "desc": "Focus the search bar" },
+      { "key": "slash", "desc": "Focus the search bar" },
+      { "key": "g n", "desc": "Go to your notifications" },
+      { "key": "question", "desc": "Show keyboard shortcuts" }
+    ],
+    "repository": [
+      { "key": "g c", "desc": "Go to Code" },
+      { "key": "g i", "desc": "Go to Issues" },
+      { "key": "g p", "desc": "Go to Pull requests" },
+      { "key": "g a", "desc": "Go to Actions" },
+      { "key": "g w", "desc": "Go to Wiki" },
+      { "key": "g g", "desc": "Go to Discussions" },
+      { "key": "g s", "desc": "Go to Security and quality" },
+      { "key": "period", "desc": "Open in github.dev" },
+      { "key": "greater", "desc": "Open in github.dev in a new tab" }
+    ],
+    "code": [
+      { "key": "t", "desc": "Activate the file finder" },
+      { "key": "l", "desc": "Jump to a line in your code" },
+      { "key": "w", "desc": "Switch to a new branch or tag" },
+      { "key": "y", "desc": "Expand a URL to its canonical form" },
+      { "key": "i", "desc": "Show or hide comments on diffs" },
+      { "key": "a", "desc": "Show or hide annotations on diffs" },
+      { "key": "b", "desc": "Open blame view" },
+      { "key": "e", "desc": "Open the file in the Edit file tab" },
+      { "key": "J", "desc": "Highlight the line selected by the cursor" }
+    ],
+    "issue lists": [
+      { "key": "c", "desc": "Create an issue" },
+      { "key": "ctrl+slash", "desc": "Focus the issues or pull requests search bar" },
+      { "key": "u", "desc": "Filter by author" },
+      { "key": "l", "desc": "Filter by or edit labels" },
+      { "key": "m", "desc": "Filter by or edit milestones" },
+      { "key": "a", "desc": "Filter by or edit assignee" },
+      { "key": "o", "desc": "Open issue" }
+    ],
+    "issues & PRs": [
+      { "key": "q", "desc": "Request a reviewer" },
+      { "key": "m", "desc": "Set a milestone" },
+      { "key": "l", "desc": "Apply a label" },
+      { "key": "a", "desc": "Set an assignee" },
+      { "key": "x", "desc": "Link an issue or pull request" },
+      { "key": "alt+shift+c", "desc": "Create a sub-issue" },
+      { "key": "alt+shift+a", "desc": "Add an existing issue as a sub-issue" },
+      { "key": "alt+shift+p", "desc": "Edit parent issue" }
+    ],
+    "files changed": [
+      { "key": "c", "desc": "Open the Commits dropdown to filter the diffs" },
+      { "key": "t", "desc": "Move to the \"Filter changed files\" field" }
+    ],
+    "actions": [
+      { "key": "g f", "desc": "Go to the workflow file" },
+      { "key": "T", "desc": "Toggle timestamps in logs" },
+      { "key": "F", "desc": "Toggle full-screen logs" }
+    ],
+    "notifications": [
+      { "key": "e", "desc": "Mark as done" },
+      { "key": "U", "desc": "Mark as unread" },
+      { "key": "I", "desc": "Mark as read" },
+      { "key": "M", "desc": "Unsubscribe" }
+    ]
+  }
+}

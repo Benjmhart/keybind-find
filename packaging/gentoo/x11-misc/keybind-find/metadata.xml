@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+	<upstream>
+		<bugs-to>https://github.com/Benjmhart/keybind-find/issues</bugs-to>
+		<remote-id type="github">Benjmhart/keybind-find</remote-id>
+	</upstream>
+</pkgmetadata>

@@ -1,0 +1,3 @@
+#!/bin/sh
+# A backup copy: never run (it would fail).
+exit 1

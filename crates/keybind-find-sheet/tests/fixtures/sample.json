@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "title": "Test",
+  "provider": "test",
+  "binds": {
+    "c": [
+      { "key": "ctrl+k", "desc": "Kill line", "action": "" },
+      { "key": "k", "desc": "Up", "action": "" }
+    ]
+  }
+}

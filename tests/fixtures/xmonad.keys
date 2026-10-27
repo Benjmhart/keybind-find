@@ -1,0 +1,79 @@
+M4-slash Search keybindings (keybind-find)
+
+launching and killing programs:
+M4-Shift-Return Launch Terminal
+M4-p Launch dmenu
+M4-Shift-p Launch gmrun
+M4-Shift-c Close the focused window
+
+changing layouts:
+M4-space NextLayout
+M4-Shift-space Reset the layout
+
+M4-n Refresh
+
+move focus up or down the window stack:
+M4-Tab Focus down
+M4-Shift-Tab Focus up
+M4-j Focus down
+M4-k Focus up
+M4-m Focus the master
+
+modifying the window order:
+M4-Return Swap with the master
+M4-Shift-j Swap down
+M4-Shift-k Swap up
+
+resizing the master/slave ratio:
+M4-h Shrink
+M4-l Expand
+
+floating layer support:
+M4-t Push floating to tiled
+
+change the number of windows in the master area:
+M4-comma IncMasterN 1
+M4-period IncMasterN (-1)
+
+quit, or restart:
+M4-Shift-q Quit
+M4-q Restart
+
+switching workspaces:
+M4-1 Switch to workspace 1
+M4-2 Switch to workspace 2
+M4-3 Switch to workspace 3
+M4-4 Switch to workspace 4
+M4-5 Switch to workspace 5
+M4-6 Switch to workspace 6
+M4-7 Switch to workspace 7
+M4-8 Switch to workspace 8
+M4-9 Switch to workspace 9
+M4-Shift-1 Move client to workspace 1
+M4-Shift-2 Move client to workspace 2
+M4-Shift-3 Move client to workspace 3
+M4-Shift-4 Move client to workspace 4
+M4-Shift-5 Move client to workspace 5
+M4-Shift-6 Move client to workspace 6
+M4-Shift-7 Move client to workspace 7
+M4-Shift-8 Move client to workspace 8
+M4-Shift-9 Move client to workspace 9
+
+switching screens:
+M4-w Switch to screen number S 0
+M4-e Switch to screen number S 1
+M4-r Switch to screen number S 2
+M4-Shift-w Move client to screen number S 0
+M4-Shift-e Move client to screen number S 1
+M4-Shift-r Move client to screen number S 2
+
+custom:
+F9 Example: take a screenshot
+M4-Shift-k Example: overrides Swap up
+M4-m Example: overrides Focus the master
+M4-y Example: one
+M4-x Example: open a browser
+M4-z Example: two
+M4-o Example: three
+M4-i Example: four
+M4-p Example: overrides Launch dmenu

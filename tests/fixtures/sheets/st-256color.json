@@ -1,0 +1,9 @@
+{
+  "title": "st (hand-written)",
+  "provider": "st-256color",
+  "binds": {
+    "clipboard": [
+      { "key": "shift+Insert", "desc": "Paste primary selection", "action": "" }
+    ]
+  }
+}

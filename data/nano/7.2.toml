@@ -1,0 +1,748 @@
+# nano's default main-menu keys, read by keybind-find's nano provider (story 6.9).
+# Source: GNU nano tag v7.2 (commit 549e37d218ad1d0e52b77c1e61a42b9ef94aa756), GPL-3.0-or-later:
+#   src/global.c  shortcut_init() (keys: add_to_sclist; descriptions: add_to_funcs gists, epithet_of_flag)
+#   src/rcfile.c  strtosc() (the function names nanorc's bind and unbind take)
+# A normal build (not --enable-tiny) with no options set (no --modernbindings, no --preserve), in a terminal
+# emulator (not the Linux console). Main menu only. Generated from the source at that tag; to support another
+# nano version, add a file next to this one.
+nano_version = "7.2"
+source = "nano@549e37d"
+
+[[bind]]
+key = "^M"
+function = "enter"
+desc = "Insert a newline at the cursor position"
+
+[[bind]]
+key = "Enter"
+function = "enter"
+desc = "Insert a newline at the cursor position"
+
+[[bind]]
+key = "^H"
+function = "backspace"
+desc = "Delete the character to the left of the cursor"
+
+[[bind]]
+key = "Bsp"
+function = "backspace"
+desc = "Delete the character to the left of the cursor"
+
+[[bind]]
+key = "Sh-Del"
+function = "backspace"
+desc = "Delete the character to the left of the cursor"
+
+[[bind]]
+key = "^D"
+function = "delete"
+desc = "Delete the character under the cursor"
+
+[[bind]]
+key = "Del"
+function = "delete"
+desc = "Delete the character under the cursor"
+
+[[bind]]
+key = "^I"
+function = "tab"
+desc = "Insert a tab at the cursor position (or indent marked lines)"
+
+[[bind]]
+key = "Tab"
+function = "tab"
+desc = "Insert a tab at the cursor position (or indent marked lines)"
+
+[[bind]]
+key = "^G"
+function = "help"
+desc = "Display this help text"
+
+[[bind]]
+key = "^X"
+function = "exit"
+desc = "Close the current buffer / Exit from nano"
+
+[[bind]]
+key = "^S"
+function = "savefile"
+desc = "Save file without prompting"
+
+[[bind]]
+key = "^O"
+function = "writeout"
+desc = "Write the current buffer (or the marked region) to disk"
+
+[[bind]]
+key = "^R"
+function = "insert"
+desc = "Insert another file into current buffer (or into new buffer)"
+
+[[bind]]
+key = "Ins"
+function = "insert"
+desc = "Insert another file into current buffer (or into new buffer)"
+
+[[bind]]
+key = "^Q"
+function = "wherewas"
+desc = "Search backward for a string or a regular expression"
+
+[[bind]]
+key = "^W"
+function = "whereis"
+desc = "Search forward for a string or a regular expression"
+
+[[bind]]
+key = "^\\"
+function = "replace"
+desc = "Replace a string or a regular expression"
+
+[[bind]]
+key = "M-R"
+function = "replace"
+desc = "Replace a string or a regular expression"
+
+[[bind]]
+key = "^K"
+function = "cut"
+desc = "Cut current line (or marked region) and store it in cutbuffer"
+
+[[bind]]
+key = "^U"
+function = "paste"
+desc = "Paste the contents of cutbuffer at current cursor position"
+
+[[bind]]
+key = "^T"
+function = "execute"
+desc = "Execute a function or an external command"
+
+[[bind]]
+key = "^J"
+function = "justify"
+desc = "Justify the current paragraph"
+
+[[bind]]
+key = "M-B"
+function = "linter"
+desc = "Invoke the linter, if available"
+
+[[bind]]
+key = "M-F"
+function = "formatter"
+desc = "Invoke a program to format/arrange/manipulate the buffer"
+
+[[bind]]
+key = "^C"
+function = "location"
+desc = "Display the position of the cursor"
+
+[[bind]]
+key = "^/"
+function = "gotoline"
+desc = "Go to line and column number"
+
+[[bind]]
+key = "M-G"
+function = "gotoline"
+desc = "Go to line and column number"
+
+[[bind]]
+key = "^_"
+function = "gotoline"
+desc = "Go to line and column number"
+
+[[bind]]
+key = "^Y"
+function = "pageup"
+desc = "Go one screenful up"
+
+[[bind]]
+key = "PgUp"
+function = "pageup"
+desc = "Go one screenful up"
+
+[[bind]]
+key = "^V"
+function = "pagedown"
+desc = "Go one screenful down"
+
+[[bind]]
+key = "PgDn"
+function = "pagedown"
+desc = "Go one screenful down"
+
+[[bind]]
+key = "M-\\"
+function = "firstline"
+desc = "Go to the first line of the file"
+
+[[bind]]
+key = "^Home"
+function = "firstline"
+desc = "Go to the first line of the file"
+
+[[bind]]
+key = "M-/"
+function = "lastline"
+desc = "Go to the last line of the file"
+
+[[bind]]
+key = "^End"
+function = "lastline"
+desc = "Go to the last line of the file"
+
+[[bind]]
+key = "M-W"
+function = "findnext"
+desc = "Search next occurrence forward"
+
+[[bind]]
+key = "M-Q"
+function = "findprevious"
+desc = "Search next occurrence backward"
+
+[[bind]]
+key = "M-]"
+function = "findbracket"
+desc = "Go to the matching bracket"
+
+[[bind]]
+key = "M-A"
+function = "mark"
+desc = "Mark text starting from the cursor position"
+
+[[bind]]
+key = "^6"
+function = "mark"
+desc = "Mark text starting from the cursor position"
+
+[[bind]]
+key = "^^"
+function = "mark"
+desc = "Mark text starting from the cursor position"
+
+[[bind]]
+key = "M-6"
+function = "copy"
+desc = "Copy current line (or marked region) and store it in cutbuffer"
+
+[[bind]]
+key = "M-^"
+function = "copy"
+desc = "Copy current line (or marked region) and store it in cutbuffer"
+
+[[bind]]
+key = "M-}"
+function = "indent"
+desc = "Indent the current line (or marked lines)"
+
+[[bind]]
+key = "M-{"
+function = "unindent"
+desc = "Unindent the current line (or marked lines)"
+
+[[bind]]
+key = "Sh-Tab"
+function = "unindent"
+desc = "Unindent the current line (or marked lines)"
+
+[[bind]]
+key = "M-:"
+function = "recordmacro"
+desc = "Start/stop recording a macro"
+
+[[bind]]
+key = "M-;"
+function = "runmacro"
+desc = "Run the last recorded macro"
+
+[[bind]]
+key = "M-U"
+function = "undo"
+desc = "Undo the last operation"
+
+[[bind]]
+key = "M-E"
+function = "redo"
+desc = "Redo the last undone operation"
+
+[[bind]]
+key = "M-Bsp"
+function = "chopwordleft"
+desc = "Delete backward from cursor to word start"
+
+[[bind]]
+key = "Sh-^Del"
+function = "chopwordleft"
+desc = "Delete backward from cursor to word start"
+
+[[bind]]
+key = "^Del"
+function = "chopwordright"
+desc = "Delete forward from cursor to next word start"
+
+[[bind]]
+key = "M-Del"
+function = "zap"
+desc = "Throw away the current line (or marked region)"
+
+[[bind]]
+key = "M-Ins"
+function = "anchor"
+desc = "Place or remove an anchor at the current line"
+
+[[bind]]
+key = "M-PgUp"
+function = "prevanchor"
+desc = "Jump backward to the nearest anchor"
+
+[[bind]]
+key = "M-PgDn"
+function = "nextanchor"
+desc = "Jump forward to the nearest anchor"
+
+[[bind]]
+key = "^]"
+function = "complete"
+desc = "Try and complete the current word"
+
+[[bind]]
+key = "M-3"
+function = "comment"
+desc = "Comment/uncomment the current line (or marked lines)"
+
+[[bind]]
+key = "^B"
+function = "left"
+desc = "Go back one character"
+
+[[bind]]
+key = "^F"
+function = "right"
+desc = "Go forward one character"
+
+[[bind]]
+key = "Left"
+function = "left"
+desc = "Go back one character"
+
+[[bind]]
+key = "Right"
+function = "right"
+desc = "Go forward one character"
+
+[[bind]]
+key = "^Left"
+function = "prevword"
+desc = "Go back one word"
+
+[[bind]]
+key = "^Right"
+function = "nextword"
+desc = "Go forward one word"
+
+[[bind]]
+key = "M-Left"
+function = "prevbuf"
+desc = "Switch to the previous file buffer"
+
+[[bind]]
+key = "M-Right"
+function = "nextbuf"
+desc = "Switch to the next file buffer"
+
+[[bind]]
+key = "M-Space"
+function = "prevword"
+desc = "Go back one word"
+
+[[bind]]
+key = "^Space"
+function = "nextword"
+desc = "Go forward one word"
+
+[[bind]]
+key = "^A"
+function = "home"
+desc = "Go to beginning of current line"
+
+[[bind]]
+key = "Home"
+function = "home"
+desc = "Go to beginning of current line"
+
+[[bind]]
+key = "^E"
+function = "end"
+desc = "Go to end of current line"
+
+[[bind]]
+key = "End"
+function = "end"
+desc = "Go to end of current line"
+
+[[bind]]
+key = "^P"
+function = "up"
+desc = "Go to previous line"
+
+[[bind]]
+key = "^N"
+function = "down"
+desc = "Go to next line"
+
+[[bind]]
+key = "Up"
+function = "up"
+desc = "Go to previous line"
+
+[[bind]]
+key = "Down"
+function = "down"
+desc = "Go to next line"
+
+[[bind]]
+key = "^Up"
+function = "prevblock"
+desc = "Go to previous block of text"
+
+[[bind]]
+key = "^Down"
+function = "nextblock"
+desc = "Go to next block of text"
+
+[[bind]]
+key = "M-7"
+function = "prevblock"
+desc = "Go to previous block of text"
+
+[[bind]]
+key = "M-8"
+function = "nextblock"
+desc = "Go to next block of text"
+
+[[bind]]
+key = "M-("
+function = "beginpara"
+desc = "Go to beginning of paragraph; then of previous paragraph"
+
+[[bind]]
+key = "M-9"
+function = "beginpara"
+desc = "Go to beginning of paragraph; then of previous paragraph"
+
+[[bind]]
+key = "M-)"
+function = "endpara"
+desc = "Go just beyond end of paragraph; then of next paragraph"
+
+[[bind]]
+key = "M-0"
+function = "endpara"
+desc = "Go just beyond end of paragraph; then of next paragraph"
+
+[[bind]]
+key = "M-Up"
+function = "scrollup"
+desc = "Scroll up one line without moving the cursor textually"
+
+[[bind]]
+key = "M-Down"
+function = "scrolldown"
+desc = "Scroll down one line without moving the cursor textually"
+
+[[bind]]
+key = "M--"
+function = "scrollup"
+desc = "Scroll up one line without moving the cursor textually"
+
+[[bind]]
+key = "M-_"
+function = "scrollup"
+desc = "Scroll up one line without moving the cursor textually"
+
+[[bind]]
+key = "M-+"
+function = "scrolldown"
+desc = "Scroll down one line without moving the cursor textually"
+
+[[bind]]
+key = "M-="
+function = "scrolldown"
+desc = "Scroll down one line without moving the cursor textually"
+
+[[bind]]
+key = "M-,"
+function = "prevbuf"
+desc = "Switch to the previous file buffer"
+
+[[bind]]
+key = "M-<"
+function = "prevbuf"
+desc = "Switch to the previous file buffer"
+
+[[bind]]
+key = "M-."
+function = "nextbuf"
+desc = "Switch to the next file buffer"
+
+[[bind]]
+key = "M->"
+function = "nextbuf"
+desc = "Switch to the next file buffer"
+
+[[bind]]
+key = "M-V"
+function = "verbatim"
+desc = "Insert the next keystroke verbatim"
+
+[[bind]]
+key = "M-T"
+function = "cutrestoffile"
+desc = "Cut from the cursor position to the end of the file"
+
+[[bind]]
+key = "M-D"
+function = "wordcount"
+desc = "Count the number of lines, words, and characters"
+
+[[bind]]
+key = "M-J"
+function = "fulljustify"
+desc = "Justify the entire file"
+
+[[bind]]
+key = "^L"
+function = "center"
+desc = "Center the line where the cursor is"
+
+[[bind]]
+key = "M-Z"
+function = "zero"
+desc = "Toggle: Hidden interface"
+
+[[bind]]
+key = "M-X"
+function = "nohelp"
+desc = "Toggle: Help mode"
+
+[[bind]]
+key = "M-C"
+function = "constantshow"
+desc = "Toggle: Constant cursor position display"
+
+[[bind]]
+key = "M-S"
+function = "softwrap"
+desc = "Toggle: Soft wrapping of overlong lines"
+
+[[bind]]
+key = "M-$"
+function = "softwrap"
+desc = "Toggle: Soft wrapping of overlong lines"
+
+[[bind]]
+key = "M-N"
+function = "linenumbers"
+desc = "Toggle: Line numbering"
+
+[[bind]]
+key = "M-#"
+function = "linenumbers"
+desc = "Toggle: Line numbering"
+
+[[bind]]
+key = "M-P"
+function = "whitespacedisplay"
+desc = "Toggle: Whitespace display"
+
+[[bind]]
+key = "M-Y"
+function = "nosyntax"
+desc = "Toggle: Color syntax highlighting"
+
+[[bind]]
+key = "M-H"
+function = "smarthome"
+desc = "Toggle: Smart home key"
+
+[[bind]]
+key = "M-I"
+function = "autoindent"
+desc = "Toggle: Auto indent"
+
+[[bind]]
+key = "M-K"
+function = "cutfromcursor"
+desc = "Toggle: Cut to end"
+
+[[bind]]
+key = "M-L"
+function = "breaklonglines"
+desc = "Toggle: Hard wrapping of overlong lines"
+
+[[bind]]
+key = "M-O"
+function = "tabstospaces"
+desc = "Toggle: Conversion of typed tabs to spaces"
+
+[[bind]]
+key = "M-M"
+function = "mouse"
+desc = "Toggle: Mouse support"
+
+[[bind]]
+key = "F1"
+function = "help"
+desc = "Display this help text"
+
+[[bind]]
+key = "F2"
+function = "exit"
+desc = "Close the current buffer / Exit from nano"
+
+[[bind]]
+key = "F3"
+function = "writeout"
+desc = "Write the current buffer (or the marked region) to disk"
+
+[[bind]]
+key = "F4"
+function = "justify"
+desc = "Justify the current paragraph"
+
+[[bind]]
+key = "F5"
+function = "insert"
+desc = "Insert another file into current buffer (or into new buffer)"
+
+[[bind]]
+key = "F6"
+function = "whereis"
+desc = "Search forward for a string or a regular expression"
+
+[[bind]]
+key = "F7"
+function = "pageup"
+desc = "Go one screenful up"
+
+[[bind]]
+key = "F8"
+function = "pagedown"
+desc = "Go one screenful down"
+
+[[bind]]
+key = "F9"
+function = "cut"
+desc = "Cut current line (or marked region) and store it in cutbuffer"
+
+[[bind]]
+key = "F10"
+function = "paste"
+desc = "Paste the contents of cutbuffer at current cursor position"
+
+[[bind]]
+key = "F11"
+function = "location"
+desc = "Display the position of the cursor"
+
+[[bind]]
+key = "F12"
+function = "tospell"
+desc = "Invoke the spell checker, if available"
+
+# Every function `bind` takes in this version: the main menu's (with descriptions), then the other menus'.
+[functions]
+anchor = "Place or remove an anchor at the current line"
+autoindent = "Toggle: Auto indent"
+back = "Go back one character"
+backspace = "Delete the character to the left of the cursor"
+beginpara = "Go to beginning of paragraph; then of previous paragraph"
+breaklonglines = "Toggle: Hard wrapping of overlong lines"
+center = "Center the line where the cursor is"
+chopwordleft = "Delete backward from cursor to word start"
+chopwordright = "Delete forward from cursor to next word start"
+comment = "Comment/uncomment the current line (or marked lines)"
+complete = "Try and complete the current word"
+constantshow = "Toggle: Constant cursor position display"
+copy = "Copy current line (or marked region) and store it in cutbuffer"
+cut = "Cut current line (or marked region) and store it in cutbuffer"
+cutfromcursor = "Toggle: Cut to end"
+cutrestoffile = "Cut from the cursor position to the end of the file"
+delete = "Delete the character under the cursor"
+down = "Go to next line"
+end = "Go to end of current line"
+endpara = "Go just beyond end of paragraph; then of next paragraph"
+enter = "Insert a newline at the cursor position"
+execute = "Execute a function or an external command"
+exit = "Close the current buffer / Exit from nano"
+findbracket = "Go to the matching bracket"
+findnext = "Search next occurrence forward"
+findprevious = "Search next occurrence backward"
+firstline = "Go to the first line of the file"
+formatter = "Invoke a program to format/arrange/manipulate the buffer"
+forward = "Go forward one character"
+fulljustify = "Justify the entire file"
+gotoline = "Go to line and column number"
+help = "Display this help text"
+home = "Go to beginning of current line"
+indent = "Indent the current line (or marked lines)"
+insert = "Insert another file into current buffer (or into new buffer)"
+justify = "Justify the current paragraph"
+lastline = "Go to the last line of the file"
+left = "Go back one character"
+linenumbers = "Toggle: Line numbering"
+linter = "Invoke the linter, if available"
+location = "Display the position of the cursor"
+mark = "Mark text starting from the cursor position"
+mouse = "Toggle: Mouse support"
+nextanchor = "Jump forward to the nearest anchor"
+nextblock = "Go to next block of text"
+nextbuf = "Switch to the next file buffer"
+nextline = "Go to next line"
+nextpage = "Go one screenful down"
+nextword = "Go forward one word"
+nohelp = "Toggle: Help mode"
+nosyntax = "Toggle: Color syntax highlighting"
+nowrap = "Toggle: Hard wrapping of overlong lines"
+pagedown = "Go one screenful down"
+pageup = "Go one screenful up"
+paste = "Paste the contents of cutbuffer at current cursor position"
+prevanchor = "Jump backward to the nearest anchor"
+prevblock = "Go to previous block of text"
+prevbuf = "Switch to the previous file buffer"
+prevline = "Go to previous line"
+prevpage = "Go one screenful up"
+prevword = "Go back one word"
+recordmacro = "Start/stop recording a macro"
+redo = "Redo the last undone operation"
+refresh = "Refresh (redraw) the current screen"
+replace = "Replace a string or a regular expression"
+right = "Go forward one character"
+runmacro = "Run the last recorded macro"
+savefile = "Save file without prompting"
+scrolldown = "Scroll down one line without moving the cursor textually"
+scrollup = "Scroll up one line without moving the cursor textually"
+smarthome = "Toggle: Smart home key"
+softwrap = "Toggle: Soft wrapping of overlong lines"
+speller = "Invoke the spell checker, if available"
+suspend = "Suspend the editor (return to the shell)"
+tab = "Insert a tab at the cursor position (or indent marked lines)"
+tabstospaces = "Toggle: Conversion of typed tabs to spaces"
+tospell = "Invoke the spell checker, if available"
+undo = "Undo the last operation"
+unindent = "Unindent the current line (or marked lines)"
+up = "Go to previous line"
+verbatim = "Insert the next keystroke verbatim"
+whereis = "Search forward for a string or a regular expression"
+wherewas = "Search backward for a string or a regular expression"
+whitespacedisplay = "Toggle: Whitespace display"
+wordcount = "Count the number of lines, words, and characters"
+writeout = "Write the current buffer (or the marked region) to disk"
+zap = "Throw away the current line (or marked region)"
+zero = "Toggle: Hidden interface"
+
+[other_menus]
+functions = ["append", "backup", "backwards", "browser", "cancel", "casesens", "discardbuffer", "dosformat", "firstfile", "flipconvert", "flipexecute", "flipgoto", "flipnewbuffer", "flippipe", "flipreplace", "gotodir", "lastfile", "macformat", "newer", "older", "prepend", "regexp", "tofiles"]

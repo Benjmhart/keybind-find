@@ -1,0 +1,68 @@
+# The gate (story 1.10): `mise run ci`, the same task next-story runs locally. mise.toml + mise.lock pin every tool
+# the tests need (Rust with rustfmt/clippy, neovim), so CI and every machine get the same versions. The exception is
+# mpv, from the runner image's apt archive (unpinned; its version is printed).
+# Third-party actions are pinned to commit SHAs (tag in the comment): a moving tag is a supply-chain risk.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main, staging]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # A hung test (e.g. a stuck `nvim --headless`) must not hold the job, and the merge loop, for the 6h default.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # PR code (tests, build scripts) runs below; keep the token out of .git/config.
+          persist-credentials: false
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          version: 2026.10.17
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          # The default key hashes every toolchain on the runner image, which changes between images and misses
+          # the cache; the toolchain that matters is pinned in mise.lock.
+          add-rust-environment-hash-key: false
+          key: ${{ hashFiles('mise.lock') }}
+      - run: nvim --version
+      # Story 6.33: mpv's real-mpv tests (6.6) run here, not skip. mpv publishes no Linux binaries for mise to pin, so
+      # it comes from Ubuntu's signed archive; its version is the runner image's, printed below.
+      # Retries stated explicitly (recent apt may already default to them): a mirror mid-sync fails a fetch now and then.
+      # A mirror that stops answering hung this step until the job's limit once (6.33's first run): fail fast instead.
+      - timeout-minutes: 10
+        run: |
+          # Short network timeouts: apt's default waits minutes per source, so one stalled source (a third-party list
+          # in the runner image) outlasted the step; without -qq the log names it.
+          o="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60"
+          sudo apt-get $o update
+          # The runner's own mirror (azure.archive.ubuntu.com) is sometimes slow enough that mpv's 64 MB never arrive,
+          # while still trickling bytes, so the timeouts above never fire (the base runs of #76, #77 and #78; a normal
+          # install takes ~20 s). One capped try there, then the same on archive.ubuntu.com. Downloaded .debs stay
+          # in apt's cache between tries. -q, not -qq: the log shows which file a slow try was fetching.
+          install() {
+            sudo timeout "$1" apt-get $o install -y -q --no-install-recommends mpv && exit 0
+            echo "mpv install failed or took over $1 s"
+            # A try killed while dpkg was unpacking leaves it half-done; finish that before the next.
+            sudo dpkg --configure -a || true
+          }
+          install 120
+          echo "Switching apt from the runner's mirror to archive.ubuntu.com"
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            cat /etc/apt/apt-mirrors.txt
+            echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt
+          else
+            sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|' /etc/apt/sources.list.d/*.sources
+          fi
+          sudo apt-get $o update
+          install 180
+          install 180
+          exit 1
+      - run: mpv --version
+      - run: mise run ci

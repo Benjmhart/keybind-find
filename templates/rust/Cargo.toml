@@ -1,0 +1,15 @@
+[package]
+name = "keybind-find-toy"
+version = "0.1.0"
+edition = "2021"
+description = "A keybind-find plugin for the toy format: a template to copy"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+serde_json = "1"
+# In your own copy: keybind-find-sheet = "0.1" (from crates.io). The path is for this repo's own check.
+keybind-find-sheet = { path = "../../crates/keybind-find-sheet" }
+
+# Its own workspace, not keybind-find's: it builds on its own, as your copy will.
+[workspace]

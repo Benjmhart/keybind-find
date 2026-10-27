@@ -1,0 +1,39 @@
+# Maintainer: Benjmhart
+# Installs the static musl binary from the GitHub release (built by .github/workflows/release.yml).
+pkgname=keybind-find-bin
+_pkgname=keybind-find
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Search the keybindings for the focused window and run the one you pick (prebuilt static binary)'
+arch=('x86_64')
+url='https://github.com/Benjmhart/keybind-find'
+license=('MIT')
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+optdepends=(
+  'xdotool: X11: read the focused window and send the picked keys'
+  'xorg-xprop: X11: read the window class, title and pid'
+  'xorg-xmodmap: key search, and checking config.toml keys'
+  'fzf: the list on X11 (0.66+ for key search)'
+  'alacritty: the window fzf runs in'
+  'dmenu: the list on X11 without fzf or alacritty'
+  'fuzzel: the list on Wayland'
+  'wtype: Wayland: send the picked keys'
+  'libnotify: show errors when run from a hotkey'
+  'neovim: list the bindings of nvim'
+  'tmux: list the bindings of tmux and the program in its pane'
+  'espanso: list espanso snippets'
+)
+# Release binaries are stripped already.
+options=('!strip' '!debug')
+source_x86_64=("$url/releases/download/v$pkgver/$_pkgname-$pkgver-x86_64-unknown-linux-musl.tar.gz")
+# Placeholder: release day (story 5.11) runs `updpkgsums` and regenerates .SRCINFO.
+sha256sums_x86_64=('SKIP')
+
+package() {
+  cd "$_pkgname-$pkgver-$CARCH-unknown-linux-musl"
+  install -Dm0755 -t "$pkgdir/usr/bin/" "$_pkgname"
+  install -Dm0644 -t "$pkgdir/usr/share/man/man1/" "man/$_pkgname.1"
+  install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
+  install -Dm0644 -t "$pkgdir/usr/share/doc/$_pkgname/" README.md CHANGELOG.md
+}

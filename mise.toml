@@ -1,0 +1,26 @@
+# Everything the gate and the tests need, pinned. `mise install` sets it up; `mise run ci` is the gate,
+# locally and in .github/workflows/ci.yml.
+min_version = "2026.10.17"
+
+[settings]
+lockfile = true
+# Not `locked = true`: that setting also applies to the user's global mise tools. CI installs --locked;
+# next-story's preflight fails if `mise install` changes mise.lock.
+
+[tools]
+rust = { version = "1.98.0", components = "rustfmt,clippy" }
+# Story 1.4's provider test runs real `nvim --headless`. aqua verifies the release checksum.
+"aqua:neovim/neovim" = "0.12.6"
+
+[tasks.ci]
+description = "The gate: fmt, clippy, test (all --locked)"
+run = [
+  "cargo fmt --check",
+  "cargo clippy --all-targets --locked -- -D warnings",
+  "cargo test --locked",
+  "cargo package --locked",
+  # Only what each crate's `include` means to ship, and the files it must; fails if the listing fails. One package
+  # at a time: a workspace listing runs the crates' files together.
+  '''l=$(cargo package --locked --list -p keybind-find-sheet) && ! printf '%s\n' "$l" | grep -vE '^(src/|tests/|README[.]md$|LICENSE$|Cargo[.](toml|toml[.]orig|lock)$|[.]cargo_vcs_info[.]json$)' && for f in LICENSE README.md src/lib.rs tests/fixtures/sample.json tests/fixtures/sample.txt; do printf '%s\n' "$l" | grep -qx "$f" || { echo "keybind-find-sheet's package is missing $f"; exit 1; }; done''',
+  '''l=$(cargo package --locked --list -p keybind-find) && ! printf '%s\n' "$l" | grep -vE '^(src/|data/|man/|docs/[^/]+[.]md$|README[.]md$|LICENSE$|CHANGELOG[.]md$|Cargo[.](toml|toml[.]orig|lock)$|[.]cargo_vcs_info[.]json$)' && for f in LICENSE README.md man/keybind-find.1; do printf '%s\n' "$l" | grep -qx "$f" || { echo "keybind-find's package is missing $f"; exit 1; }; done''',
+]

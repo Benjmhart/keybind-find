@@ -1,0 +1,27 @@
+pkgbase = keybind-find-bin
+	pkgdesc = Search the keybindings for the focused window and run the one you pick (prebuilt static binary)
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/Benjmhart/keybind-find
+	arch = x86_64
+	license = MIT
+	optdepends = xdotool: X11: read the focused window and send the picked keys
+	optdepends = xorg-xprop: X11: read the window class, title and pid
+	optdepends = xorg-xmodmap: key search, and checking config.toml keys
+	optdepends = fzf: the list on X11 (0.66+ for key search)
+	optdepends = alacritty: the window fzf runs in
+	optdepends = dmenu: the list on X11 without fzf or alacritty
+	optdepends = fuzzel: the list on Wayland
+	optdepends = wtype: Wayland: send the picked keys
+	optdepends = libnotify: show errors when run from a hotkey
+	optdepends = neovim: list the bindings of nvim
+	optdepends = tmux: list the bindings of tmux and the program in its pane
+	optdepends = espanso: list espanso snippets
+	provides = keybind-find
+	conflicts = keybind-find
+	options = !strip
+	options = !debug
+	source_x86_64 = https://github.com/Benjmhart/keybind-find/releases/download/v0.1.0/keybind-find-0.1.0-x86_64-unknown-linux-musl.tar.gz
+	sha256sums_x86_64 = SKIP
+
+pkgname = keybind-find-bin

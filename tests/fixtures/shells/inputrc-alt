@@ -1,0 +1,2 @@
+# Named by INPUTRC in the test: wins over ~/.inputrc.
+"\C-a": kill-line
