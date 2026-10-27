@@ -2068,7 +2068,7 @@ mod tests {
                 session,
                 true,
                 |_| panic!("X read under Wayland"),
-                |p, _| panic!("{p} asked outside sway and Hyprland"),
+                |p, _| panic!("{p} asked outside sway, Hyprland and KDE"),
             );
             assert_eq!((ctx.window_id, ctx.class, ctx.title), (None, None, None));
             assert_eq!(ctx.providers, ["espanso"]);

@@ -257,8 +257,14 @@ fn send_with(
         _ => "",
     };
     if wayland && !desktop.is_empty() {
+        // An espanso trigger is typed, not pressed.
+        let verb = if e.provider == "espanso" {
+            "type"
+        } else {
+            "press"
+        };
         bail!(
-            "can't send keys under {desktop} on Wayland (no virtual-keyboard protocol for wtype): press {} yourself",
+            "can't send keys under {desktop} on Wayland (no virtual-keyboard protocol for wtype): {verb} {} yourself",
             e.bind.key
         );
     }
@@ -662,6 +668,18 @@ mod tests {
                 "wtype -M logo -k b -m logo\n"
             );
         }
+        // An espanso trigger is to be typed.
+        let err = send_with(
+            None,
+            &entry("espanso", ":date"),
+            false,
+            true,
+            Some("kde"),
+            &mut Vec::new(),
+            &never_run,
+        )
+        .unwrap_err();
+        assert!(err.to_string().ends_with(": type :date yourself"), "{err}");
         // KDE on X11 and sway under Wayland send as before.
         for (session, wayland) in [("kde", false), ("sway", true)] {
             let ran = RefCell::new(0);

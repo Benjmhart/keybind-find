@@ -156,15 +156,15 @@ On Plasma, keybind-find reads the shortcuts kglobalacceld saves in `~/.config/kg
 Only shortcuts you have saved there are listed: a component that never wrote its shortcuts to the file isn't, since
 the running kglobalaccel (over D-Bus) is not asked. Apps' launch shortcuts (`X-KDE-Shortcuts` in their `.desktop`
 files under `kglobalaccel/` and `applications/`) are listed under `launch`, with your changes from the file on top.
-Keys keybind-find can't send (keypad keys, a key Qt names but no X keysym matches, non-ASCII keys, a modifier alone
-like `Meta`) are left out, counted in one line.
+Keys keybind-find can't send (keypad keys, a key Qt names but no X keysym matches, non-ASCII keys) are left out,
+counted in one line. A modifier pressed alone (Plasma's launcher on `Meta`) is listed as `Super_L`.
 
 On X11 the focused window is read with `xdotool` as on any X11 window manager. On Wayland it comes from
 [`kdotool`](https://github.com/jinliu/kdotool) (0.3 for Plasma 6; not in Arch's or Debian's repositories: AUR or
 `cargo install kdotool`); without it, that is one line and the list has only Plasma's shortcuts and espanso.
 
 On Wayland a pick is not sent: KWin doesn't offer the virtual-keyboard protocol that `wtype` needs, so keybind-find
-says which keys to press (`press super+e yourself`) instead. `--print` prints as anywhere else. The list shows with
+stops with an error naming the keys to press (`press super+e yourself`) instead. `--print` prints as anywhere else. The list shows with
 fuzzel, which works on KWin.
 
 ## Install
