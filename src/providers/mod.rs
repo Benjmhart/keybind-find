@@ -6,6 +6,7 @@ use crate::sheet::Sheet;
 mod alacritty;
 mod alacritty_defaults;
 mod espanso;
+mod ghostty;
 mod herdr;
 mod hyprland;
 mod kde;
@@ -45,6 +46,7 @@ pub const KNOWN: &[&str] = &[
     "nano",
     "hyprland",
     "kde",
+    "ghostty",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -57,6 +59,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "nvim" => nvim::sheet(ctx),
         "herdr" => herdr::sheet(ctx),
         "alacritty" => alacritty::sheet(ctx),
+        "ghostty" => ghostty::sheet(ctx),
         "sheets" => sheets::sheet(ctx),
         "tmux" => tmux::sheet(ctx),
         "vimium" => vimium::sheet(ctx),

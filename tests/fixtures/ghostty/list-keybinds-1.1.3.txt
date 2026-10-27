@@ -1,0 +1,11 @@
+# Synthetic, in the shape of `ghostty +list-keybinds --plain` at v1.1.3: Binding.zig `Trigger.format` (translated
+# names, `physical:<name>`).
+keybind = ctrl+shift+c=copy_to_clipboard
+keybind = super+a=select_all
+keybind = ctrl+shift+up=jump_to_prompt:-1
+keybind = ctrl+left_bracket=previous_tab
+keybind = ctrl+zero=reset_font_size
+keybind = alt+physical:one=goto_tab:1
+keybind = ctrl+shift+physical:grave_accent=toggle_quick_terminal
+keybind = shift+page_down=scroll_page_down
+keybind = kp_enter=ignore

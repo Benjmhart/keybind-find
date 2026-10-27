@@ -1,0 +1,28 @@
+# Synthetic, in the shape of `ghostty +list-keybinds --plain` at v1.4.0: Config.zig `Keybinds.formatEntryDocs`,
+# Binding.zig `Set.Value.formatEntries` and `Trigger.format` (W3C key names, `chain=`, `<table>/`).
+keybind = ctrl+shift+c=copy_to_clipboard:mixed
+keybind = ctrl+shift+v=paste_from_clipboard
+keybind = super+ctrl+alt+shift+key_a=select_all
+keybind = ctrl+digit_1=goto_tab:1
+keybind = ctrl+shift+arrow_up=jump_to_prompt:-1
+keybind = shift+page_up=scroll_page_up
+keybind = ctrl+bracket_left=previous_tab
+keybind = ctrl++=increase_font_size:1
+keybind = ctrl+==increase_font_size:1
+keybind = ctrl+equal=decrease_font_size:1
+keybind = ctrl+shift+key_o=new_split:right
+keybind = ctrl+a>n=new_window
+keybind = ctrl+a>c=new_tab
+keybind = alt+arrow_left=goto_split:left
+keybind = chain=toggle_fullscreen
+keybind = ctrl+key_q=quit
+keybind = f11=toggle_fullscreen
+keybind = numpad_add=increase_font_size:2
+keybind = ctrl+/=text:\x15
+keybind = catch_all=ignore
+keybind = ctrl+ö=reset
+keybind = super+intl_ro=ignore
+keybind = resize/h=resize_split:left,10
+keybind = resize/escape=deactivate_key_table
+keybind = resize/ctrl+a>l=resize_split:right,10
+keybind = bad table/x=ignore

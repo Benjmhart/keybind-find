@@ -466,6 +466,12 @@ fn is_terminal(class: &str) -> bool {
     TERMINALS.iter().any(|t| t.eq_ignore_ascii_case(class))
 }
 
+/// Terminals whose own keys a provider lists: window class (matched ignoring case) and provider.
+const TERMINAL_KEYS: &[(&str, &str)] = &[
+    ("Alacritty", "alacritty"),
+    ("com.mitchellh.ghostty", "ghostty"),
+];
+
 /// `child` is the terminal's foreground program (its group's leader), `group` every program in that group.
 fn providers_for(
     wm: Option<&'static str>,
@@ -475,8 +481,12 @@ fn providers_for(
 ) -> Vec<&'static str> {
     let mut providers: Vec<_> = wm.into_iter().chain(["espanso"]).collect();
     if class.is_some_and(is_terminal) {
-        if class.is_some_and(|c| c.eq_ignore_ascii_case("Alacritty")) {
-            providers.push("alacritty");
+        // The terminal's own keys.
+        if let Some((_, p)) = TERMINAL_KEYS
+            .iter()
+            .find(|(c, _)| class.is_some_and(|class| class.eq_ignore_ascii_case(c)))
+        {
+            providers.push(p);
         }
         match child {
             Some("nvim") => providers.push("nvim"),
@@ -1095,6 +1105,26 @@ mod tests {
             providers_for(Some("kde"), Some("org.kde.konsole"), Some("zsh"), &[]),
             ["kde", "espanso", "zsh", "sheets"]
         );
+        // ghostty's own keys, in any case of its class, then the program inside it.
+        for class in [
+            "com.mitchellh.ghostty",
+            "COM.MITCHELLH.GHOSTTY",
+            "Com.Mitchellh.Ghostty",
+        ] {
+            assert_eq!(
+                x(Some(class), Some("zsh")),
+                ["xmonad", "espanso", "ghostty", "zsh", "sheets"]
+            );
+        }
+        assert_eq!(
+            x(Some("Alacritty"), None),
+            ["xmonad", "espanso", "alacritty", "sheets"]
+        );
+        // Every row's provider is a known one, and its class a terminal.
+        for (class, p) in TERMINAL_KEYS {
+            assert!(crate::providers::KNOWN.contains(p), "{p}");
+            assert!(is_terminal(class), "{class}");
+        }
         assert_eq!(
             x(Some("kitty"), Some("fish")),
             ["xmonad", "espanso", "fish", "sheets"]
@@ -1255,16 +1285,18 @@ mod tests {
 
     #[test]
     fn every_terminal_gets_the_programs_inside() {
-        for class in TERMINALS
-            .iter()
-            .copied()
-            .chain(["KITTY", "xterm", "Foot", "alacritty"])
-        {
-            let own = if class.eq_ignore_ascii_case("Alacritty") {
-                vec!["alacritty"]
-            } else {
-                vec![]
-            };
+        for class in TERMINALS.iter().copied().chain([
+            "KITTY",
+            "xterm",
+            "Foot",
+            "alacritty",
+            "COM.MITCHELLH.GHOSTTY",
+        ]) {
+            let own: Vec<&str> = TERMINAL_KEYS
+                .iter()
+                .filter(|(c, _)| c.eq_ignore_ascii_case(class))
+                .map(|(_, p)| *p)
+                .collect();
             for (child, inside) in [
                 (Some("nvim"), vec!["nvim"]),
                 (Some("herdr"), vec!["herdr"]),
