@@ -20,6 +20,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | any other X11 window manager | the focused window, so every app below works; not the window manager's own keys | an EWMH window manager (it sets `_NET_ACTIVE_WINDOW`) |
 | other Wayland compositors (niri, GNOME) | espanso only: the focused window isn't read, so no app below | untested; fuzzel needs layer-shell (not GNOME), wtype the virtual-keyboard protocol (not GNOME or KDE: a pick there is refused, [below](#kde-plasma)) |
 | alacritty | its keys: alacritty's defaults merged with your `[[keyboard.bindings]]` | none |
+| Ghostty | its keys from `ghostty +list-keybinds`, as your config sets them | none ([below](#ghostty)) |
 | nvim | your maps from a headless nvim with your config, with each map's `desc` | none |
 | vim | your maps (`:map`, `:map!`, `:tmap`, `:lmap`) from a headless vim with your vimrc; not vim's built-in keys | none; it runs your vimrc ([below](#vim)) |
 | nano | its main-menu keys: nano's defaults for its version (7.2, 8.4 and 9.2 built in) with your nanorc's `bind`/`unbind` on top | none ([below](#nano)) |
@@ -39,7 +40,7 @@ WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxv
 sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
 GNOME Terminal, Xfce Terminal, WezTerm, Ghostty and Terminator), keybind-find can't tell which is the focused one: it prints a one-line warning
-and shows the list without the program inside. espanso's `word: true` matches (they
+and shows the list without the program inside (the terminal's own keys, alacritty's or Ghostty's, are still listed). espanso's `word: true` matches (they
 wait for a space or punctuation after the trigger) and regex matches (no literal trigger) can't be typed, picks do nothing while the espanso service is stopped, and matches limited by `filter_exec` aren't
 listed.
 
@@ -149,6 +150,19 @@ focused window comes from `hyprctl -j activewindow`, never from X, so a native W
 last XWayland one; if `hyprctl` fails, that is a line for the window and one for the binds, and the list goes
 on without them.
 
+### Ghostty
+
+In a Ghostty window, keybind-find asks `ghostty +list-keybinds --plain`, which reads your config files (and their
+`config-file` includes) as Ghostty does, so the list is what the config on disk says: a change you haven't reloaded
+yet is already shown. Without a config file it asks for the defaults (`--default`), since a plain `+list-keybinds`
+would write a template config for you. Binds are grouped by action. A bind in a key table (Ghostty 1.3+,
+`resize/h=…`) is tagged with it (`[key_table=resize]`), since keybind-find can't tell which table is active.
+`global:`, `all:`, `unconsumed:` and `performable:` aren't shown: `+list-keybinds` doesn't print them. `catch_all`,
+non-ASCII keys and keys with no X keysym are left out, counted in one line. By default Ghostty runs every window,
+tab and split in one process, and it has no command that names the focused one, so the program inside (nvim, a
+shell) is found only when that process runs one shell (one window with no tabs or splits, or
+`gtk-single-instance = false` with one window); otherwise you get Ghostty's keys and the one-line warning above.
+
 ### KDE Plasma
 
 On Plasma, keybind-find reads the shortcuts kglobalacceld saves in `~/.config/kglobalshortcutsrc` (or under
@@ -236,6 +250,7 @@ keybind-find keys            # grab the keyboard, print each key you press in bi
 | `xprop` | as `xdotool`: the window's class, title and pid | `xorg-xprop` | `x11-utils` |
 | `fzf` 0.60+ (0.66+ for key search) | the list on X11 | `fzf` | `fzf` (stable has 0.60: no key search) |
 | `alacritty` | the window fzf runs in | `alacritty` | `alacritty` |
+| `ghostty` | Ghostty: its keys (only when a Ghostty window has focus) | `ghostty` | not in Debian's repositories: a third-party build |
 | `xmodmap` | key search, and checking your `config.toml` keys | `xorg-xmodmap` | `x11-xserver-utils` |
 | `dmenu` | the list on X11 without fzf or alacritty (or with fzf older than 0.60, via `KEYBIND_FIND_PICKER`) | `dmenu` | `suckless-tools` |
 | `fuzzel` | the list on Wayland | `fuzzel` | `fuzzel` |

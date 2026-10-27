@@ -7,6 +7,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Added
 
+- Ghostty: its keys from `ghostty +list-keybinds` (key tables tagged), when a Ghostty window has focus.
 - KDE Plasma: its global shortcuts and apps' launch shortcuts, the focused window on Wayland through `kdotool`, and, on KDE and GNOME under Wayland, an error naming the keys to press instead of a send that can only fail.
 
 ## [0.1.0-alpha.1] - 2026-10-27
