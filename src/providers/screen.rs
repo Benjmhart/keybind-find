@@ -173,12 +173,15 @@ enum Key {
 /// One binding: key, command with its arguments, and the pinned description when it is a default command.
 type Entry = (Key, String, Option<String>);
 
+/// What a `bind` sets a key to (command and description), or `None` to remove it.
+type Action = Option<(String, Option<String>)>;
+
 /// screen's key tables as the rc files leave them.
 struct Keytab {
     main: Vec<Entry>,
     /// The rc files' `bind` lines in order (class, key, command and description, or `None` to remove), replayed over
     /// the defaults once the last `escape` is known.
-    binds: Vec<(Option<String>, Key, Option<(String, Option<String>)>)>,
+    binds: Vec<(Option<String>, Key, Action)>,
     /// The escape key and the key that sends it (`escape xy`); `None` after `escape ""` (no command key).
     escape: Option<(u8, u8)>,
     /// Pinned descriptions, by command.
@@ -402,7 +405,7 @@ impl Keytab {
 }
 
 /// Sets `key` in `table` to `action` (in place, keeping the order), or removes it with `None`.
-fn set(table: &mut Vec<Entry>, key: Key, action: Option<(String, Option<String>)>) {
+fn set(table: &mut Vec<Entry>, key: Key, action: Action) {
     let at = table.iter().position(|(k, _, _)| *k == key);
     match (at, action) {
         (Some(i), Some((c, d))) => table[i] = (key, c, d),
