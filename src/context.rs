@@ -466,13 +466,13 @@ fn is_terminal(class: &str) -> bool {
     TERMINALS.iter().any(|t| t.eq_ignore_ascii_case(class))
 }
 
-/// `child` is the terminal's foreground program (its group's leader), `group` every program in that group.
 /// Terminals whose own keys a provider lists: window class (matched ignoring case) and provider.
 const TERMINAL_KEYS: &[(&str, &str)] = &[
     ("Alacritty", "alacritty"),
     ("com.mitchellh.ghostty", "ghostty"),
 ];
 
+/// `child` is the terminal's foreground program (its group's leader), `group` every program in that group.
 fn providers_for(
     wm: Option<&'static str>,
     class: Option<&str>,

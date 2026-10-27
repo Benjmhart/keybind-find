@@ -16,13 +16,19 @@ type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 
 pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
     let env = |k: &str| std::env::var(k).ok();
-    read(command(&env))
+    read(command(&env, &|| {
+        let mut cmd = Command::new("ghostty");
+        cmd.arg("--version");
+        isolate(&mut cmd);
+        version_of(&run_for(cmd, TIMEOUT).ok()?)
+    }))
 }
 
-/// `ghostty +list-keybinds --plain`, with `--default` when there is no config file: then ghostty would write a
-/// template config, and keybind-find never creates files. `XDG_CONFIG_HOME` is set to the directory checked, so ghostty
+/// `ghostty +list-keybinds --plain`, with `--default` when ghostty would find no config file: then it would write a
+/// template config, and keybind-find never creates files. `config.ghostty` counts only from ghostty 1.3 (`version`, asked
+/// only then); before, ghostty reads only `config`. `XDG_CONFIG_HOME` is set to the directory checked, so ghostty
 /// reads the same place (it would take a relative one as relative to `/`).
-fn command(env: Env) -> Command {
+fn command(env: Env, version: &dyn Fn() -> Option<(u32, u32)>) -> Command {
     let dir = env("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
@@ -33,9 +39,8 @@ fn command(env: Env) -> Command {
                 .map(|h| h.join(".config"))
         });
     let has_config = dir.as_ref().is_some_and(|d| {
-        ["ghostty/config", "ghostty/config.ghostty"]
-            .iter()
-            .any(|f| d.join(f).exists())
+        d.join("ghostty/config").exists()
+            || d.join("ghostty/config.ghostty").exists() && version().is_some_and(|v| v >= (1, 3))
     });
     let mut cmd = Command::new("ghostty");
     cmd.arg("+list-keybinds");
@@ -46,12 +51,27 @@ fn command(env: Env) -> Command {
     if let Some(dir) = dir {
         cmd.env("XDG_CONFIG_HOME", dir);
     }
+    isolate(&mut cmd);
+    cmd
+}
+
+/// No display (ghostty must not open a window), no mise auto-install, run from `/`.
+fn isolate(cmd: &mut Command) {
     cmd.env("MISE_NOT_FOUND_AUTO_INSTALL", "0")
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
         .env_remove("WAYLAND_SOCKET")
         .current_dir("/");
-    cmd
+}
+
+/// Major and minor from `ghostty --version`'s `  - version: 1.4.0` line.
+fn version_of(text: &str) -> Option<(u32, u32)> {
+    let v = text
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("- version:"))?
+        .trim();
+    let mut parts = v.split(['.', '-', '+']);
+    Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
 }
 
 fn read(cmd: Command) -> anyhow::Result<Sheet> {
@@ -59,7 +79,7 @@ fn read(cmd: Command) -> anyhow::Result<Sheet> {
     let (sheet, skipped) = parse(&text)?;
     if skipped > 0 {
         eprintln!(
-            "keybind-find: ghostty: leaving out {skipped} binds that sent keys can't reach (catch_all, a non-ASCII key, a key with no keysym, or a key table name we can't scope)"
+            "keybind-find: ghostty: leaving out {skipped} binds (catch_all, a non-ASCII key, a key with no X keysym, a key table name that can't be a scope, or a line ghostty printed garbled)"
         );
     }
     Ok(sheet)
@@ -67,6 +87,11 @@ fn read(cmd: Command) -> anyhow::Result<Sheet> {
 
 /// The sheet from `+list-keybinds --plain`'s `keybind = <trigger>=<action>` lines, grouped by action, and how many
 /// binds were left out. A `chain=<action>` line adds its action to the bind before it.
+///
+/// ghostty (1.4.0 `Set.Value.formatEntries`) writes `chain=` over the start of its buffer, so the binds after a chained
+/// one in the same sequence come out with that text in place of their prefix (`chain=quit>c=new_tab`): such a line is
+/// left out, as its first keys are lost.
+/// ponytail: a real chained `text:` action holding `>…=` is taken for one; check the rest's trigger shape if it bites.
 fn parse(text: &str) -> anyhow::Result<(Sheet, usize)> {
     let mut sheet = Sheet {
         title: "ghostty".into(),
@@ -78,8 +103,10 @@ fn parse(text: &str) -> anyhow::Result<(Sheet, usize)> {
     // Where the last bind went, for a `chain=` line; `None` after a left-out one.
     let mut last: Option<(String, usize)> = None;
     for line in text.lines() {
+        // Only the start is trimmed: an action's argument may end in a space.
         let Some(entry) = line
-            .trim()
+            .trim_start()
+            .trim_end_matches(['\r', '\n'])
             .strip_prefix("keybind")
             .and_then(|l| l.trim_start().strip_prefix('='))
             .map(str::trim_start)
@@ -90,6 +117,14 @@ fn parse(text: &str) -> anyhow::Result<(Sheet, usize)> {
             continue;
         }
         if let Some(action) = entry.strip_prefix("chain=") {
+            if action
+                .split_once('>')
+                .is_some_and(|(_, rest)| split(rest).is_some())
+            {
+                skipped += 1;
+                last = None;
+                continue;
+            }
             if let Some((category, i)) = &last {
                 if let Some(b) = sheet.binds.get_mut(category).and_then(|v| v.get_mut(*i)) {
                     b.desc = format!("{}, then {action}", b.desc);
@@ -371,6 +406,7 @@ mod tests {
             "ctrl+bracketleft = previous_tab",
             "ctrl+plus = increase_font_size:1",
             "ctrl+equal = increase_font_size:1",
+            "ctrl+equal = decrease_font_size:1",
             "ctrl+shift+o = new_split:right",
             "ctrl+a n = new_window",
             "ctrl+a c = new_tab",
@@ -387,7 +423,7 @@ mod tests {
         }
         // catch_all, `ö`, `intl_ro` (no keysym) and the table name with a space.
         assert_eq!(skipped, 4);
-        assert_eq!(rows.len(), 20, "{rows:#?}");
+        assert_eq!(rows.len(), 21, "{rows:#?}");
         // Grouped by action; the action's name is the bind's action.
         let split = &sheet.binds["new_split"][0];
         assert_eq!(split.action, "new_split");
@@ -398,7 +434,11 @@ mod tests {
     fn parses_1_1_3() {
         let (sheet, skipped) = parse(&fixture("list-keybinds-1.1.3.txt")).unwrap();
         let rows = rows(&sheet);
-        assert_eq!(rows.len(), 9, "every 1.1.3 name has a keysym: {rows:#?}");
+        assert_eq!(
+            rows.len(),
+            9,
+            "every name in the fixture has a keysym: {rows:#?}"
+        );
         for want in [
             "ctrl+shift+c = copy_to_clipboard",
             "super+a = select_all",
@@ -413,6 +453,33 @@ mod tests {
             assert!(has(&rows, want), "{want} not in {rows:#?}");
         }
         assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn chains() {
+        let text = "keybind = ctrl+a>n=new_window\nkeybind = chain=toggle_fullscreen\nkeybind = chain=quit\n\
+                    keybind = chain=toggle_fullscreen>c=new_tab\nkeybind = chain=quit+a>d=x\n\
+                    keybind = t/k=a\nkeybind = chain=b\nkeybind = ctrl+a=text:x \n";
+        let (sheet, skipped) = parse(text).unwrap();
+        assert_eq!(
+            rows(&sheet),
+            [
+                "k = a, then b [key_table=t]",
+                "ctrl+a n = new_window, then toggle_fullscreen, then quit",
+                "ctrl+a = text:x ",
+            ]
+        );
+        // The two lines ghostty garbled after a chained bind in a sequence.
+        assert_eq!(skipped, 2);
+    }
+
+    #[test]
+    fn version_from_ghostty_version() {
+        let out =
+            "Ghostty 1.4.0\n\nVersion\n  - version: 1.4.0\n  - channel: stable\nBuild Config\n";
+        assert_eq!(version_of(out), Some((1, 4)));
+        assert_eq!(version_of("  - version: 1.3.0-dev+abc\n"), Some((1, 3)));
+        assert_eq!(version_of("Ghostty 1.1.3\n"), None);
     }
 
     #[test]
@@ -448,23 +515,37 @@ mod tests {
             "XDG_CONFIG_HOME" => Some(config.clone()),
             _ => None,
         };
-        let none = args(&command(&env));
+        let v14 = || Some((1, 4));
+        let none = args(&command(&env, &v14));
         std::fs::write(dir.join("ghostty/config"), "").unwrap();
-        let legacy = args(&command(&env));
+        // `config` is read by every ghostty: the version isn't asked.
+        let legacy = args(&command(&env, &|| panic!("version asked")));
         std::fs::remove_file(dir.join("ghostty/config")).unwrap();
         std::fs::write(dir.join("ghostty/config.ghostty"), "").unwrap();
-        let current = args(&command(&env));
-        // A relative XDG_CONFIG_HOME counts as unset: HOME's .config, passed on to ghostty.
+        let current = args(&command(&env, &v14));
+        // Before 1.3 ghostty doesn't read `config.ghostty` (and would write a template); an unknown version is as safe.
+        let old = args(&command(&env, &|| Some((1, 2))));
+        let unknown = args(&command(&env, &|| None));
+        // An empty or relative XDG_CONFIG_HOME counts as unset: HOME's .config, passed on to ghostty.
         let home = |k: &str| match k {
             "XDG_CONFIG_HOME" => Some("relative".to_string()),
             "HOME" => Some(config.clone()),
             _ => None,
         };
-        let cmd = command(&home);
+        let cmd = command(&home, &v14);
+        let empty = |k: &str| match k {
+            "XDG_CONFIG_HOME" => Some(String::new()),
+            "HOME" => Some(config.clone()),
+            _ => None,
+        };
+        let empty = command(&empty, &v14);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(none, ["+list-keybinds", "--default", "--plain"]);
         assert_eq!(legacy, ["+list-keybinds", "--plain"]);
         assert_eq!(current, ["+list-keybinds", "--plain"]);
+        assert_eq!(old, ["+list-keybinds", "--default", "--plain"]);
+        assert_eq!(unknown, ["+list-keybinds", "--default", "--plain"]);
+        assert_eq!(args(&empty), args(&cmd));
         let xdg = cmd
             .get_envs()
             .find(|(k, _)| *k == "XDG_CONFIG_HOME")
@@ -474,7 +555,7 @@ mod tests {
         assert_eq!(args(&cmd), ["+list-keybinds", "--default", "--plain"]);
         // No HOME either: the defaults.
         assert_eq!(
-            args(&command(&|_| None)),
+            args(&command(&|_| None, &v14)),
             ["+list-keybinds", "--default", "--plain"]
         );
         // The display is never passed on, and it runs from `/`.
@@ -491,10 +572,17 @@ mod tests {
 
     #[test]
     fn missing_ghostty_is_an_error_naming_it() {
-        let mut cmd = command(&|_| None);
+        let mut cmd = command(&|_| None, &|| None);
         cmd.env("PATH", "/nonexistent");
-        let e = format!("{:#}", read(cmd).unwrap_err());
-        assert!(e.contains("ghostty"), "{e}");
+        let e = read(cmd).unwrap_err();
+        // Not found, and said so with ghostty's name.
+        let io = e.root_cause().downcast_ref::<std::io::Error>();
+        assert_eq!(
+            io.map(|e| e.kind()),
+            Some(std::io::ErrorKind::NotFound),
+            "{e:#}"
+        );
+        assert!(format!("{e:#}").contains("running ghostty"), "{e:#}");
     }
 
     #[test]
@@ -519,14 +607,57 @@ mod tests {
             "XDG_CONFIG_HOME" => Some(format!("{home}/config")),
             _ => None,
         };
-        let mut cmd = command(&env);
-        cmd.env("HOME", &dir);
-        let sheet = read(cmd);
-        let files: Vec<_> = walk(&dir);
+        let real_version = || {
+            let mut cmd = Command::new("ghostty");
+            cmd.arg("--version");
+            isolate(&mut cmd);
+            version_of(&run_for(cmd, TIMEOUT).ok()?)
+        };
+        // Every XDG directory in the temp dir, so a file ghostty writes anywhere is seen.
+        let run = |env: Env| {
+            let mut cmd = command(env, &real_version);
+            cmd.env("HOME", &dir);
+            for (k, sub) in [
+                ("XDG_STATE_HOME", "state"),
+                ("XDG_CACHE_HOME", "cache"),
+                ("XDG_DATA_HOME", "data"),
+            ] {
+                cmd.env(k, dir.join(sub));
+            }
+            read(cmd)
+        };
+        let defaults = run(&env);
+        let after_defaults = walk(&dir);
+        // With a config file: ghostty reads it (the directory passed on), and still writes nothing.
+        std::fs::create_dir_all(dir.join("config/ghostty")).unwrap();
+        std::fs::write(
+            dir.join("config/ghostty/config"),
+            "keybind = ctrl+shift+f12=quit\n",
+        )
+        .unwrap();
+        let configured = run(&env);
+        let after_config = walk(&dir);
         let _ = std::fs::remove_dir_all(&dir);
-        let sheet = sheet.unwrap();
-        assert!(!sheet.binds.is_empty());
-        assert_eq!(files, [dir.join("config")], "ghostty wrote files");
+        assert!(!defaults.unwrap().binds.is_empty());
+        assert_eq!(after_defaults, [dir.join("config")], "ghostty wrote files");
+        let configured = configured.unwrap();
+        assert!(
+            configured
+                .binds
+                .values()
+                .flatten()
+                .any(|b| b.key == "ctrl+shift+F12" && b.desc == "quit"),
+            "the config's bind is missing"
+        );
+        assert_eq!(
+            after_config,
+            [
+                dir.join("config"),
+                dir.join("config/ghostty"),
+                dir.join("config/ghostty/config")
+            ],
+            "ghostty wrote files"
+        );
     }
 
     /// Every path under `dir`.

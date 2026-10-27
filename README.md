@@ -157,11 +157,14 @@ In a Ghostty window, keybind-find asks `ghostty +list-keybinds --plain`, which r
 yet is already shown. Without a config file it asks for the defaults (`--default`), since a plain `+list-keybinds`
 would write a template config for you. Binds are grouped by action. A bind in a key table (Ghostty 1.3+,
 `resize/h=…`) is tagged with it (`[key_table=resize]`), since keybind-find can't tell which table is active.
-`global:`, `all:`, `unconsumed:` and `performable:` aren't shown: `+list-keybinds` doesn't print them. `catch_all`,
-non-ASCII keys and keys with no X keysym are left out, counted in one line. By default Ghostty runs every window,
-tab and split in one process, and it has no command that names the focused one, so the program inside (nvim, a
-shell) is found only when that process runs one shell (one window with no tabs or splits, or
-`gtk-single-instance = false` with one window); otherwise you get Ghostty's keys and the one-line warning above.
+Binds with `global:`, `all:`, `unconsumed:` or `performable:` are listed without that prefix: `+list-keybinds`
+doesn't print it. `catch_all`, non-ASCII keys, keys with no X keysym and key tables whose name can't be a scope are
+left out, counted in one line. Ghostty 1.2+ names keys by their place on a US keyboard (`key_q`, `digit_1`), and
+keybind-find shows and sends that key's US symbol, so on another layout (AZERTY, Dvorak) such a bind may be on a
+different key. Started from the desktop, Ghostty runs every window, tab and split in one process
+(`gtk-single-instance`), and it has no command that names the focused one, so the program inside (nvim, a shell) is
+found only when that process runs one shell; otherwise you get Ghostty's keys and the one-line warning above. A
+window whose class you changed (Ghostty's `class` option) isn't recognised as Ghostty.
 
 ### KDE Plasma
 

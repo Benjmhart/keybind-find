@@ -9,6 +9,7 @@ keybind = shift+page_up=scroll_page_up
 keybind = ctrl+bracket_left=previous_tab
 keybind = ctrl++=increase_font_size:1
 keybind = ctrl+==increase_font_size:1
+keybind = ctrl+equal=decrease_font_size:1
 keybind = ctrl+shift+key_o=new_split:right
 keybind = ctrl+a>n=new_window
 keybind = ctrl+a>c=new_tab
