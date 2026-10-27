@@ -1,0 +1,435 @@
+# GNU screen's default command keys (after the escape key), read by keybind-find's screen provider (story 6.13).
+# Source: https://ftp.gnu.org/gnu/screen/screen-4.9.1.tar.gz (screen 4.9.1), GPL-3.0-or-later:
+#   process.c  InitKeytab() (keys and commands, later assignments winning, every #ifdef feature on). Not here: `other`
+#   and `meta`, which screen puts on the escape keys last (`^A` and `a` by default; the reader adds them).
+#   doc/screen.1  "DEFAULT KEY BINDINGS" (descriptions, by command)
+# Keys in screen's spelling (`^A`, `^?`); `backtab` is the termcap back-tab key. `L` (login) needs a utmp build.
+# Generated from the tarball by a script kept out of the repo; to support another screen version, add a file next
+# to this one.
+screen_version = "4.9.1"
+source = "https://ftp.gnu.org/gnu/screen/screen-4.9.1.tar.gz"
+
+[[bind]]
+key = "h"
+command = "hardcopy"
+desc = "Write a hardcopy of the current window to the file hardcopy.n"
+
+[[bind]]
+key = "z"
+command = "suspend"
+desc = "Suspend screen"
+
+[[bind]]
+key = "^Z"
+command = "suspend"
+desc = "Suspend screen"
+
+[[bind]]
+key = "c"
+command = "screen"
+desc = "Create a new window with a shell and switch to that window"
+
+[[bind]]
+key = "^C"
+command = "screen"
+desc = "Create a new window with a shell and switch to that window"
+
+[[bind]]
+key = " "
+command = "history"
+desc = "Copy and paste a previous (command) line"
+
+[[bind]]
+key = "^@"
+command = "next"
+desc = "Switch to the next window"
+
+[[bind]]
+key = "n"
+command = "next"
+desc = "Switch to the next window"
+
+[[bind]]
+key = "^N"
+command = "next"
+desc = "Switch to the next window"
+
+[[bind]]
+key = "N"
+command = "number"
+desc = "Show the number (and title) of the current window"
+
+[[bind]]
+key = "^H"
+command = "prev"
+desc = "Switch to the previous window (opposite of C-a n)"
+
+[[bind]]
+key = "^?"
+command = "prev"
+desc = "Switch to the previous window (opposite of C-a n)"
+
+[[bind]]
+key = "p"
+command = "prev"
+desc = "Switch to the previous window (opposite of C-a n)"
+
+[[bind]]
+key = "^P"
+command = "prev"
+desc = "Switch to the previous window (opposite of C-a n)"
+
+[[bind]]
+key = "k"
+command = "kill"
+desc = "Destroy current window"
+
+[[bind]]
+key = "^K"
+command = "kill"
+desc = "Destroy current window"
+
+[[bind]]
+key = "l"
+command = "redisplay"
+desc = "Fully refresh current window"
+
+[[bind]]
+key = "^L"
+command = "redisplay"
+desc = "Fully refresh current window"
+
+[[bind]]
+key = "w"
+command = "windows"
+desc = "Show a list of window"
+
+[[bind]]
+key = "^W"
+command = "windows"
+desc = "Show a list of window"
+
+[[bind]]
+key = "v"
+command = "version"
+desc = "Display the version and compilation date"
+
+[[bind]]
+key = "^V"
+command = "digraph"
+desc = "Enter digraph"
+
+[[bind]]
+key = "q"
+command = "xon"
+desc = "Send a control-q to the current window"
+
+[[bind]]
+key = "^Q"
+command = "xon"
+desc = "Send a control-q to the current window"
+
+[[bind]]
+key = "s"
+command = "xoff"
+desc = "Send a control-s to the current window"
+
+[[bind]]
+key = "^S"
+command = "xoff"
+desc = "Send a control-s to the current window"
+
+[[bind]]
+key = "t"
+command = "time"
+desc = "Show system information"
+
+[[bind]]
+key = "^T"
+command = "time"
+desc = "Show system information"
+
+[[bind]]
+key = "i"
+command = "info"
+desc = "Show info about this window"
+
+[[bind]]
+key = "^I"
+command = "focus"
+desc = "Switch the input focus to the next region"
+
+[[bind]]
+key = "m"
+command = "lastmsg"
+desc = "Repeat the last message displayed in the message line"
+
+[[bind]]
+key = "^M"
+command = "lastmsg"
+desc = "Repeat the last message displayed in the message line"
+
+[[bind]]
+key = "A"
+command = "title"
+desc = "Allow the user to enter a name for the current window"
+
+[[bind]]
+key = "L"
+command = "login"
+desc = "Toggle this windows login slot"
+
+[[bind]]
+key = ","
+command = "license"
+desc = "Shows where screen comes from, where it went to and why you can use it"
+
+[[bind]]
+key = "W"
+command = "width"
+desc = "Toggle 80/132 columns"
+
+[[bind]]
+key = "."
+command = "dumptermcap"
+desc = "Write out a .termcap file"
+
+[[bind]]
+key = "^\\"
+command = "quit"
+desc = "Kill all windows and terminate screen"
+
+[[bind]]
+key = "d"
+command = "detach"
+desc = "Detach screen from this terminal"
+
+[[bind]]
+key = "^D"
+command = "detach"
+desc = "Detach screen from this terminal"
+
+[[bind]]
+key = "D"
+command = "pow_detach"
+desc = "Detach and logout"
+
+[[bind]]
+key = "r"
+command = "wrap"
+desc = "Toggle the current window's line-wrap setting (turn the current window's automatic margins on and off)"
+
+[[bind]]
+key = "^R"
+command = "wrap"
+desc = "Toggle the current window's line-wrap setting (turn the current window's automatic margins on and off)"
+
+[[bind]]
+key = "f"
+command = "flow"
+desc = "Toggle flow on, off or auto"
+
+[[bind]]
+key = "^F"
+command = "flow"
+desc = "Toggle flow on, off or auto"
+
+[[bind]]
+key = "C"
+command = "clear"
+desc = "Clear the screen"
+
+[[bind]]
+key = "Z"
+command = "reset"
+desc = "Reset the virtual terminal to its power-on values"
+
+[[bind]]
+key = "H"
+command = "log"
+desc = "Begins/ends logging of the current window to the file screenlog.n"
+
+[[bind]]
+key = "M"
+command = "monitor"
+desc = "Toggles monitoring of the current window"
+
+[[bind]]
+key = "?"
+command = "help"
+desc = "Show key bindings"
+
+[[bind]]
+key = "*"
+command = "displays"
+desc = "Show a listing of all currently attached displays"
+
+[[bind]]
+key = "-"
+command = "select -"
+desc = "Switch to window number 0 - 9, or to the blank window"
+
+[[bind]]
+key = "'"
+command = "select"
+desc = "Prompt for a window name or number to switch to"
+
+[[bind]]
+key = "\""
+command = "windowlist -b"
+desc = "Present a list of all windows for selection"
+
+[[bind]]
+key = "^G"
+command = "vbell"
+desc = "Toggles screen's visual bell mode"
+
+[[bind]]
+key = ":"
+command = "colon"
+desc = "Enter command line mode"
+
+[[bind]]
+key = "["
+command = "copy"
+desc = "Enter copy/scrollback mode"
+
+[[bind]]
+key = "^["
+command = "copy"
+desc = "Enter copy/scrollback mode"
+
+[[bind]]
+key = "]"
+command = "paste ."
+desc = "Write the contents of the paste buffer to the stdin queue of the current window"
+
+[[bind]]
+key = "^]"
+command = "paste ."
+desc = "Write the contents of the paste buffer to the stdin queue of the current window"
+
+[[bind]]
+key = ">"
+command = "writebuf"
+desc = "Write paste buffer to a file"
+
+[[bind]]
+key = "<"
+command = "readbuf"
+desc = "Reads the screen-exchange file into the paste buffer"
+
+[[bind]]
+key = "="
+command = "removebuf"
+desc = "Removes the file used by C-a < and C-a >"
+
+[[bind]]
+key = "x"
+command = "lockscreen"
+desc = "Lock this terminal"
+
+[[bind]]
+key = "^X"
+command = "lockscreen"
+desc = "Lock this terminal"
+
+[[bind]]
+key = "b"
+command = "break"
+desc = "Send a break to window"
+
+[[bind]]
+key = "^B"
+command = "break"
+desc = "Send a break to window"
+
+[[bind]]
+key = "B"
+command = "pow_break"
+desc = "Reopen the terminal line and send a break"
+
+[[bind]]
+key = "_"
+command = "silence"
+desc = "Start/stop monitoring the current window for inactivity"
+
+[[bind]]
+key = "S"
+command = "split"
+desc = "Split the current region horizontally into two new ones"
+
+[[bind]]
+key = "Q"
+command = "only"
+desc = "Delete all regions but the current one"
+
+[[bind]]
+key = "X"
+command = "remove"
+desc = "Kill the current region"
+
+[[bind]]
+key = "F"
+command = "fit"
+desc = "Resize the window to the current region size"
+
+[[bind]]
+key = "backtab"
+command = "focus prev"
+desc = "Switch the input focus to the previous region"
+
+[[bind]]
+key = "|"
+command = "split -v"
+desc = "Split the current region vertically into two new ones"
+
+[[bind]]
+key = "0"
+command = "select 0"
+desc = "Switch to window number 0 - 9"
+
+[[bind]]
+key = "1"
+command = "select 1"
+desc = "Switch to window number 0 - 9"
+
+[[bind]]
+key = "2"
+command = "select 2"
+desc = "Switch to window number 0 - 9"
+
+[[bind]]
+key = "3"
+command = "select 3"
+desc = "Switch to window number 0 - 9"
+
+[[bind]]
+key = "4"
+command = "select 4"
+desc = "Switch to window number 0 - 9"
+
+[[bind]]
+key = "5"
+command = "select 5"
+desc = "Switch to window number 0 - 9"
+
+[[bind]]
+key = "6"
+command = "select 6"
+desc = "Switch to window number 0 - 9"
+
+[[bind]]
+key = "7"
+command = "select 7"
+desc = "Switch to window number 0 - 9"
+
+[[bind]]
+key = "8"
+command = "select 8"
+desc = "Switch to window number 0 - 9"
+
+[[bind]]
+key = "9"
+command = "select 9"
+desc = "Switch to window number 0 - 9"

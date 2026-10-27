@@ -81,13 +81,16 @@ fn focus(
     (ctx, program)
 }
 
-/// nvim inside herdr or tmux, each asked through `run` (a test seam) only in its own context.
+/// nvim inside herdr, tmux or screen, each asked through `run` (a test seam) only in its own context.
 fn add_nested_nvim(
     providers: &mut Vec<&'static str>,
     run: impl Fn(&str, &[&str]) -> anyhow::Result<String> + Copy,
 ) {
     add_nvim_in(providers, "herdr", || herdr_pane_runs_nvim(run));
     add_nvim_in(providers, "tmux", || tmux_pane_runs_nvim(run));
+    add_nvim_in(providers, "screen", || {
+        screen_window_runs_nvim(run, std::path::Path::new("/proc"))
+    });
 }
 
 /// In a context holding the multiplexer `outer` (herdr, tmux), adds nvim after it when its focused pane runs nvim.
@@ -177,6 +180,88 @@ fn tmux_pane_runs_nvim(
         }
     }
     Ok(runs)
+}
+
+/// Whether screen's current window runs nvim: the one attached session (`screen -ls`), its current window's number
+/// (`screen -S <session> -Q number`), the server's child with `WINDOW=<number>` in its environment under `proc` (a
+/// test seam for `/proc`), and that child's terminal's foreground group leader. Records nvim's pid.
+/// ponytail: several attached sessions can't be told apart (screen has no client activity, unlike tmux): an error, not
+/// a guess. Match the session to the client in the focused terminal if that bites.
+fn screen_window_runs_nvim(
+    run: impl Fn(&str, &[&str]) -> anyhow::Result<String>,
+    proc: &std::path::Path,
+) -> anyhow::Result<bool> {
+    let (pid, comm) = screen_window_program(run, proc)?;
+    let runs = comm == "nvim";
+    if runs {
+        found_nvim(pid);
+    }
+    Ok(runs)
+}
+
+/// The pid and comm of the program leading screen's current window (see `screen_window_runs_nvim`).
+fn screen_window_program(
+    run: impl Fn(&str, &[&str]) -> anyhow::Result<String>,
+    proc: &std::path::Path,
+) -> anyhow::Result<(u32, String)> {
+    let ls = run("screen", &["-ls"])?;
+    let session = attached_session(&ls)?;
+    let number = run("screen", &["-S", session, "-Q", "number"])?;
+    let number: u32 = number
+        .split_whitespace()
+        .next()
+        .and_then(|n| n.parse().ok())
+        .with_context(|| format!("screen -Q number printed {number:?}"))?;
+    let server: u32 = session
+        .split('.')
+        .next()
+        .and_then(|p| p.parse().ok())
+        .with_context(|| format!("no pid in the session name {session:?}"))?;
+    let window = window_process(proc, server, number)
+        .with_context(|| format!("no process of screen window {number} under pid {server}"))?;
+    let stat =
+        std::fs::read_to_string(proc.join(window.to_string()).join("stat")).unwrap_or_default();
+    let leader = tpgid(&stat).unwrap_or(window);
+    let comm =
+        std::fs::read_to_string(proc.join(leader.to_string()).join("comm")).unwrap_or_default();
+    Ok((leader, comm.trim_end().to_string()))
+}
+
+/// The one attached session's name (`<pid>.<name>`) in `screen -ls`: lines `\t<name>\t[date\t](<state>)`, attached
+/// when the state is `(Attached)` or `(Multi, attached)`. None or several is an error.
+fn attached_session(ls: &str) -> anyhow::Result<&str> {
+    let attached: Vec<&str> = ls
+        .lines()
+        .filter(|l| l.starts_with('\t'))
+        .filter(|l| {
+            let state = l.rfind('(').map_or("", |i| l[i..].trim_end());
+            matches!(state, "(Attached)" | "(Multi, attached)")
+        })
+        .filter_map(|l| l.split_whitespace().next())
+        .collect();
+    match attached.as_slice() {
+        [one] => Ok(one),
+        [] => bail!("no attached screen session"),
+        many => bail!(
+            "{} attached screen sessions; can't tell which is in this terminal",
+            many.len()
+        ),
+    }
+}
+
+/// The child of screen's server `server` whose environment holds `WINDOW=<number>`.
+fn window_process(proc: &std::path::Path, server: u32, number: u32) -> Option<u32> {
+    let want = format!("WINDOW={number}");
+    let tasks = std::fs::read_dir(proc.join(server.to_string()).join("task")).ok()?;
+    tasks
+        .flatten()
+        .filter_map(|t| std::fs::read_to_string(t.path().join("children")).ok())
+        .flat_map(|c| c.split_whitespace().map(str::to_string).collect::<Vec<_>>())
+        .filter_map(|c| c.parse::<u32>().ok())
+        .find(|c| {
+            std::fs::read(proc.join(c.to_string()).join("environ"))
+                .is_ok_and(|e| e.split(|b| *b == 0).any(|v| v == want.as_bytes()))
+        })
 }
 
 /// From `list-clients -F '#{client_activity} #{pane_current_command}'`: whether the client with the latest activity
@@ -499,6 +584,8 @@ fn providers_for(
             Some("fish") => providers.push("fish"),
             Some("vim" | "vi") => providers.push("vim"),
             Some("nano" | "rnano") => providers.push("nano"),
+            // The client in the terminal; the server renames its argv (`SCREEN`), not its comm.
+            Some("screen") => providers.push("screen"),
             _ => {}
         }
         // `man`, `git log` and `systemctl status` lead the pipeline that less runs in.
@@ -1308,6 +1395,7 @@ mod tests {
                 (Some("vi"), vec!["vim"]),
                 (Some("nano"), vec!["nano"]),
                 (Some("rnano"), vec!["nano"]),
+                (Some("screen"), vec!["screen"]),
                 (Some("python3"), vec![]),
                 (None, vec![]),
             ] {
@@ -1462,6 +1550,111 @@ mod tests {
             add_nvim_in(&mut p, "tmux", || panic!("tmux queried for {child:?}"));
             assert_eq!(p, before);
         }
+    }
+
+    #[test]
+    fn screen_sessions_from_ls() {
+        let ls = |lines: &[&str]| {
+            format!(
+                "There are screens on:\n{}\n2 Sockets in /run/screen/S-u.\n",
+                lines.join("\n")
+            )
+        };
+        assert_eq!(
+            attached_session(&ls(&["\t100.pts-1.host\t(Attached)"])).unwrap(),
+            "100.pts-1.host"
+        );
+        assert_eq!(
+            attached_session(&ls(&["\t100.a\t(Detached)", "\t200.b\t(Attached)"])).unwrap(),
+            "200.b"
+        );
+        // Some builds print a date before the state.
+        assert_eq!(
+            attached_session(&ls(&["\t300.c\t(10/27/2026 10:00:00 AM)\t(Attached)"])).unwrap(),
+            "300.c"
+        );
+        assert_eq!(
+            attached_session(&ls(&["\t400.d\t(Multi, attached)"])).unwrap(),
+            "400.d"
+        );
+        let two = ls(&["\t1.a\t(Attached)", "\t2.b\t(Attached)"]);
+        assert!(format!("{:#}", attached_session(&two).unwrap_err()).contains("2 attached"));
+        assert!(attached_session(&ls(&["\t1.a\t(Detached)"])).is_err());
+        assert!(attached_session("No Sockets found in /run/screen/S-u.\n").is_err());
+    }
+
+    #[test]
+    fn screen_window_program_from_proc() {
+        let dir = std::env::temp_dir().join(format!("kbf-screen-proc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let write = |path: &str, text: &[u8]| {
+            let path = dir.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        // The server (100) and two windows: 0 runs bash, 3 a zsh whose foreground group is led by nvim (310).
+        write("100/task/100/children", b"200 300 ");
+        write("200/environ", b"HOME=/h\0WINDOW=0\0");
+        write("200/stat", b"200 (bash) S 100 200 200 34816 200 0");
+        write("200/comm", b"bash\n");
+        write("300/environ", b"WINDOW=3\0TERM=screen\0");
+        write("300/stat", b"300 (zsh) S 100 300 300 34817 310 0");
+        write("310/comm", b"nvim\n");
+        let calls = std::cell::RefCell::new(Vec::new());
+        let window = std::cell::Cell::new("3 (zsh)");
+        let fake = |program: &str, args: &[&str]| {
+            calls
+                .borrow_mut()
+                .push(format!("{program} {}", args.join(" ")));
+            Ok(match args[0] {
+                "-ls" => "There is a screen on:\n\t100.pts-1.host\t(Attached)\n".to_string(),
+                _ => window.get().to_string(),
+            })
+        };
+        let nvim = screen_window_program(fake, &dir);
+        window.set("0 (bash)");
+        let bash = screen_window_program(fake, &dir);
+        window.set("7 (gone)");
+        let gone = screen_window_program(fake, &dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(nvim.unwrap(), (310, "nvim".to_string()));
+        assert_eq!(bash.unwrap(), (200, "bash".to_string()));
+        assert!(format!("{:#}", gone.unwrap_err()).contains("screen window 7"));
+        assert_eq!(
+            calls.borrow()[..2],
+            ["screen -ls", "screen -S 100.pts-1.host -Q number"]
+        );
+    }
+
+    #[test]
+    fn nvim_is_added_only_in_a_screen_context() {
+        let screen = || providers_for(Some("xmonad"), Some("Alacritty"), Some("screen"), &[]);
+        assert_eq!(
+            screen(),
+            ["xmonad", "espanso", "alacritty", "screen", "sheets"]
+        );
+        let mut p = screen();
+        add_nvim_in(&mut p, "screen", || Ok(true));
+        assert_eq!(
+            p,
+            ["xmonad", "espanso", "alacritty", "screen", "nvim", "sheets"]
+        );
+        // A failed query (no session here) keeps the plain context, and only a screen context asks.
+        let calls = std::cell::RefCell::new(Vec::new());
+        let fake = |program: &str, args: &[&str]| {
+            calls
+                .borrow_mut()
+                .push(format!("{program} {}", args.join(" ")));
+            anyhow::bail!("No Sockets found")
+        };
+        let mut p = screen();
+        add_nested_nvim(&mut p, fake);
+        assert_eq!(p, screen());
+        assert_eq!(*calls.borrow(), ["screen -ls"]);
+        calls.borrow_mut().clear();
+        let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("zsh"), &[]);
+        add_nested_nvim(&mut p, fake);
+        assert!(calls.borrow().is_empty());
     }
 
     #[test]
