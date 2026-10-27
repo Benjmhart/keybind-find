@@ -81,9 +81,12 @@ fn alternate(entries: &mut [Entry]) {
         }
     }
     groups.reverse();
-    let wm = groups
-        .iter()
-        .position(|g| matches!(g[0].provider.as_str(), "xmonad" | "sway" | "hyprland"));
+    let wm = groups.iter().position(|g| {
+        matches!(
+            g[0].provider.as_str(),
+            "xmonad" | "sway" | "hyprland" | "kde"
+        )
+    });
     if let Some(wm @ 1..) = wm {
         let g = groups.remove(wm);
         groups.insert(1, g);
@@ -260,6 +263,10 @@ mod tests {
         assert_eq!(
             ranked(&[("hyprland", 1), ("espanso", 1), ("nvim", 1)], ""),
             ["nvim0", "hyprland0", "espanso0"]
+        );
+        assert_eq!(
+            ranked(&[("kde", 1), ("espanso", 1), ("nvim", 1)], ""),
+            ["nvim0", "kde0", "espanso0"]
         );
     }
 

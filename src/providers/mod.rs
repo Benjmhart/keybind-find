@@ -8,6 +8,7 @@ mod alacritty_defaults;
 mod espanso;
 mod herdr;
 mod hyprland;
+mod kde;
 mod less;
 mod mpv;
 mod nano;
@@ -43,6 +44,7 @@ pub const KNOWN: &[&str] = &[
     "vim",
     "nano",
     "hyprland",
+    "kde",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -50,6 +52,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "xmonad" => xmonad::sheet(ctx),
         "sway" => sway::sheet(ctx),
         "hyprland" => hyprland::sheet(ctx),
+        "kde" => kde::sheet(ctx),
         "espanso" => espanso::sheet(ctx),
         "nvim" => nvim::sheet(ctx),
         "herdr" => herdr::sheet(ctx),

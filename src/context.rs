@@ -16,7 +16,7 @@ pub struct Context {
 
 /// Never fails: anything it can't read leaves that field `None`, the window-manager and espanso providers still
 /// apply, and one warning goes to stderr. Under sway the window comes from sway's tree, under Hyprland from `hyprctl`,
-/// on X from X, and in any other Wayland session there is no focus source yet.
+/// under KDE on Wayland from `kdotool`, on X from X, and in any other Wayland session there is no focus source yet.
 pub fn detect() -> Context {
     let wayland = set(env_var("WAYLAND_DISPLAY"));
     let session = current_session();
@@ -48,7 +48,7 @@ fn current_session() -> Option<&'static str> {
     })
 }
 
-/// The context for `session`, with the focus read from sway's tree or Hyprland's active window (each through `query`,
+/// The context for `session`, with the focus read from sway's tree, Hyprland's or KWin's active window (each through `query`,
 /// `run`'s shape), from X through `read_x`, or not at all under any other Wayland session: an XWayland window's stale
 /// class would bring in a wrong sheet. Both readers are test seams. Also returns the program inside the window.
 fn focus(
@@ -71,6 +71,9 @@ fn focus(
         }
         Some("hyprland") if wayland => query("hyprctl", &["-j", "activewindow"])
             .and_then(|json| read_hyprland_focus(&mut ctx, &json)),
+        Some("kde") if wayland => {
+            query("kdotool", &KDOTOOL_FOCUS).and_then(|out| read_kde_focus(&mut ctx, &out))
+        }
         _ if wayland => return (ctx, None),
         _ => read_x(&mut ctx),
     };
@@ -390,10 +393,10 @@ fn session_file_name(d: &str) -> &str {
     name.strip_suffix(".desktop").unwrap_or(name)
 }
 
-/// The window-manager provider for a session: only sway, Hyprland and xmonad have one. Nothing falls back to xmonad: a leftover
-/// `xmonad.keys` under i3 must not show.
+/// The window-manager provider for a session: only sway, Hyprland, xmonad and KDE have one. Nothing falls back to
+/// xmonad: a leftover `xmonad.keys` under i3 must not show.
 fn wm_provider(session: Option<&'static str>) -> Option<&'static str> {
-    session.filter(|s| matches!(*s, "sway" | "hyprland" | "xmonad"))
+    session.filter(|s| matches!(*s, "sway" | "hyprland" | "xmonad" | "kde"))
 }
 
 /// The EWMH check window's `_NET_WM_NAME` (who the window manager says it is); `None` when anything is unreadable.
@@ -621,6 +624,39 @@ fn read_hyprland_focus(ctx: &mut Context, json: &str) -> anyhow::Result<Option<F
     };
     ctx.window_id = Some(id);
     let child = program_in(&props, "pid from hyprctl");
+    ctx.class = props.class;
+    ctx.title = props.title;
+    child
+}
+
+/// One `kdotool` run (it loads a KWin script per run) printing the active window's pid, class and caption.
+const KDOTOOL_FOCUS: [&str; 4] = [
+    "getactivewindow",
+    "getwindowpid",
+    "getwindowclassname",
+    "getwindowname",
+];
+
+/// Fills class and title from `kdotool`'s lines (pid, class, then the caption, which may span lines); returns the
+/// program running inside a terminal window. No output is no window, nothing to warn about. No window id: KWin's is
+/// a UUID, not an X id, and only `xdotool` would use it.
+fn read_kde_focus(ctx: &mut Context, out: &str) -> anyhow::Result<Option<Foreground>> {
+    if out.trim().is_empty() {
+        return Ok(None);
+    }
+    let mut lines = out.lines();
+    let (Some(pid), Some(class)) = (lines.next(), lines.next()) else {
+        bail!("kdotool printed {out:?}, not a pid and a class");
+    };
+    let title = lines.collect::<Vec<_>>().join("\n");
+    let text = |s: &str| Some(s.to_string()).filter(|s| !s.is_empty());
+    let props = Props {
+        class: text(class.trim()),
+        instance: None,
+        pid: pid.trim().parse().ok().filter(|&p| p > 0),
+        title: text(&title),
+    };
+    let child = program_in(&props, "pid from kdotool");
     ctx.class = props.class;
     ctx.title = props.title;
     child
@@ -1054,6 +1090,10 @@ mod tests {
         assert_eq!(
             providers_for(Some("sway"), Some("Alacritty"), Some("bash"), &[]),
             ["sway", "espanso", "alacritty", "bash", "sheets"]
+        );
+        assert_eq!(
+            providers_for(Some("kde"), Some("org.kde.konsole"), Some("zsh"), &[]),
+            ["kde", "espanso", "zsh", "sheets"]
         );
         assert_eq!(
             x(Some("kitty"), Some("fish")),
@@ -1623,6 +1663,104 @@ mod tests {
     }
 
     #[test]
+    fn kde_focus_fills_the_context() {
+        let kde = |ctx: &mut Context| {
+            ctx.providers = providers_for(Some("kde"), None, None, &[]);
+        };
+        // A konsole: the program inside comes from its pid (a stand-in shell here, as for Hyprland).
+        let mut sh = KillOnDrop(
+            Command::new("sh")
+                .args(["-c", "cat; :"])
+                .stdin(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let out = format!("{}\norg.kde.konsole\nTitle\n", sh.0.id());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut ctx = empty_context();
+        kde(&mut ctx);
+        let found = loop {
+            let found = read_kde_focus(&mut ctx, &out).unwrap();
+            if found.is_some() || Instant::now() > deadline {
+                break found;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert_eq!(found.map(|f| f.comm).as_deref(), Some("cat"));
+        assert_eq!(ctx.window_id, None);
+        assert_eq!(ctx.class.as_deref(), Some("org.kde.konsole"));
+        assert_eq!(ctx.title.as_deref(), Some("Title"));
+        let _ = sh.0.kill();
+        drop(sh.0.stdin.take());
+        // A caption with a newline keeps both lines; the class reaches the providers.
+        let mut ctx = empty_context();
+        let focus = read_kde_focus(&mut ctx, "42\nGimp\nline one\nline two\n");
+        settle(&mut ctx, Some("kde"), focus);
+        assert_eq!(ctx.title.as_deref(), Some("line one\nline two"));
+        assert_eq!(ctx.class.as_deref(), Some("Gimp"));
+        assert_eq!(ctx.providers, ["kde", "espanso", "sheets"]);
+        // No window: nothing filled in, no error.
+        let mut ctx = empty_context();
+        let focus = read_kde_focus(&mut ctx, "");
+        assert!(matches!(focus, Ok(None)));
+        settle(&mut ctx, Some("kde"), focus);
+        assert_eq!((ctx.class, ctx.title), (None, None));
+        assert_eq!(ctx.providers, ["kde", "espanso"]);
+        // Half an answer is an error (one warning from `settle`); a terminal without a pid names it.
+        let mut ctx = empty_context();
+        assert!(read_kde_focus(&mut ctx, "42\n").is_err());
+        let mut ctx = empty_context();
+        let focus = read_kde_focus(&mut ctx, "null\nfoot\nt\n");
+        assert_eq!(
+            format!("{:#}", focus.unwrap_err()),
+            "foot window has no pid from kdotool"
+        );
+    }
+
+    #[test]
+    fn kde_wayland_asks_kdotool_never_x() {
+        let asked = std::cell::RefCell::new(Vec::new());
+        let (ctx, program) = focus(
+            Some("kde"),
+            true,
+            |_| panic!("X read under KDE Wayland"),
+            |p, args| {
+                asked.borrow_mut().push(format!("{p} {}", args.join(" ")));
+                Err(anyhow::anyhow!("running kdotool (is it installed?)"))
+            },
+        );
+        assert_eq!(
+            *asked.borrow(),
+            ["kdotool getactivewindow getwindowpid getwindowclassname getwindowname"]
+        );
+        assert_eq!(program, None);
+        assert_eq!((ctx.window_id, ctx.class), (None, None));
+        assert_eq!(ctx.providers, ["kde", "espanso"]);
+        // A working kdotool fills the window in.
+        let (ctx, _) = focus(
+            Some("kde"),
+            true,
+            |_| panic!("X read under KDE Wayland"),
+            |_, _| Ok("7\norg.kde.dolphin\nHome\n".into()),
+        );
+        assert_eq!(ctx.class.as_deref(), Some("org.kde.dolphin"));
+        assert_eq!(ctx.providers, ["kde", "espanso", "sheets"]);
+        // Plasma on X11 keeps the X path.
+        let (ctx, _) = focus(
+            Some("kde"),
+            false,
+            |ctx| {
+                ctx.window_id = Some("5".into());
+                ctx.class = Some("Gimp".into());
+                Ok(None)
+            },
+            |p, _| panic!("{p} asked on X11"),
+        );
+        assert_eq!(ctx.window_id.as_deref(), Some("5"));
+        assert_eq!(ctx.providers, ["kde", "espanso", "sheets"]);
+    }
+
+    #[test]
     fn the_foreground_group_reaches_the_providers() {
         let mut ctx = empty_context();
         ctx.class = Some("Alacritty".into());
@@ -1895,16 +2033,13 @@ mod tests {
     }
 
     #[test]
-    fn only_sway_hyprland_and_xmonad_have_a_provider() {
-        assert_eq!(wm_provider(Some("sway")), Some("sway"));
-        assert_eq!(wm_provider(Some("hyprland")), Some("hyprland"));
-        assert_eq!(wm_provider(Some("xmonad")), Some("xmonad"));
+    fn which_sessions_have_a_provider() {
+        // Each session with a window-manager provider names itself; a new one adds a row.
+        let with = ["sway", "hyprland", "xmonad", "kde"];
         assert_eq!(wm_provider(None), None);
-        for (s, _) in SESSIONS
-            .iter()
-            .filter(|(s, _)| !matches!(*s, "sway" | "hyprland" | "xmonad"))
-        {
-            assert_eq!(wm_provider(Some(s)), None, "{s}");
+        for (s, _) in SESSIONS {
+            let want = with.contains(s).then_some(*s);
+            assert_eq!(wm_provider(Some(s)), want, "{s}");
         }
         for (s, _) in SESSIONS {
             if let Some(p) = wm_provider(Some(s)) {

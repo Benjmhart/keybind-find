@@ -16,8 +16,9 @@ The lists are read from the programs' real configuration, your own bindings incl
 | xmonad | your keymap, with each binding's name, and xmonad's stock keys | a few lines in `xmonad.hs`, incl. `ewmh`: [docs/xmonad.md](docs/xmonad.md) |
 | sway | your `bindsym` lines (following `include` and `set $var`), and the focused window from sway's tree | none |
 | Hyprland | its binds from the running compositor (`hyprctl -j binds`), with each bind's description, and the focused window from `hyprctl` | none ([below](#hyprland)) |
+| KDE Plasma | its global shortcuts (`kglobalshortcutsrc`) and the launch shortcuts of `.desktop` files, and the focused window (on Wayland from `kdotool`) | on Wayland, `kdotool`; picks there are not sent ([below](#kde-plasma)) |
 | any other X11 window manager | the focused window, so every app below works; not the window manager's own keys | an EWMH window manager (it sets `_NET_ACTIVE_WINDOW`) |
-| other Wayland compositors | espanso, and the apps below only in an XWayland window (read with `xdotool`, so a native window may show the last XWayland app's keys) | untested; fuzzel and wtype need a wlroots compositor (not GNOME, likely not KDE) |
+| other Wayland compositors (niri, GNOME) | espanso only: the focused window isn't read, so no app below | untested; fuzzel needs layer-shell (not GNOME), wtype the virtual-keyboard protocol (not GNOME or KDE: a pick there is refused, [below](#kde-plasma)) |
 | alacritty | its keys: alacritty's defaults merged with your `[[keyboard.bindings]]` | none |
 | nvim | your maps from a headless nvim with your config, with each map's `desc` | none |
 | vim | your maps (`:map`, `:map!`, `:tmap`, `:lmap`) from a headless vim with your vimrc; not vim's built-in keys | none; it runs your vimrc ([below](#vim)) |
@@ -148,6 +149,24 @@ focused window comes from `hyprctl -j activewindow`, never from X, so a native W
 last XWayland one; if `hyprctl` fails, that is a line for the window and one for the binds, and the list goes
 on without them.
 
+### KDE Plasma
+
+On Plasma, keybind-find reads the shortcuts kglobalacceld saves in `~/.config/kglobalshortcutsrc` (or under
+`$XDG_CONFIG_HOME`), grouped by component (KWin, Plasma, Session Management, …), each shown by its friendly name.
+Only shortcuts you have saved there are listed: a component that never wrote its shortcuts to the file isn't, since
+the running kglobalaccel (over D-Bus) is not asked. Apps' launch shortcuts (`X-KDE-Shortcuts` in their `.desktop`
+files under `kglobalaccel/` and `applications/`) are listed under `launch`, with your changes from the file on top.
+Keys keybind-find can't send (keypad keys, a key Qt names but no X keysym matches, non-ASCII keys, a modifier alone
+like `Meta`) are left out, counted in one line.
+
+On X11 the focused window is read with `xdotool` as on any X11 window manager. On Wayland it comes from
+[`kdotool`](https://github.com/jinliu/kdotool) (0.3 for Plasma 6; not in Arch's or Debian's repositories: AUR or
+`cargo install kdotool`); without it, that is one line and the list has only Plasma's shortcuts and espanso.
+
+On Wayland a pick is not sent: KWin doesn't offer the virtual-keyboard protocol that `wtype` needs, so keybind-find
+says which keys to press (`press super+e yourself`) instead. `--print` prints as anywhere else. The list shows with
+fuzzel, which works on KWin.
+
 ## Install
 
 From source, now:
@@ -213,7 +232,7 @@ keybind-find keys            # grab the keyboard, print each key you press in bi
 
 | Tool | Needed for | Arch | Debian |
 |---|---|---|---|
-| `xdotool` | X11: the focused window and sending keys; other Wayland compositors: the focused XWayland window | `xdotool` | `xdotool` |
+| `xdotool` | X11: the focused window and sending keys | `xdotool` | `xdotool` |
 | `xprop` | as `xdotool`: the window's class, title and pid | `xorg-xprop` | `x11-utils` |
 | `fzf` 0.60+ (0.66+ for key search) | the list on X11 | `fzf` | `fzf` (stable has 0.60: no key search) |
 | `alacritty` | the window fzf runs in | `alacritty` | `alacritty` |
@@ -223,6 +242,7 @@ keybind-find keys            # grab the keyboard, print each key you press in bi
 | `wtype` | Wayland: sending keys | `wtype` | `wtype` |
 | `swaymsg` | sway: the focused window | `sway` | `sway` |
 | `hyprctl` | Hyprland: its binds and the focused window | `hyprland` | `hyprland` |
+| `kdotool` | KDE Plasma 6 on Wayland: the focused window | AUR `kdotool`, or `cargo install kdotool` | not packaged: `cargo install kdotool` |
 | `notify-send` | errors shown when run from a hotkey | `libnotify` | `libnotify-bin` |
 
 Each app's provider needs that app (`nvim`, `herdr`, `tmux`, `espanso`), and is only asked when it applies.

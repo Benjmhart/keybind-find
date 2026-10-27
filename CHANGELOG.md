@@ -5,6 +5,10 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- KDE Plasma: its global shortcuts and apps' launch shortcuts, the focused window on Wayland through `kdotool`, and a plain answer instead of a failed send on KDE and GNOME under Wayland.
+
 ## [0.1.0-alpha.1] - 2026-10-27
 
 The first public pre-release. 1.0.0 follows once it has been used for a while.

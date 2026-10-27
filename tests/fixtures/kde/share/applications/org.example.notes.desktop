@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Notes
+Exec=notes
+Actions=new;
+
+[Desktop Action new]
+Name=New Note
+Exec=notes --new
+X-KDE-Shortcuts=Meta+N
