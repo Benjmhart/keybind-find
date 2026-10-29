@@ -27,6 +27,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | nvim | your maps from a headless nvim with your config, with each map's `desc` | none |
 | vim | your maps (`:map`, `:map!`, `:tmap`, `:lmap`) from a headless vim with your vimrc; not vim's built-in keys | none; it runs your vimrc ([below](#vim)) |
 | nano | its main-menu keys: nano's defaults for its version (7.2, 8.4 and 9.2 built in) with your nanorc's `bind`/`unbind` on top | none ([below](#nano)) |
+| yazi | its keys: yazi's default keymap for its version (25.4.8, 25.5.31 and 26.9.1 built in) with your `keymap.toml` merged in | none ([below](#yazi)) |
 | herdr | herdr's defaults for its version, your `config.toml` and plugin commands | none |
 | tmux | the running server's `list-keys`, so your prefix and bindings, with each key's note | none |
 | GNU screen | its default command keys for its version (4.9 and 5.0 built in) with `/etc/screenrc` and your screenrc's `bind`, `bind -c` and `escape` on top | none ([below](#screen)) |
@@ -39,7 +40,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | espanso | `espanso match list`; picking a match types its trigger | none |
 | anything else | a sheet you write, or a script that prints one | [docs/sheets.md](docs/sheets.md) |
 
-nvim, vim, nano, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
+nvim, vim, nano, yazi, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
 sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
@@ -140,6 +141,23 @@ other menus are not listed. `include` lines are checked (a missing file is a one
 syntax definitions from included files, so they change no key. The defaults are a normal build's with no options:
 `--modernbindings`, `--rcfile` and the like aren't read, rnano is shown with nano's keys, and a nano built with
 another system nanorc than `/etc/nanorc` has that file's binds missed.
+
+### yazi
+
+Over yazi in a terminal, keybind-find lists yazi's keys by section (`mgr`, `input`, `tasks`, …; `manager` before yazi
+25.5.28): the default keymap of your yazi's version (from `yazi --version`; 25.4.8, 25.5.31 and 26.9.1 are built in,
+yazi's own `keymap-default.toml` at each tag; another version uses the nearest of the same year, else the nearest older,
+else the oldest, and says so: 25.5.28 to 25.5.30 get 25.4.8's, with `manager` where they have `mgr`, so there your
+`[mgr]` is ignored too) with your `keymap.toml` merged in as yazi merges it. It is read from `$YAZI_CONFIG_HOME`, else
+`$XDG_CONFIG_HOME/yazi`, else `~/.config/yazi`. Per section, `keymap` replaces the defaults, `prepend_keymap` goes first
+and replaces the defaults on the same first two keys, and `append_keymap` goes last unless a default has those keys; an
+entry for another platform (`for = "macos"`; before 26.x also `for = "all"`) or one that runs `noop` (how yazi unbinds a
+key) isn't listed, and of two on the same keys only the first is, as yazi runs the first. A section your yazi doesn't
+have (`[manager]` from 25.5.28 on) is named in one line and ignored, as yazi ignores it. A `keymap.toml` yazi would
+refuse (not TOML, an entry without `on` or `run`, a key with a modifier yazi doesn't know, from 26.x a `for` it doesn't
+know, a section that isn't a table) is one line, and yazi's defaults are shown. A key with no keysym keybind-find knows
+is left out, counted in one line. Not read: keys plugins or `init.lua` change at runtime; a plugin bound in
+`keymap.toml` (`run = "plugin foo"`) is listed by its `run`.
 
 ### Hyprland
 

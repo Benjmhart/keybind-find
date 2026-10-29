@@ -1,0 +1,3 @@
+# Synthetic. An entry yazi refuses: no `run`.
+[mgr]
+prepend_keymap = [ { on = "<C-A-n>" } ]

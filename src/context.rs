@@ -632,6 +632,7 @@ fn providers_for(
             Some("nano" | "rnano") => providers.push("nano"),
             // The client in the terminal; the server renames its argv (`SCREEN`), not its comm.
             Some("screen") => providers.push("screen"),
+            Some("yazi") => providers.push("yazi"),
             _ => {}
         }
         // `man`, `git log` and `systemctl status` lead the pipeline that less runs in.
@@ -1333,6 +1334,11 @@ mod tests {
             providers_for(Some("kde"), Some("org.kde.konsole"), Some("zsh"), &[]),
             ["kde", "espanso", "zsh", "sheets"]
         );
+        // yazi in a terminal, before `sheets`.
+        assert_eq!(
+            x(Some("Alacritty"), Some("yazi")),
+            ["xmonad", "espanso", "alacritty", "yazi", "sheets"]
+        );
         // An Xfce X11 session: xfwm4's keys from the `xfce` provider.
         assert_eq!(
             providers_for(
@@ -1554,6 +1560,7 @@ mod tests {
                 (Some("nano"), vec!["nano"]),
                 (Some("rnano"), vec!["nano"]),
                 (Some("screen"), vec!["screen"]),
+                (Some("yazi"), vec!["yazi"]),
                 (Some("python3"), vec![]),
                 (None, vec![]),
             ] {

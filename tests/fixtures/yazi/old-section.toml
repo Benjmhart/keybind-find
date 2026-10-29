@@ -1,0 +1,5 @@
+# Synthetic. The section's name before yazi 25.5.28.
+[manager]
+prepend_keymap = [
+	{ on = "<C-A-o>", run = "shell old" },
+]

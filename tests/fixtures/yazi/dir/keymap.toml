@@ -1,0 +1,4 @@
+# Synthetic. Found through YAZI_CONFIG_HOME; a `$schema` line is no section.
+"$schema" = "https://yazi-rs.github.io/schemas/keymap.json"
+[mgr]
+prepend_keymap = [ { on = "<C-A-z>", run = "shell from-dir" } ]
