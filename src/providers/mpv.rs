@@ -762,8 +762,8 @@ mod tests {
              mp.add_key_binding('Ctrl+' .. string.char(97 + n % 26), 'c' .. n, function() end) end)",
         )
         .unwrap();
-        // The provider's own limit: the 1 s cap must dump before it.
-        let r = real(&base, TIMEOUT);
+        // Without the cap the bindings never settle and mpv is killed at the limit.
+        let r = real(&base, REAL_TIMEOUT);
         let _ = std::fs::remove_dir_all(&base);
         let Some(r) = r else {
             return;
