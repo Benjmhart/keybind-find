@@ -331,9 +331,9 @@ Each app's provider needs that app (`nvim`, `herdr`, `tmux`, `espanso`), and is 
 - **Wayland.** The fzf picker and key search are X11 only; on Wayland the list opens in fuzzel
   (or `KEYBIND_FIND_PICKER`). The focused window is read under sway, Hyprland and KDE (with `kdotool`); under
   other compositors no window is read, so no app's keys are listed.
-- **Another compositor set `XDG_CURRENT_DESKTOP` to KDE or GNOME.** Only a running Plasma or GNOME Shell counts as
-  KDE or GNOME on Wayland, so wayfire, river, labwc and the like are treated as themselves (picks are sent with
-  `wtype`), as is a leftover `SWAYSOCK` or Hyprland variable whose socket is gone.
+- **Another compositor set `XDG_CURRENT_DESKTOP` to KDE or GNOME.** On Wayland only a running Plasma or GNOME Shell
+  counts as KDE or GNOME, so wayfire, river, labwc and the like no longer have their picks refused (they are sent with
+  `wtype`); nor does a leftover `SWAYSOCK`, `NIRI_SOCKET` or Hyprland variable whose socket is gone name the session.
 
 ## Development
 

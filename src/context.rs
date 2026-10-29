@@ -467,8 +467,10 @@ fn session(
                 return exists(std::path::Path::new(&v));
             }
             // Hyprland 0.40+ keeps its sockets in `$XDG_RUNTIME_DIR/hypr/<signature>/`, older ones in `/tmp/hypr/`.
-            // A signature with a `/` names no directory of its own.
+            // A signature with a `/`, or `.`/`..`, names no directory of its own.
             !v.contains('/')
+                && v != "."
+                && v != ".."
                 && env("XDG_RUNTIME_DIR")
                     .map(std::path::PathBuf::from)
                     .into_iter()
@@ -486,6 +488,9 @@ fn session(
         }
         // Plasma's startup exports `KDE_FULL_SESSION=true` and `KDE_SESSION_VERSION`; its compositor is
         // `kwin_wayland`, GNOME's `gnome-shell`.
+        // ponytail: a compositor nested in Plasma inherits its variables, `user_comms` sees the user's other logins,
+        // and a crashed compositor's socket file still exists; each names a session that isn't this one. Scope the
+        // processes by `/proc/<pid>/sessionid` and connect to the socket if that bites.
         let evident = |s: &str| match s {
             "kde" => {
                 env("KDE_FULL_SESSION").as_deref() == Some("true")
@@ -2302,6 +2307,14 @@ mod tests {
             wayland_in(&[w, "HYPRLAND_INSTANCE_SIGNATURE=../x"], &["/tmp/x"], &[]),
             None
         );
+        for sig in [".", ".."] {
+            let v = format!("HYPRLAND_INSTANCE_SIGNATURE={sig}");
+            assert_eq!(
+                wayland_in(&[w, &v], &["/tmp/hypr/.", "/tmp/hypr/.."], &[]),
+                None,
+                "{sig}"
+            );
+        }
         // A stale SWAYSOCK beside a live Hyprland.
         assert_eq!(
             wayland_in(
@@ -2332,6 +2345,15 @@ mod tests {
         }
         assert_eq!(wayland_in(&kde, &[], &["zsh", "kwin_wayland"]), Some("kde"));
         assert_eq!(wayland_in(&kde, &[], &["zsh", "kwin_x11"]), None);
+        // Empty variables are no evidence.
+        assert_eq!(
+            wayland_in(
+                &[w, "XDG_CURRENT_DESKTOP=KDE", "KDE_SESSION_VERSION="],
+                &[],
+                &[]
+            ),
+            None
+        );
         assert_eq!(
             wayland_in(
                 &[w, "XDG_CURRENT_DESKTOP=KDE", "KDE_FULL_SESSION=false"],
@@ -2381,7 +2403,8 @@ mod tests {
         );
     }
 
-    /// A Wayland compositor that sets `XDG_CURRENT_DESKTOP=KDE` without Plasma running reads no window: no kdotool.
+    /// A Wayland compositor that sets `XDG_CURRENT_DESKTOP=KDE` without Plasma running is no session, and `focus` with
+    /// it asks no compositor (`kdotool` included) and reads no window.
     #[test]
     fn kde_without_evidence_reads_no_window() {
         let s = wayland_in(
