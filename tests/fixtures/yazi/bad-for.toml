@@ -1,0 +1,6 @@
+# Synthetic. A `for` yazi 26.x refuses; 25.x drops just that entry.
+[manager]
+prepend_keymap = [
+	{ on = "<C-A-b>", run = "shell bad-for", for = "Linux" },
+	{ on = "<C-A-k>", run = "shell kept" },
+]

@@ -2,5 +2,6 @@
 [mgr]
 prepend_keymap = [
 	{ on = [ "g", "g" ], run = "arrow bot", desc = "Go to bottom, not top" },
-	{ on = "Q", run = "noop" },
+	{ on = "Q", run = " noop " },
+	{ on = [ "g", "e", "x" ], run = "shell gex" },
 ]

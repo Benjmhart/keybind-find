@@ -82,8 +82,8 @@ impl OneOrMany {
 pub fn sheet() -> anyhow::Result<Sheet> {
     let env = |k: &str| std::env::var(k).ok();
     let (sheet, notes) = sheet_with(REGISTRY, |_| {}, &env)?;
-    for note in notes {
-        eprintln!("keybind-find: yazi: {note}");
+    if !notes.is_empty() {
+        eprintln!("keybind-find: yazi: {}", notes.join("; "));
     }
     Ok(sheet)
 }
@@ -105,14 +105,19 @@ fn sheet_with(
         .context("no pinned yazi keymap")?;
     let mut notes: Vec<String> = note.into_iter().collect();
     let defaults = keymap(text).with_context(|| format!("reading data/yazi/{v}.toml"))?;
-    let user = keymap_file(env).and_then(|path| match read_user(&path) {
+    let user = keymap_file(env).and_then(|path| match read_user(&path, v) {
         Ok(user) => Some(user),
         Err(e) => {
-            notes.push(format!("{e:#}; showing yazi's defaults"));
+            // On one line: a TOML error spans several.
+            let e = format!("{e:#}")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            notes.push(format!("{e}; showing yazi's defaults"));
             None
         }
     });
-    let (sheet, left_out, unknown) = merge(defaults, user.unwrap_or_default());
+    let (sheet, left_out, unknown) = merge(v, defaults, user.unwrap_or_default());
     if !unknown.is_empty() {
         notes.push(format!(
             "keymap.toml's [{}] isn't a section of yazi {v}'s keymap; ignored, as yazi does",
@@ -152,13 +157,13 @@ fn keymap(text: &str) -> anyhow::Result<Keymap> {
     let table: toml::Table = toml::from_str(text)?;
     table
         .into_iter()
-        .filter(|(_, v)| v.is_table())
+        .filter(|(k, v)| v.is_table() || !k.starts_with('$'))
         .map(|(k, v)| Ok((k.clone(), v.try_into().with_context(|| format!("[{k}]"))?)))
         .collect()
 }
 
 /// The user's keymap, refused whole (as yazi refuses it) when it isn't TOML or an entry lacks `on` or `run`.
-fn read_user(path: &std::path::Path) -> anyhow::Result<Keymap> {
+fn read_user(path: &std::path::Path, v: &str) -> anyhow::Result<Keymap> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let keymap = keymap(&text).with_context(|| format!("reading {}", path.display()))?;
@@ -173,14 +178,47 @@ fn read_user(path: &std::path::Path) -> anyhow::Result<Keymap> {
         if e.on.items().is_empty() || e.run.items().is_empty() {
             anyhow::bail!("{}: an entry with an empty `on` or `run`", path.display());
         }
-        if !matches!(
-            e.platform.as_deref(),
-            None | Some("all" | "linux" | "unix" | "macos" | "windows" | "android")
-        ) {
+        if let Some(k) = e.on.items().into_iter().find(|k| !yazi_reads(k)) {
+            anyhow::bail!("{}: a key yazi refuses: {k:?}", path.display());
+        }
+        if platform_kept(v, e.platform.as_deref()).is_none() {
             anyhow::bail!("{}: unknown `for` {:?}", path.display(), e.platform);
         }
     }
     Ok(keymap)
+}
+
+/// Whether an entry with `for` = `platform` is kept on Linux by the yazi of pin `v`: through 25.x, `for` is a string
+/// that keeps only `linux` and `unix` (any other is dropped); from 26.x an enum, where `all` is kept too and a name
+/// it doesn't have refuses the file (`None`).
+// ponytail: the enum's version is taken as 26 by the pins; between 25.5.31 and 26.9.1 nothing marks it.
+fn platform_kept(v: &str, platform: Option<&str>) -> Option<bool> {
+    let enum_ = parse_version(v).is_some_and(|p| p.first().is_some_and(|y| *y >= 26));
+    match platform {
+        None | Some("linux" | "unix") => Some(true),
+        Some("all") if enum_ => Some(true),
+        Some("macos" | "windows" | "android") if enum_ => Some(false),
+        Some(_) if enum_ => None,
+        Some(_) => Some(false),
+    }
+}
+
+/// Whether yazi's `Key::from_str` takes `key` (else it refuses the whole file): not empty, and inside `<…>` only
+/// `S-` `C-` `A-` `D-` before the last part, which isn't one of them. Any last part is a key to yazi (`<Foo>` is its
+/// `F`); `notation` is stricter, and leaves out what it can't name.
+fn yazi_reads(key: &str) -> bool {
+    let Some(inner) = key.strip_prefix('<').and_then(|k| k.strip_suffix('>')) else {
+        return !key.is_empty();
+    };
+    let parts: Vec<String> = inner
+        .split_inclusive('-')
+        .map(str::to_ascii_lowercase)
+        .collect();
+    let is_mod = |p: &str| matches!(p, "s-" | "c-" | "a-" | "d-");
+    match parts.split_last() {
+        Some((last, before)) => !is_mod(last) && before.iter().all(|p| is_mod(p)),
+        None => false,
+    }
 }
 
 /// The sheet of `defaults` with `user` merged over it per section (yazi's `deserialize_over_hook`): `keymap`
@@ -188,7 +226,7 @@ fn read_user(path: &std::path::Path) -> anyhow::Result<Keymap> {
 /// `append_keymap` goes last, less those whose first two keys a default has. Then, as yazi, entries for another
 /// platform and `noop` ones are dropped, and of two with the same keys the first stays. Also returns how many keys
 /// had no notation, and the user's sections the defaults lack.
-fn merge(defaults: Keymap, mut user: Keymap) -> (Sheet, usize, Vec<String>) {
+fn merge(v: &str, defaults: Keymap, mut user: Keymap) -> (Sheet, usize, Vec<String>) {
     let mut sheet = Sheet {
         title: "yazi".into(),
         provider: "yazi".into(),
@@ -222,8 +260,8 @@ fn merge(defaults: Keymap, mut user: Keymap) -> (Sheet, usize, Vec<String>) {
             .cloned()
             .chain(base.iter().filter(|e| !first.contains(&two(e))).cloned())
             .chain(append.iter().filter(|e| !kept.contains(&two(e))).cloned())
-            .filter(|e| matches!(e.platform.as_deref(), None | Some("all" | "linux" | "unix")))
-            .filter(|e| e.run.items() != ["noop"])
+            .filter(|e| platform_kept(v, e.platform.as_deref()) == Some(true))
+            .filter(|e| !matches!(e.run.items()[..], [run] if run.trim() == "noop"))
             .collect();
         let mut seen: Vec<Vec<String>> = Vec::new();
         for e in entries {
@@ -299,6 +337,7 @@ fn notation(key: &str) -> Option<String> {
                     "esc" => "Escape".into(),
                     f if f
                         .strip_prefix('f')
+                        .filter(|n| !n.starts_with('0') && n.bytes().all(|b| b.is_ascii_digit()))
                         .and_then(|n| n.parse::<u8>().ok())
                         .is_some_and(|n| (1..=19).contains(&n)) =>
                     {
@@ -341,7 +380,7 @@ mod tests {
     }
 
     fn user(name: &str) -> Keymap {
-        read_user(&fixtures().join(name)).unwrap()
+        read_user(&fixtures().join(name), "26.9.1").unwrap()
     }
 
     fn rows<'a>(s: &'a Sheet, section: &str) -> Vec<(&'a str, &'a str)> {
@@ -375,12 +414,28 @@ mod tests {
                 text.contains("MIT licensed: Copyright (c) 2023 - sxyazi"),
                 "{v}"
             );
-            let (s, left_out, unknown) = merge(defaults(v), Keymap::new());
+            let (s, left_out, unknown) = merge(v, defaults(v), Keymap::new());
             assert_eq!((left_out, unknown.len()), (0, 0), "{v}");
-            let ons = text.matches("on = ").count() + text.matches("on  = ").count();
-            assert!(ons > 200, "{v}: {ons}");
-            assert!(
-                s.binds.values().flatten().all(|b| !b.desc.is_empty()),
+            // Every entry is listed: none merged away, none lost (the presets have no duplicate and no `for`).
+            let entries = text.matches("{ on").count();
+            assert_eq!(
+                s.binds.values().map(Vec::len).sum::<usize>(),
+                entries,
+                "{v}"
+            );
+            // And the whole file is there: its last section's last entry is the last bind listed for it.
+            let section = text.lines().rfind(|l| l.starts_with('[')).unwrap();
+            let section = section.trim_matches(['[', ']']);
+            let on = text
+                .rsplit("{ on = \"")
+                .next()
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap();
+            assert_eq!(
+                s.binds[section].last().unwrap().key,
+                notation(on).unwrap(),
                 "{v}"
             );
         }
@@ -391,7 +446,7 @@ mod tests {
         );
         assert!(names("25.4.8").contains(&"manager".to_string()));
         assert!(!names("25.5.31").contains(&"manager".to_string()));
-        let (s, _, _) = merge(defaults("26.9.1"), Keymap::new());
+        let (s, _, _) = merge("26.9.1", defaults("26.9.1"), Keymap::new());
         let q = find(&s, "mgr", "q");
         assert_eq!(
             (q.len(), q[0].desc.as_str(), q[0].action.as_str()),
@@ -415,7 +470,10 @@ mod tests {
             version_of("Yazi 0.4.2 (abcdef 2024-12-01)").as_deref(),
             Some("0.4.2")
         );
+        // Before the `[mgr]` rename (25.5.28), the `[manager]` pin; 25.5.28-25.5.30 too (a note asks for their pin).
         for (v, want) in [
+            ("25.5.10", "25.4.8"),
+            ("25.5.28", "25.4.8"),
             ("25.12.29", "25.5.31"),
             ("25.2.26", "25.4.8"),
             ("0.4.2", "25.4.8"),
@@ -442,7 +500,7 @@ mod tests {
     #[test]
     fn prepend_append_and_replace() {
         // prepend: `g g`'s default goes, `g h` (same first key, other second) stays.
-        let (s, _, _) = merge(defaults("26.9.1"), user("prepend.toml"));
+        let (s, _, _) = merge("26.9.1", defaults("26.9.1"), user("prepend.toml"));
         let gg = find(&s, "mgr", "g g");
         assert_eq!(gg.len(), 1);
         assert_eq!(gg[0].action, "arrow bot");
@@ -450,25 +508,29 @@ mod tests {
         assert_eq!(find(&s, "mgr", "g h")[0].action, "cd ~");
         // A prepended `noop` unbinds a default: both are gone.
         assert!(find(&s, "mgr", "shift+q").is_empty());
+        // By the first two keys: a prepended `g e x` drops the default `g e`.
+        assert!(find(&s, "mgr", "g e").is_empty());
+        assert_eq!(find(&s, "mgr", "g e x")[0].action, "shell gex");
         // append: one clashing with a default's first two keys is dropped, a new one goes last.
-        let (s, _, _) = merge(defaults("26.9.1"), user("append.toml"));
+        let (s, _, _) = merge("26.9.1", defaults("26.9.1"), user("append.toml"));
         assert_eq!(find(&s, "mgr", "q")[0].action, "quit");
+        assert!(find(&s, "mgr", "g h x").is_empty());
         assert_eq!(s.binds["mgr"].last().unwrap().key, "ctrl+alt+y");
         // keymap replaces the section's defaults; the other sections keep theirs.
-        let (s, _, _) = merge(defaults("26.9.1"), user("replace.toml"));
+        let (s, _, _) = merge("26.9.1", defaults("26.9.1"), user("replace.toml"));
         assert_eq!(
             rows(&s, "input"),
             [("Escape", "close"), ("Return", "close --submit")]
         );
         assert_eq!(
             s.binds["mgr"].len(),
-            merge(defaults("26.9.1"), Keymap::new()).0.binds["mgr"].len()
+            merge("26.9.1", defaults("26.9.1"), Keymap::new()).0.binds["mgr"].len()
         );
     }
 
     #[test]
     fn platforms_and_duplicates() {
-        let (s, _, _) = merge(defaults("26.9.1"), user("platform.toml"));
+        let (s, _, _) = merge("26.9.1", defaults("26.9.1"), user("platform.toml"));
         assert!(find(&s, "mgr", "ctrl+alt+m").is_empty());
         assert!(find(&s, "mgr", "ctrl+alt+w").is_empty());
         assert_eq!(find(&s, "mgr", "ctrl+alt+u")[0].action, "shell unix");
@@ -485,13 +547,35 @@ mod tests {
     }
 
     #[test]
+    fn platforms_by_version() {
+        for (platform, new, old) in [
+            (None, Some(true), Some(true)),
+            (Some("linux"), Some(true), Some(true)),
+            (Some("unix"), Some(true), Some(true)),
+            (Some("all"), Some(true), Some(false)),
+            (Some("macos"), Some(false), Some(false)),
+            (Some("Linux"), None, Some(false)),
+        ] {
+            assert_eq!(platform_kept("26.9.1", platform), new, "{platform:?}");
+            assert_eq!(platform_kept("25.5.31", platform), old, "{platform:?}");
+        }
+        // A `for` 26.x doesn't know refuses the file there; 25.x drops the entry.
+        let path = fixtures().join("bad-for.toml");
+        assert!(read_user(&path, "26.9.1").is_err());
+        let user = read_user(&path, "25.4.8").unwrap();
+        let (s, _, _) = merge("25.4.8", defaults("25.4.8"), user);
+        assert!(find(&s, "manager", "ctrl+alt+b").is_empty());
+        assert_eq!(find(&s, "manager", "ctrl+alt+k")[0].action, "shell kept");
+    }
+
+    #[test]
     fn sections_another_version_lacks() {
         // `[manager]` against 26.9.1: ignored, named in one note.
-        let (s, _, unknown) = merge(defaults("26.9.1"), user("old-section.toml"));
+        let (s, _, unknown) = merge("26.9.1", defaults("26.9.1"), user("old-section.toml"));
         assert_eq!(unknown, ["manager"]);
         assert!(find(&s, "mgr", "ctrl+alt+o").is_empty());
         // Against 25.4.8, where it's the section: applied.
-        let (s, _, unknown) = merge(defaults("25.4.8"), user("old-section.toml"));
+        let (s, _, unknown) = merge("25.4.8", defaults("25.4.8"), user("old-section.toml"));
         assert!(unknown.is_empty());
         assert_eq!(find(&s, "manager", "ctrl+alt+o")[0].action, "shell old");
     }
@@ -522,6 +606,21 @@ mod tests {
             ("~", Some("asciitilde")),
             (".", Some("period")),
             ("1", Some("1")),
+            ("<Tab>", Some("Tab")),
+            ("<Insert>", Some("Insert")),
+            ("<Left>", Some("Left")),
+            ("<Right>", Some("Right")),
+            ("<Up>", Some("Up")),
+            ("<Down>", Some("Down")),
+            ("<End>", Some("End")),
+            ("<PageUp>", Some("Page_Up")),
+            ("<F1>", Some("F1")),
+            // Modifiers in any order and case, shift once.
+            ("<S-A>", Some("shift+a")),
+            ("<S-C-x>", Some("ctrl+shift+x")),
+            ("<C-S-x>", Some("ctrl+shift+x")),
+            ("<F01>", None),
+            ("<F+1>", None),
             ("<Foo>", None),
             ("<F20>", None),
             ("<X-a>", None),
@@ -551,9 +650,24 @@ mod tests {
             },
         )]
         .into();
-        let (s, left_out, _) = merge(defaults("26.9.1"), user);
+        let (s, left_out, _) = merge("26.9.1", defaults("26.9.1"), user);
         assert_eq!(rows(&s, "mgr"), [("g g", "arrow top")]);
+        // No desc: the run is the description.
+        assert_eq!(s.binds["mgr"][0].desc, "arrow top");
+        assert!(s.binds["mgr"][0].when.is_empty());
         assert_eq!(left_out, 1);
+        // What yazi refuses (the whole file) apart from what it reads but keybind-find can't name.
+        for (key, reads) in [
+            ("q", true),
+            ("<Foo>", true),
+            ("<c-a>", true),
+            ("<X-a>", false),
+            ("<C->", false),
+            ("<>", false),
+            ("", false),
+        ] {
+            assert_eq!(yazi_reads(key), reads, "{key}");
+        }
     }
 
     /// An env with `vars` only.
@@ -641,7 +755,7 @@ mod tests {
         assert_eq!(s.binds.len(), 8);
         assert!(notes.is_empty(), "{notes:?}");
         // Invalid TOML, or an entry yazi refuses: the defaults and one line.
-        for bad in ["bad", "no-run"] {
+        for bad in ["bad", "no-run", "bad-key", "not-a-table"] {
             let env = env_of(vec![(
                 "YAZI_CONFIG_HOME",
                 fixtures().join(bad).to_string_lossy().into_owned(),
@@ -649,6 +763,7 @@ mod tests {
             let (s, notes) = sheet_with(REGISTRY, path(&bin), &env).unwrap();
             assert_eq!(notes.len(), 1, "{notes:?}");
             assert!(notes[0].ends_with("; showing yazi's defaults"), "{notes:?}");
+            assert!(!notes[0].contains('\n'), "{notes:?}");
             assert_eq!(s.binds.len(), 8);
         }
         // An old section and an untranslatable key: one line each.

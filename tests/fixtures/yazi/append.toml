@@ -2,5 +2,6 @@
 [mgr]
 append_keymap = [
 	{ on = "q", run = "shell never" },
+	{ on = [ "g", "h", "x" ], run = "shell never" },
 	{ on = "<C-A-y>", run = "shell appended" },
 ]

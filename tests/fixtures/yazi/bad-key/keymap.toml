@@ -1,0 +1,3 @@
+# Synthetic. A key yazi refuses: an unknown modifier.
+[mgr]
+prepend_keymap = [ { on = "<X-a>", run = "shell x" } ]
