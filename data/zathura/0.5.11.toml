@@ -2,10 +2,9 @@
 # and girara's: girara 0.4.5 (2aaf1d46e6c63e5eef64d58c4097f84c8d4ee20d) girara/config.c girara_config_load_default; girara 0.4.5 girara/commands.c gdk_keyboard_buttons; zathura 0.5.11 zathura/config.c config_load_default.
 # zathura and girara are zlib licensed: Copyright (c) pwmt.org (https://github.com/pwmt/zathura/blob/0.5.11/LICENSE).
 # Mouse events (girara_mouse_event_add) are not listed. `argument` is the argument's mapping name (empty when
-# it has none); `data` is the shortcut's string argument (`focus_inputbar :open`).
+# it has none, and `detail` then names it); `data` is the shortcut's string argument (`focus_inputbar :open`).
 
 zathura_version = "0.5.11"
-reads_sysconf_zathurarc = true
 modes = ["normal", "inputbar", "fullscreen", "index", "insert", "presentation"]
 functions = ["abort", "adjust_window", "bisect", "change_mode", "copy_filepath", "copy_link", "cycle_first_column", "display_link", "exec", "feedkeys", "focus_inputbar", "follow", "goto", "jumplist", "mark_add", "mark_evaluate", "navigate", "navigate_index", "nohlsearch", "print", "quit", "recolor", "reload", "rotate", "scroll", "search", "set", "snap_to_page", "toggle_fullscreen", "toggle_index", "toggle_inputbar", "toggle_page_mode", "toggle_presentation", "toggle_statusbar", "zoom"]
 arguments = ["backward", "best-fit", "bottom", "collapse", "collapse-all", "default", "down", "expand", "expand-all", "forward", "full-down", "full-left", "full-right", "full-up", "half-down", "half-left", "half-right", "half-up", "in", "left", "next", "out", "page-bottom", "page-top", "previous", "right", "rotate-ccw", "rotate-cw", "select", "specific", "toggle", "top", "up", "width"]
@@ -209,6 +208,7 @@ mode = "normal"
 key = "shift+o"
 function = "focus_inputbar"
 argument = ""
+detail = "append filepath"
 data = ":open "
 
 [[bind]]
@@ -588,6 +588,7 @@ mode = "normal"
 key = "z 0"
 function = "zoom"
 argument = ""
+detail = "original"
 
 [[bind]]
 mode = "normal"
@@ -671,6 +672,7 @@ mode = "fullscreen"
 key = "shift+o"
 function = "focus_inputbar"
 argument = ""
+detail = "append filepath"
 data = ":open "
 
 [[bind]]
@@ -1050,6 +1052,7 @@ mode = "fullscreen"
 key = "z 0"
 function = "zoom"
 argument = ""
+detail = "original"
 
 [[bind]]
 mode = "fullscreen"

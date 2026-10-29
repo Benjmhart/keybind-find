@@ -47,8 +47,6 @@ type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 #[derive(Deserialize)]
 struct Pinned {
     zathura_version: String,
-    /// Whether `/etc/zathurarc` is read (not by 0.5.2).
-    reads_sysconf_zathurarc: bool,
     modes: Vec<String>,
     functions: Vec<String>,
     arguments: Vec<String>,
@@ -65,6 +63,9 @@ struct Shortcut {
     argument: String,
     #[serde(default)]
     data: String,
+    /// A default's argument that has no zathurarc name (`append filepath`).
+    #[serde(default)]
+    detail: String,
 }
 
 pub fn sheet(ctx: &Context) -> anyhow::Result<Sheet> {
@@ -113,7 +114,7 @@ fn sheet_with(
         left_out: 0,
         unsplit: 0,
     };
-    for (file, system) in rc_files(env, flatpak, sysconf, pinned.reads_sysconf_zathurarc) {
+    for (file, system) in rc_files(env, flatpak, sysconf) {
         rc.read(&file, system);
     }
     let Rc {
@@ -148,20 +149,19 @@ fn version_of(text: &str) -> Option<String> {
 }
 
 /// The zathurarc files zathura reads, in its order (`config_load_files`), each with whether it's a system file:
-/// `<entry>/zathurarc` for each `$XDG_CONFIG_DIRS` entry (else `/etc/xdg`) from the last, `/etc/zathurarc` (from
-/// 0.5.x after 0.5.2), then `zathurarc` in the user's config dir: `$XDG_CONFIG_HOME/zathura` (else
+/// `<entry>/zathurarc` for each `$XDG_CONFIG_DIRS` entry (else `/etc/xdg`) from the last, `/etc/zathurarc`, then `zathurarc` in the user's config dir: `$XDG_CONFIG_HOME/zathura` (else
 /// `~/.config/zathura`), the Flatpak's under `~/.var/app`. An empty variable counts as unset.
-fn rc_files(env: Env, flatpak: bool, sysconf: &Path, sysconf_rc: bool) -> Vec<(PathBuf, bool)> {
+fn rc_files(env: Env, flatpak: bool, sysconf: &Path) -> Vec<(PathBuf, bool)> {
     let set = |k: &str| env(k).filter(|v| !v.is_empty());
     let dirs = set("XDG_CONFIG_DIRS").unwrap_or_else(|| "/etc/xdg".into());
     let mut files: Vec<(PathBuf, bool)> = dirs
         .split(':')
         .rev()
+        // An empty entry would be keybind-find's working directory, not zathura's.
+        .filter(|d| !d.is_empty())
         .map(|d| (Path::new(d).join("zathurarc"), true))
         .collect();
-    if sysconf_rc {
-        files.push((sysconf.join("zathurarc"), true));
-    }
+    files.push((sysconf.join("zathurarc"), true));
     let home = set("HOME").map(PathBuf::from);
     let user = if flatpak {
         home.map(|h| h.join(".var/app").join(FLATPAK).join("config/zathura"))
@@ -205,7 +205,8 @@ impl Rc<'_> {
             }
         };
         for line in text.lines() {
-            if line.is_empty() || line.starts_with('#') {
+            // girara's comment prefixes: `#`, and vim's `"` (`COMMENT_PREFIX`), only in a line's first column.
+            if line.is_empty() || line.starts_with(['#', '"']) {
                 continue;
             }
             // girara stops reading a file at a line it can't split.
@@ -292,6 +293,7 @@ impl Rc<'_> {
             function: function.clone(),
             argument,
             data,
+            detail: String::new(),
         };
         match self
             .binds
@@ -306,7 +308,7 @@ impl Rc<'_> {
 
 /// A zathurarc line's words, split as `g_shell_parse_argv` splits them (single quotes literal; in double quotes `\`
 /// escapes `"`, `\`, `$`, `` ` ``; outside them it escapes any character; `#` at a word's start ends the line);
-/// `None` when a quote isn't closed.
+/// `None` when a quote isn't closed or a `\` ends the line.
 fn split(line: &str) -> Option<Vec<String>> {
     let mut words = Vec::new();
     let mut word: Option<String> = None;
@@ -338,10 +340,8 @@ fn split(line: &str) -> Option<Vec<String>> {
                     }
                 }
             }
-            '\\' => {
-                let w = word.get_or_insert_with(String::new);
-                w.extend(chars.next());
-            }
+            // A `\` ending the line is an error to `g_shell_parse_argv`, as an unclosed quote is.
+            '\\' => word.get_or_insert_with(String::new).push(chars.next()?),
             c => word.get_or_insert_with(String::new).push(c),
         }
     }
@@ -450,16 +450,18 @@ fn to_sheet(binds: Vec<Shortcut>) -> Sheet {
     for b in &binds {
         if b.mode == "fullscreen"
             && normal.iter().any(|n| {
-                n.key == b.key
-                    && n.function == b.function
-                    && n.argument == b.argument
-                    && n.data == b.data
+                Shortcut {
+                    mode: b.mode.clone(),
+                    ..(*n).clone()
+                } == *b
             })
         {
             continue;
         }
+        let detail = (!b.detail.is_empty()).then(|| format!("({})", b.detail));
         let desc = [b.function.as_str(), b.argument.as_str(), b.data.trim()]
             .into_iter()
+            .chain(detail.as_deref())
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
             .join(" ");
@@ -514,7 +516,7 @@ mod tests {
             left_out: 0,
             unsplit: 0,
         };
-        for (file, system) in rc_files(env, flatpak, sysconf, pinned.reads_sysconf_zathurarc) {
+        for (file, system) in rc_files(env, flatpak, sysconf) {
             rc.read(&file, system);
         }
         (to_sheet(rc.binds), rc.notes, rc.left_out, rc.unsplit)
@@ -559,6 +561,11 @@ mod tests {
         assert_eq!(find(&s, "normal", "g g"), ["goto top"]);
         assert_eq!(find(&s, "normal", "z shift+o"), ["zoom out"]);
         assert_eq!(find(&s, "normal", "o"), ["focus_inputbar :open"]);
+        assert_eq!(
+            find(&s, "normal", "shift+o"),
+            ["focus_inputbar :open (append filepath)"]
+        );
+        assert_eq!(find(&s, "normal", "z 0"), ["zoom (original)"]);
         assert_eq!(find(&s, "normal", "XF86Forward"), ["navigate next"]);
         assert_eq!(find(&s, "normal", "ctrl+n"), ["toggle_statusbar"]);
         assert_eq!(find(&s, "index", "Escape"), ["toggle_index"]);
@@ -568,7 +575,7 @@ mod tests {
         let (s, _, _, _) = read("0.5.2", &|_| None, false, Path::new("/nonexistent"));
         assert_eq!(find(&s, "normal", "ctrl+q"), ["quit"]);
         assert_eq!(find(&s, "normal", "ctrl+bracketleft"), ["abort"]);
-        assert!(!pinned("0.5.2").reads_sysconf_zathurarc);
+
         assert!(pinned("0.5.2").keys.len() < pinned("0.5.11").keys.len());
     }
 
@@ -622,8 +629,9 @@ mod tests {
         assert_eq!(find(&s, "index", "shift+q"), ["quit"]);
         assert_eq!(find(&s, "index", "q"), ["quit"]);
         assert!(find(&s, "presentation", "space").is_empty());
-        // An unknown function or mode changes nothing.
+        // An unknown function or mode changes nothing; nor does an `include` with two paths.
         assert!(find(&s, "normal", "x").is_empty());
+        assert!(!s.binds.contains_key("nosuchmode"));
         // A quoted argument: the data, shown trimmed.
         assert_eq!(find(&s, "normal", "ctrl+o"), ["focus_inputbar :open"]);
         // A buffer command.
@@ -685,9 +693,9 @@ mod tests {
         assert_eq!(find(&s, "normal", "F6"), ["goto top"]);
         assert_eq!(find(&s, "normal", "F7"), ["recolor"]);
         assert!(find(&s, "normal", "F8").is_empty());
-        // 0.5.2 doesn't read /etc/zathurarc.
+        // 0.5.2 reads /etc/zathurarc too (`GLOBAL_RC`).
         let (s, _, _, _) = read("0.5.2", &env, false, &tmp.join("etc"));
-        assert_eq!(find(&s, "normal", "F6"), ["follow"]);
+        assert_eq!(find(&s, "normal", "F6"), ["goto top"]);
         // The Flatpak's file instead of ~/.config's.
         let (s, _, _, _) = read("2026.10.23", &env, true, &tmp.join("etc"));
         assert_eq!(find(&s, "normal", "F8"), ["reload"]);
@@ -747,6 +755,7 @@ mod tests {
         );
         assert_eq!(s(r"map a\ b quit").as_deref(), Some("map|a b|quit"));
         assert_eq!(s("map x 'open").as_deref(), None);
+        assert_eq!(s("map x quit \\").as_deref(), None);
         assert_eq!(s("  ").as_deref(), Some(""));
     }
 

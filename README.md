@@ -102,13 +102,15 @@ In a zathura window, keybind-find lists zathura's keys by mode (`normal`, `index
 `insert`): the defaults of your zathura's version (from `zathura --version`; 0.5.2, 0.5.11 and 2026.10.23 are built in,
 generated from zathura's and girara's source at each tag; another version uses the nearest of the same major version,
 else the nearest older, and says so), with the `map` and `unmap` lines of the zathurarc files zathura reads laid over
-them, in its order: `zathurarc` in each `$XDG_CONFIG_DIRS` directory (else `/etc/xdg`) from the last, `/etc/zathurarc`
-(not 0.5.2), then your `~/.config/zathura/zathurarc` (or under `$XDG_CONFIG_HOME`; the Flatpak's under
+them, in its order: `zathurarc` in each `$XDG_CONFIG_DIRS` directory (else `/etc/xdg`) from the last, `/etc/zathurarc`,
+then your `~/.config/zathura/zathurarc` (or under `$XDG_CONFIG_HOME`; the Flatpak's under
 `~/.var/app/org.pwmt.zathura`), following `include`. As in zathura, a `map` with a function or mode zathura doesn't know
 changes nothing, and a line with an unclosed quote ends its file there (counted in one line). A fullscreen key that does
 the same as in normal mode is listed once, under `normal`. Each key shows its function and argument as a zathurarc line
-says them (`scroll down`, `focus_inputbar :open`). Not listed: mouse binds (yours are counted in one line, as are keys
-girara refuses, such as two modifiers in `<C-S-x>`). Not read: a config dir given with `zathura -c`/`--config-dir`.
+says them (`scroll down`, `focus_inputbar :open`; a default's argument with no zathurarc name in brackets: `zoom
+(original)`). Not listed: mouse binds (yours are counted in one line, as are keys girara refuses, such as two modifiers
+in `<C-S-x>`). Not read: a config dir given with `zathura -c`/`--config-dir`, and for the Flatpak, its runtime's `/etc`
+(the host's is read).
 
 ### Firefox and Chromium
 

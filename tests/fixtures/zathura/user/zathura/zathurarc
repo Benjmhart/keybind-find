@@ -1,5 +1,6 @@
 # Synthetic: map, unmap and include as zathura reads them.
 map J scroll down
+" a vim-style comment, not an unclosed quote
 map [index] Q quit
 unmap [presentation] <Space>
 map x nosuchfn
@@ -10,6 +11,7 @@ map <Button1> navigate next
 map <C-S-x> quit
 map gx goto top
 set recolor true
+include more.rc other.rc
 include more.rc
 include loop-a.rc
 include missing.rc
