@@ -7,6 +7,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Added
 
+- Xfce: xfwm4's window shortcuts and the application shortcuts from `xfconf-query`, as Xfce picks your customized set or its defaults.
 - kitty: its keys from pinned defaults (0.49.2) with your kitty.conf on top, and, with kitty's remote control on, the program in its focused tab.
 - GNU screen: its command keys from pinned defaults (4.9.1, 5.0.2) with your screenrc on top, and nvim inside screen.
 - Ghostty: its keys from `ghostty +list-keybinds` (key tables tagged), when a Ghostty window has focus.

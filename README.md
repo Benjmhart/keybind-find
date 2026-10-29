@@ -17,6 +17,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | sway | your `bindsym` lines (following `include` and `set $var`), and the focused window from sway's tree | none |
 | Hyprland | its binds from the running compositor (`hyprctl -j binds`), with each bind's description, and the focused window from `hyprctl` | none ([below](#hyprland)) |
 | KDE Plasma | its global shortcuts (`kglobalshortcutsrc`) and the launch shortcuts of `.desktop` files, and the focused window (on Wayland from `kdotool`) | on Wayland, `kdotool`; picks there are not sent ([below](#kde-plasma)) |
+| Xfce | xfwm4's window shortcuts and your application shortcuts, from `xfconf-query` (X11) | `xfconf-query` ([below](#xfce)) |
 | any other X11 window manager | the focused window, so every app below works; not the window manager's own keys | an EWMH window manager (it sets `_NET_ACTIVE_WINDOW`) |
 | other Wayland compositors (niri, GNOME) | espanso only: the focused window isn't read, so no app below | untested; fuzzel needs layer-shell (not GNOME), wtype the virtual-keyboard protocol (not GNOME or KDE: a pick there is refused, [below](#kde-plasma)) |
 | alacritty | its keys: alacritty's defaults merged with your `[[keyboard.bindings]]` | none |
@@ -232,6 +233,18 @@ On Wayland a pick is not sent: KWin doesn't offer the virtual-keyboard protocol 
 stops with an error naming the keys to press (`press super+e yourself`) instead. `--print` prints as anywhere else.
 The list shows with fuzzel, which works on KWin.
 
+### Xfce
+
+On Xfce (X11), keybind-find lists the keyboard shortcuts from `xfconf-query -c xfce4-keyboard-shortcuts -l -v`:
+xfwm4's window shortcuts under `window manager` (`<Alt>F4` → `close window`) and your application shortcuts under
+`commands`, each shown by its command, which is never run. As Xfce does, each of the two uses your customized set
+once you have changed it (`custom/override` is true), else Xfce's defaults. xfwm4's actions that work only while
+moving a window or cycling windows (`cancel_key` and the arrow actions, on `Escape` and the arrows by default) are left
+out. A shortcut keybind-find can't send (a modifier other than ctrl, shift, alt and super, such as `<Meta>`, `<Hyper>`
+or `<Release>`; a keycode; or a key not shaped like an X keysym name, since names aren't looked up) is left out,
+counted in one line. When `xfconf-query` is missing or fails (no D-Bus session to ask), that is one line and the list
+goes on without Xfce's keys. Xfce's Wayland session runs another compositor, so there no Xfce shortcuts are listed.
+
 ## Install
 
 From source, now:
@@ -309,6 +322,7 @@ keybind-find keys            # grab the keyboard, print each key you press in bi
 | `wtype` | Wayland: sending keys | `wtype` | `wtype` |
 | `swaymsg` | sway: the focused window | `sway` | `sway` |
 | `hyprctl` | Hyprland: its binds and the focused window | `hyprland` | `hyprland` |
+| `xfconf-query` | Xfce: its keyboard shortcuts | `xfconf` | `xfconf` |
 | `kdotool` | KDE Plasma 6 on Wayland: the focused window | AUR `kdotool`, or `cargo install kdotool` | not packaged: `cargo install kdotool` |
 | `notify-send` | errors shown when run from a hotkey | `libnotify` | `libnotify-bin` |
 
