@@ -238,11 +238,12 @@ The list shows with fuzzel, which works on KWin.
 On Xfce (X11), keybind-find lists the keyboard shortcuts from `xfconf-query -c xfce4-keyboard-shortcuts -l -v`:
 xfwm4's window shortcuts under `window manager` (`<Alt>F4` → `close window`) and your application shortcuts under
 `commands`, each shown by its command, which is never run. As Xfce does, each of the two uses your customized set
-once you have changed it (`custom/override` is true), else Xfce's defaults. xfwm4's keys that act only while moving a
-window or cycling windows (`Escape` and the arrows) are left out. A shortcut keybind-find can't send (a `<Meta>`,
-`<Hyper>` or `<Release>` modifier, or a key that isn't an X keysym name) is left out, counted in one line. Without
-`xfconf-query`, or with no D-Bus session to ask, that is one line and the list goes on without Xfce's keys. Xfce's
-Wayland session runs another compositor, so there xfwm4's keys aren't listed.
+once you have changed it (`custom/override` is true), else Xfce's defaults. xfwm4's actions that work only while
+moving a window or cycling windows (`cancel_key` and the arrow actions, on `Escape` and the arrows by default) are left
+out. A shortcut keybind-find can't send (a `<Meta>`, `<Hyper>` or `<Release>` modifier, or a key that isn't an X
+keysym name) is left out, counted in one line. When `xfconf-query` is missing or fails (no D-Bus session to ask), that
+is one line and the list goes on without Xfce's keys. Xfce's Wayland session runs another compositor, so there xfwm4's
+keys aren't listed.
 
 ## Install
 

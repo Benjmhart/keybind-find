@@ -382,8 +382,9 @@ const SESSIONS: &[(&str, &[&str])] = &[
             "gnome-xorg",
         ],
     ),
-    // X11 window managers with no provider yet, so they are named rather than unknown.
+    // X11 only: Xfce's Wayland session runs another compositor, so xfwm4's keys don't apply there.
     ("xfce", &["xfce", "xfwm4"]),
+    // X11 window managers with no provider yet, so they are named rather than unknown.
     ("openbox", &["openbox"]),
     ("bspwm", &["bspwm"]),
     ("awesome", &["awesome"]),
@@ -522,7 +523,7 @@ fn session_file_name(d: &str) -> &str {
     name.strip_suffix(".desktop").unwrap_or(name)
 }
 
-/// The window-manager provider for a session: only sway, Hyprland, xmonad and KDE have one. Nothing falls back to
+/// The window-manager provider for a session: only sway, Hyprland, xmonad, KDE and Xfce have one. Nothing falls back to
 /// xmonad: a leftover `xmonad.keys` under i3 must not show.
 fn wm_provider(session: Option<&'static str>) -> Option<&'static str> {
     session.filter(|s| matches!(*s, "sway" | "hyprland" | "xmonad" | "kde" | "xfce"))
@@ -2611,6 +2612,15 @@ mod tests {
         // Each session with a window-manager provider names itself; a new one adds a row.
         let with = ["sway", "hyprland", "xmonad", "kde", "xfce"];
         assert_eq!(wm_provider(None), None);
+        // Xfce's Wayland session is unknown: no xfwm4 keys on another compositor.
+        assert_eq!(
+            wm_provider(wayland(&[
+                "WAYLAND_DISPLAY=wayland-1",
+                "XDG_CURRENT_DESKTOP=XFCE",
+                "DESKTOP_SESSION=xfce"
+            ])),
+            None
+        );
         for (s, _) in SESSIONS {
             let want = with.contains(s).then_some(*s);
             assert_eq!(wm_provider(Some(s)), want, "{s}");

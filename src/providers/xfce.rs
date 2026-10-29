@@ -37,7 +37,10 @@ fn read(timeout: Duration, setup: impl Fn(&mut Command)) -> anyhow::Result<(Shee
     let text =
         run_for(cmd, timeout).context("running xfconf-query -c xfce4-keyboard-shortcuts -l -v")?;
     // An empty channel is said on stdout, with exit status 0.
-    if let Some(line) = text.lines().find(|l| l.contains("contains no properties")) {
+    if let Some(line) = text
+        .lines()
+        .find(|l| l.starts_with("Channel ") && l.contains("contains no properties"))
+    {
         bail!("xfconf-query: {}", line.trim());
     }
     Ok(parse(&text))
@@ -139,6 +142,8 @@ mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
 
+    /// `xfce4-keyboard-shortcuts.xml` is libxfce4ui's `libxfce4kbd-private/xfce4-keyboard-shortcuts.xml` at
+    /// `488b306`; `list-default.txt` is `xfconf-query -l -v` of it (padded as `xfconf_query_list_contents` pads).
     fn fixture(name: &str) -> String {
         std::fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -230,6 +235,8 @@ mod tests {
                 .len(),
             0
         );
+        // An empty value is no action: nothing.
+        assert_eq!(parse("/commands/default/<Super>x\n").0.binds.len(), 0);
     }
 
     #[test]
@@ -310,7 +317,8 @@ mod tests {
             );
             let _ = std::fs::remove_dir_all(&bin);
         }
-        let bin = fake("hang", "exec sleep 10");
+        // PATH holds only the fake: `sleep` by its path.
+        let bin = fake("hang", "exec /bin/sleep 10");
         let start = std::time::Instant::now();
         assert!(read(Duration::from_millis(300), path(&bin)).is_err());
         assert!(start.elapsed() < Duration::from_secs(3));
@@ -322,7 +330,10 @@ mod tests {
         let bin = fake(
             "ok",
             // PATH holds only the fake: `cat` by its path.
-            &format!("/bin/cat '{}'", fixture_path("list-custom.txt").display()),
+            &format!(
+                "[ \"$*|$LC_ALL\" = '-c xfce4-keyboard-shortcuts -l -v|C.UTF-8' ] || exit 9; /bin/cat '{}'",
+                fixture_path("list-custom.txt").display()
+            ),
         );
         let (s, left_out) = read(TIMEOUT, path(&bin)).unwrap();
         assert_eq!((rows(&s, "commands").len(), left_out), (3, 2));
@@ -336,8 +347,9 @@ mod tests {
     }
 
     /// The real `xfconf-query` on a private D-Bus session, with the upstream defaults as the system channel file
-    /// (xfconfd reads `$XDG_CONFIG_DIRS/xfce4/xfconf/xfce-perchannel-xml/`). Skipped, with a message, without
-    /// `xfconf-query` or `dbus-run-session`, or when xfconfd can't start.
+    /// (xfconfd reads `$XDG_CONFIG_DIRS/xfce4/xfconf/xfce-perchannel-xml/`, through libxfce4util); if that finds no
+    /// channel, the same file as the user's. Skipped, with a message, without `xfconf-query` or `dbus-run-session`,
+    /// or when xfconfd can't start; an empty channel either way fails.
     #[test]
     fn real_xfconf_query() {
         let has = |p: &str, arg: &str| {
@@ -352,27 +364,31 @@ mod tests {
         }
         let tmp = std::env::temp_dir().join(format!("kbf-xfce-real-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
-        let channels = tmp.join("dirs/xfce4/xfconf/xfce-perchannel-xml");
-        std::fs::create_dir_all(&channels).unwrap();
-        std::fs::create_dir_all(tmp.join("home")).unwrap();
-        std::fs::copy(
-            fixture_path("xfce4-keyboard-shortcuts.xml"),
-            channels.join("xfce4-keyboard-shortcuts.xml"),
-        )
-        .unwrap();
-        let mut cmd = Command::new("dbus-run-session");
-        cmd.args([
-            "--",
-            "xfconf-query",
-            "-c",
-            "xfce4-keyboard-shortcuts",
-            "-l",
-            "-v",
-        ])
-        .env("XDG_CONFIG_HOME", tmp.join("home"))
-        .env("XDG_CONFIG_DIRS", tmp.join("dirs"))
-        .env("LC_ALL", "C.UTF-8");
-        let text = match run_for(cmd, Duration::from_secs(10)) {
+        let list = |under: &str| {
+            let channels = tmp.join(under).join("xfce4/xfconf/xfce-perchannel-xml");
+            std::fs::create_dir_all(&channels).unwrap();
+            std::fs::create_dir_all(tmp.join("home")).unwrap();
+            std::fs::copy(
+                fixture_path("xfce4-keyboard-shortcuts.xml"),
+                channels.join("xfce4-keyboard-shortcuts.xml"),
+            )
+            .unwrap();
+            let mut cmd = Command::new("dbus-run-session");
+            cmd.args([
+                "--",
+                "xfconf-query",
+                "-c",
+                "xfce4-keyboard-shortcuts",
+                "-l",
+                "-v",
+            ])
+            .env("HOME", tmp.join("home"))
+            .env("XDG_CONFIG_HOME", tmp.join("config"))
+            .env("XDG_CONFIG_DIRS", tmp.join("dirs"))
+            .env("LC_ALL", "C.UTF-8");
+            run_for(cmd, Duration::from_secs(10))
+        };
+        let mut text = match list("dirs") {
             Ok(t) => t,
             Err(e) => {
                 eprintln!("skipping: xfconfd didn't start on a private bus: {e:#}");
@@ -380,6 +396,11 @@ mod tests {
                 return;
             }
         };
+        if text.contains("contains no properties") {
+            eprintln!("xfconfd didn't read XDG_CONFIG_DIRS; trying XDG_CONFIG_HOME");
+            std::fs::remove_dir_all(tmp.join("dirs")).unwrap();
+            text = list("config").unwrap();
+        }
         let (s, _) = parse(&text);
         assert!(
             rows(&s, "window manager").contains(&("alt+F4", "close window")),
