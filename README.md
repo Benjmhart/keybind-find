@@ -34,6 +34,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | bash, zsh, fish | the prompt's line-editing keys from the shell itself: bash's `bind -p`/`-s`/`-X` (with your `.inputrc`), zsh's `bindkey -L`, fish's `bind` (every mode) | none; it runs your rc files: [below](#shells-run-your-rc-files) |
 | less | its keys from `less --help`, with your lesskey file's `#command` binds on top; also under `man`, `git log`, `systemctl status` | none; your keys need less 582+ and the lesskey source file ([below](#less)) |
 | mpv | the bindings of a headless mpv started with your config: built-ins, your `input.conf` and keys your scripts bind at load, with each one's comment | none; it starts mpv on every `Super+/` ([below](#mpv)) |
+| zathura | its keys: zathura's defaults for its version (0.5.2, 0.5.11 and 2026.10.23 built in) with your zathurarc's `map`/`unmap` on top | none ([below](#zathura)) |
 | browsers | built-in sheets for Gmail, YouTube and GitHub; any web app you write a sheet for | none; GitHub's needs a URL-in-title extension ([docs/sheets.md](docs/sheets.md)) |
 | Firefox / Chromium keys | the browser's own shortcuts (tabs, navigation, find, dev tools) in Firefox, LibreWolf, Zen, Chromium, Chrome, Brave and Edge, from built-in sheets | none ([below](#firefox-and-chromium)) |
 | Vimium | Vimium's defaults for its version, and your remaps from a saved backup | none; remaps need the backup ([docs/vimium.md](docs/vimium.md)) |
@@ -94,6 +95,22 @@ running player and aren't listed. Mouse and wheel bindings and keys bound to `ig
 mpv isn't run (keybind-find needs `mpv` on `PATH`), but when mpv finds no config directory of its own
 (`$XDG_CONFIG_HOME/mpv` or `~/.config/mpv`, or `~/.mpv`), the Flatpak's (`~/.var/app/io.mpv.Mpv/config/mpv`) is
 used.
+
+### zathura
+
+In a zathura window, keybind-find lists zathura's keys by mode (`normal`, `index`, `presentation`, `fullscreen`,
+`insert`): the defaults of your zathura's version (from `zathura --version`; 0.5.2, 0.5.11 and 2026.10.23 are built in,
+generated from zathura's and girara's source at each tag; another version uses the nearest of the same major version,
+else the nearest older, and says so), with the `map` and `unmap` lines of the zathurarc files zathura reads laid over
+them, in its order: `zathurarc` in each `$XDG_CONFIG_DIRS` directory (else `/etc/xdg`) from the last, `/etc/zathurarc`,
+then your `~/.config/zathura/zathurarc` (or under `$XDG_CONFIG_HOME`; the Flatpak's under
+`~/.var/app/org.pwmt.zathura`), following `include` (each file is read once, where zathura reads a file again each time
+it is included). As in zathura, a `map` with a function or mode zathura doesn't know changes nothing, and a line with an
+unclosed quote ends its file there (counted in one line). A fullscreen key that does the same as in normal mode is
+listed once, under `normal`. Each key shows its function and argument as a zathurarc line says them (`scroll down`,
+`focus_inputbar :open`; a default's argument with no zathurarc name in brackets: `zoom (original)`). Not listed: mouse
+binds (yours are counted in one line, as are keys girara refuses, such as two modifiers in `<C-S-x>`). Not read: a
+config dir given with `zathura -c`/`--config-dir`, and for the Flatpak, its runtime's `/etc` (the host's is read).
 
 ### Firefox and Chromium
 

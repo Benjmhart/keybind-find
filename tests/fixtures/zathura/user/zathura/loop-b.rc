@@ -1,0 +1,3 @@
+# Synthetic.
+include loop-a.rc
+map <F3> quit

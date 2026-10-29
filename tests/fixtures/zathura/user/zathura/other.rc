@@ -1,0 +1,2 @@
+# Synthetic: named only by an `include` with two paths, which girara refuses.
+map <F12> quit

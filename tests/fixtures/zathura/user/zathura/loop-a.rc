@@ -1,0 +1,3 @@
+# Synthetic: A includes B includes A; each is read once.
+include loop-b.rc
+map <F2> quit

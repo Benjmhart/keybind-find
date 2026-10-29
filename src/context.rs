@@ -652,6 +652,14 @@ fn providers_for(
     }) {
         providers.push("mpv");
     }
+    // zathura is the window itself too (`org.pwmt.zathura`: the Flatpak's app id).
+    if class.is_some_and(|c| {
+        ["zathura", "org.pwmt.zathura"]
+            .iter()
+            .any(|m| m.eq_ignore_ascii_case(c))
+    }) {
+        providers.push("zathura");
+    }
     // Static sheets and custom parsers are matched by class inside the provider; with no class nothing can match,
     // and leaving it out keeps "every provider failed" reachable when the real providers all fail.
     if let Some(class) = class {
@@ -1505,6 +1513,26 @@ mod tests {
                     "{class} {child:?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn zathura_by_window_class() {
+        for wm in ["xmonad", "sway"] {
+            for class in ["zathura", "Zathura", "org.pwmt.zathura"] {
+                assert_eq!(
+                    providers_for(Some(wm), Some(class), None, &[]),
+                    [wm, "espanso", "zathura", "sheets"],
+                    "{class}"
+                );
+            }
+        }
+        // A terminal's child called zathura isn't a zathura window; nor is a look-alike class.
+        for (class, child) in [("Alacritty", Some("zathura")), ("zathura-cb", None)] {
+            assert!(
+                !providers_for(Some("xmonad"), Some(class), child, &[]).contains(&"zathura"),
+                "{class}"
+            );
         }
     }
 
