@@ -70,29 +70,13 @@ fn load(
     // Sway reads bytes; don't let one odd byte (a Latin-1 comment) lose the whole file.
     let text = String::from_utf8_lossy(&bytes);
     seen.insert(path.canonicalize().unwrap_or_else(|_| path.to_path_buf()));
-    // Blocks don't span files in sway: a stray `}` can't close the includer's block, and an unclosed one ends here.
-    let mut depth = 0usize;
-    for line in logical_lines(&text) {
-        if line == "}" {
-            if depth == 0 {
-                notes.push(format!("{}: a `}}` with no block to close", path.display()));
-                continue;
-            }
-            depth -= 1;
-        } else if line.ends_with('{') {
-            depth += 1;
-        }
+    for line in file_lines(&path.display().to_string(), &text, notes) {
         let Some(target) = line
             .strip_prefix("include")
             .filter(|r| r.starts_with([' ', '\t']))
         else {
             set_var(&line, vars);
-            // `parse` reads these lines again: a trailing space keeps a `\` that ended a line followed by spaces (not
-            // a continuation) from turning into one.
-            out.push(match line.ends_with('\\') {
-                true => format!("{line} "),
-                false => line,
-            });
+            out.push(line);
             continue;
         };
         let target = unquote(substitute(target.trim(), vars).trim()).to_string();
@@ -123,11 +107,37 @@ fn load(
             }
         }
     }
+    Ok(())
+}
+
+/// One file's logical lines with its blocks balanced, for `parse` to read joined with other files' (`label` names the
+/// file in notes). Blocks don't span files in sway: a stray `}` can't close an earlier file's block (dropped, with a
+/// note), and an unclosed one ends with its file (closed, with a note).
+pub(crate) fn file_lines(label: &str, text: &str, notes: &mut Vec<String>) -> Vec<String> {
+    let mut depth = 0usize;
+    let mut out = Vec::new();
+    for line in logical_lines(text) {
+        if line == "}" {
+            if depth == 0 {
+                notes.push(format!("{label}: a `}}` with no block to close"));
+                continue;
+            }
+            depth -= 1;
+        } else if line.ends_with('{') {
+            depth += 1;
+        }
+        // `parse` reads these lines again: a trailing space keeps a `\` that ended a line followed by spaces (not a
+        // continuation) from turning into one.
+        out.push(match line.ends_with('\\') {
+            true => format!("{line} "),
+            false => line,
+        });
+    }
     if depth > 0 {
-        notes.push(format!("{}: {depth} block(s) not closed", path.display()));
+        notes.push(format!("{label}: {depth} block(s) not closed"));
         out.extend(std::iter::repeat_n("}".to_string(), depth));
     }
-    Ok(())
+    out
 }
 
 /// The file(s) a path names: itself if it exists, or with a `*` in the last part, the matches in its directory,
@@ -244,6 +254,12 @@ fn logical_lines(text: &str) -> Vec<String> {
 /// a `bar { bindsym … }` is not a key binding. Top-level binds (and mode `default`'s) go in `sway`. A key bound twice
 /// with the same flags keeps its last entry, and `unbindsym` removes one.
 pub fn parse(text: &str) -> anyhow::Result<Sheet> {
+    parse_as("sway", text)
+}
+
+/// `parse` for another window manager with sway's config language (i3): `provider` is the sheet's title, provider
+/// and top-level category.
+pub(crate) fn parse_as(provider: &str, text: &str) -> anyhow::Result<Sheet> {
     let mut vars: Vec<(String, String)> = Vec::new();
     let mut blocks: Vec<String> = Vec::new();
     // (category, flags, bind) in file order.
@@ -264,8 +280,8 @@ pub fn parse(text: &str) -> anyhow::Result<Sheet> {
         let full = blocks.iter().map(|b| format!("{b} ")).collect::<String>() + &line;
         let (category, command) = match mode(&full) {
             Some((name, rest)) if name != "default" => (name, rest),
-            Some((_, rest)) => ("sway".to_string(), rest),
-            None => ("sway".to_string(), full.as_str()),
+            Some((_, rest)) => (provider.to_string(), rest),
+            None => (provider.to_string(), full.as_str()),
         };
         let unbind = split_bind(command, "unbindsym");
         let bind = split_bind(command, "bindsym");
@@ -298,8 +314,8 @@ pub fn parse(text: &str) -> anyhow::Result<Sheet> {
         by_category.entry(c).or_default().push(b);
     }
     Ok(Sheet {
-        title: "sway".into(),
-        provider: "sway".into(),
+        title: provider.into(),
+        provider: provider.into(),
         binds: by_category,
     })
 }
@@ -482,6 +498,32 @@ mod tests {
         )
         .unwrap();
         (parse(&lines.join("\n")).unwrap(), notes)
+    }
+
+    #[test]
+    fn parse_is_parse_as_sway() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sway.config");
+        let (mut lines, mut notes) = (Vec::new(), Vec::new());
+        load(
+            &path,
+            &fixture_env,
+            &mut Vec::new(),
+            &mut HashSet::new(),
+            &mut lines,
+            &mut notes,
+        )
+        .unwrap();
+        let text = lines.join("\n");
+        let json = |s: Sheet| serde_json::to_string(&s).unwrap();
+        assert_eq!(
+            json(parse(&text).unwrap()),
+            json(parse_as("sway", &text).unwrap())
+        );
+        // Another provider names the sheet and the top-level category, nothing else.
+        let i3 = parse_as("i3", &text).unwrap();
+        assert_eq!((i3.title.as_str(), i3.provider.as_str()), ("i3", "i3"));
+        assert!(i3.binds.contains_key("i3") && !i3.binds.contains_key("sway"));
+        assert_eq!(i3.binds["i3"].len(), fixture().0.binds["sway"].len());
     }
 
     fn find<'a>(sheet: &'a Sheet, category: &str, key: &str) -> Option<&'a Bind> {

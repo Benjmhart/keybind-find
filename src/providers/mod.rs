@@ -9,6 +9,7 @@ mod espanso;
 mod ghostty;
 mod herdr;
 mod hyprland;
+mod i3;
 mod kde;
 pub(crate) mod kitty;
 mod less;
@@ -54,6 +55,7 @@ pub const KNOWN: &[&str] = &[
     "screen",
     "kitty",
     "xfce",
+    "i3",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -63,6 +65,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "hyprland" => hyprland::sheet(ctx),
         "kde" => kde::sheet(ctx),
         "xfce" => xfce::sheet(),
+        "i3" => i3::sheet(ctx),
         "espanso" => espanso::sheet(ctx),
         "nvim" => nvim::sheet(ctx),
         "herdr" => herdr::sheet(ctx),
