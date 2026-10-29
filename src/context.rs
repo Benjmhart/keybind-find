@@ -558,6 +558,7 @@ fn is_terminal(class: &str) -> bool {
 const TERMINAL_KEYS: &[(&str, &str)] = &[
     ("Alacritty", "alacritty"),
     ("com.mitchellh.ghostty", "ghostty"),
+    ("kitty", "kitty"),
 ];
 
 /// `child` is the terminal's foreground program (its group's leader), `group` every program in that group.
@@ -642,7 +643,7 @@ fn read_window(ctx: &mut Context, id: String) -> anyhow::Result<Option<Foregroun
             "WM_NAME",
         ],
     )?);
-    let child = program_in(&props, "_NET_WM_PID");
+    let child = program_in(&props, "_NET_WM_PID", Some(&id));
     ctx.class = props.class;
     ctx.instance = props.instance;
     ctx.title = props.title;
@@ -650,15 +651,22 @@ fn read_window(ctx: &mut Context, id: String) -> anyhow::Result<Option<Foregroun
 }
 
 /// The program inside a terminal window (`None` for any other window), found from the window's pid. `pid_source`
-/// names where the pid should have come from, for the error when it is missing.
-fn program_in(props: &Props, pid_source: &str) -> anyhow::Result<Option<Foreground>> {
+/// names where the pid should have come from, for the error when it is missing; `x_window` is the window's X id, when
+/// it has one.
+fn program_in(
+    props: &Props,
+    pid_source: &str,
+    x_window: Option<&str>,
+) -> anyhow::Result<Option<Foreground>> {
     let Some(class) = props.class.as_deref().filter(|c| is_terminal(c)) else {
         return Ok(None);
     };
     let pid = props
         .pid
         .with_context(|| format!("{class} window has no {pid_source}"))?;
-    foreground(pid).with_context(|| format!("finding the program inside {class}"))
+    let env = |k: &str| std::env::var(k).ok();
+    foreground(pid, class, x_window, &env, std::path::Path::new("/proc"))
+        .with_context(|| format!("finding the program inside {class}"))
 }
 
 /// Fills id, class and title from `swaymsg -t get_tree`'s output; returns the program running inside a terminal
@@ -668,7 +676,7 @@ fn read_sway_focus(ctx: &mut Context, tree: &str) -> anyhow::Result<Option<Foreg
         return Ok(None);
     };
     ctx.window_id = Some(id);
-    let child = program_in(&props, "pid in sway's tree");
+    let child = program_in(&props, "pid in sway's tree", None);
     ctx.class = props.class;
     ctx.instance = props.instance;
     ctx.title = props.title;
@@ -723,7 +731,7 @@ fn read_hyprland_focus(ctx: &mut Context, json: &str) -> anyhow::Result<Option<F
         title: text("title"),
     };
     ctx.window_id = Some(id);
-    let child = program_in(&props, "pid from hyprctl");
+    let child = program_in(&props, "pid from hyprctl", None);
     ctx.class = props.class;
     ctx.title = props.title;
     child
@@ -756,7 +764,7 @@ fn read_kde_focus(ctx: &mut Context, out: &str) -> anyhow::Result<Option<Foregro
         pid: pid.trim().parse().ok().filter(|&p| p > 0),
         title: text(&title),
     };
-    let child = program_in(&props, "pid from kdotool");
+    let child = program_in(&props, "pid from kdotool", None);
     ctx.class = props.class;
     ctx.title = props.title;
     child
@@ -1020,27 +1028,41 @@ struct Foreground {
 
 /// The program in the terminal's foreground: the leader of its child's foreground process group (`tpgid`), so
 /// `nvim` typed at a zsh prompt counts as nvim, and an idle shell counts as the shell. `None` if there is no child.
-fn foreground(pid: u32) -> anyhow::Result<Option<Foreground>> {
+/// A terminal of `class` with several children is asked which one has focus (`focused_child`, through `env` and
+/// `proc`, both test seams).
+fn foreground(
+    pid: u32,
+    class: &str,
+    x_window: Option<&str>,
+    env: crate::providers::kitty::Env,
+    proc: &std::path::Path,
+) -> anyhow::Result<Option<Foreground>> {
     // Children of every thread, not just the main one.
     let mut children = Vec::new();
-    for task in std::fs::read_dir(format!("/proc/{pid}/task"))? {
+    for task in std::fs::read_dir(proc.join(format!("{pid}/task")))? {
         let path = task?.path().join("children");
         if let Ok(text) = std::fs::read_to_string(path) {
             children.extend(text.split_whitespace().map(str::to_string));
         }
     }
-    // ponytail: one shell per terminal process. A terminal that serves several windows, tabs or splits from one
-    // process (alacritty's daemon mode, `foot --server`, gnome-terminal-server, kitty's tabs) has several children,
-    // and we can't tell which belongs to the focused one, so say so; the caller names the terminal.
+    // A terminal that serves several windows, tabs or splits from one process (alacritty's daemon mode,
+    // `foot --server`, gnome-terminal-server, kitty's tabs) has several children; only kitty can say which is focused.
     let child = match children.as_slice() {
         [] => return Ok(None),
-        [child] => child,
-        _ => bail!(
-            "pid {pid} has {} children (one process serving several windows or tabs?)",
-            children.len()
-        ),
+        [child] => child.clone(),
+        _ => focused_child(class, x_window, &children, env, proc).map_err(|hint| {
+            anyhow::anyhow!(
+                "pid {pid} has {} children (one process serving several windows or tabs?){hint}",
+                children.len()
+            )
+        })?,
     };
-    let stat = std::fs::read_to_string(format!("/proc/{child}/stat")).ok();
+    Ok(foreground_of(&child, proc))
+}
+
+/// The program in `child`'s foreground (its `tpgid` group's leader), or `None` when it exited meanwhile.
+fn foreground_of(child: &str, proc: &std::path::Path) -> Option<Foreground> {
+    let stat = std::fs::read_to_string(proc.join(format!("{child}/stat"))).ok();
     let tpgid = stat.as_deref().and_then(tpgid);
     // Without a terminal (`tpgid` -1), the child's own group.
     let group = tpgid
@@ -1049,16 +1071,90 @@ fn foreground(pid: u32) -> anyhow::Result<Option<Foreground>> {
         .unwrap_or_default();
     // The group leader may have exited; fall back to the child itself. A child that exited between reads is no
     // program at all.
-    for pid in tpgid.iter().map(u32::to_string).chain([child.clone()]) {
-        if let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) {
+    for pid in tpgid.iter().map(u32::to_string).chain([child.to_string()]) {
+        if let Ok(comm) = std::fs::read_to_string(proc.join(format!("{pid}/comm"))) {
             let comm = comm.trim_end_matches('\n').to_string();
             if let (Ok(pid), "nvim") = (pid.parse(), comm.as_str()) {
                 found_nvim(pid);
             }
-            return Ok(Some(Foreground { comm, group }));
+            return Some(Foreground { comm, group });
         }
     }
-    Ok(None)
+    None
+}
+
+/// The rest of the several-children warning when kitty can't be asked.
+const KITTY_HINT: &str = "; to find the program in kitty's focused tab, set `allow_remote_control socket-only` and `listen_on unix:@kitty` in kitty.conf";
+
+/// Which of a terminal's `children` has focus, asked of the terminal; `Err` holds what to add to the several-children
+/// warning. kitty (the only one so far): its remote-control address from a child's environment, `kitten @ ls` (1 s,
+/// never with a password, so kitty never asks the user), and the focused window's pid, which must be one of `children`.
+fn focused_child(
+    class: &str,
+    x_window: Option<&str>,
+    children: &[String],
+    env: crate::providers::kitty::Env,
+    proc: &std::path::Path,
+) -> Result<String, &'static str> {
+    if !class.eq_ignore_ascii_case("kitty") {
+        return Err("");
+    }
+    let address = children
+        .iter()
+        .find_map(|c| kitty_listen_on(proc, c))
+        .ok_or(KITTY_HINT)?;
+    let kitten = crate::providers::kitty::program("kitten", env).ok_or(KITTY_HINT)?;
+    let mut cmd = Command::new(kitten);
+    // Never a password: one from `KITTY_RC_PASSWORD` or an `rc-pass` file that kitty doesn't know would make it ask the
+    // user in their window.
+    cmd.args(["@", "--to", &address, "--use-password", "never", "ls"])
+        .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
+    let ls = run_for(cmd, Duration::from_secs(1)).map_err(|_| KITTY_HINT)?;
+    let pid = kitty_focused_pid(&ls, x_window)
+        .ok()
+        .flatten()
+        .ok_or(KITTY_HINT)?;
+    children
+        .iter()
+        .find(|c| **c == pid.to_string())
+        .cloned()
+        .ok_or(KITTY_HINT)
+}
+
+/// `KITTY_LISTEN_ON` from `child`'s environment, when it is an address another process can use (`unix:`, `tcp:`,
+/// `tcp6:`; not `fd:`, a descriptor only that child holds).
+fn kitty_listen_on(proc: &std::path::Path, child: &str) -> Option<String> {
+    let environ = std::fs::read(proc.join(format!("{child}/environ"))).ok()?;
+    environ
+        .split(|b| *b == 0)
+        .filter_map(|v| v.strip_prefix(b"KITTY_LISTEN_ON="))
+        .map(|v| String::from_utf8_lossy(v).into_owned())
+        .find(|v| ["unix:", "tcp:", "tcp6:"].iter().any(|p| v.starts_with(p)))
+}
+
+/// The pid of the focused window in `kitten @ ls`'s output: in the OS window whose `platform_window_id` is
+/// `x_window` (X11), else the `is_focused` one (Wayland, where the id is null), its active tab's active window.
+fn kitty_focused_pid(ls: &str, x_window: Option<&str>) -> anyhow::Result<Option<u32>> {
+    let os_windows: Vec<serde_json::Value> =
+        serde_json::from_str(ls).context("parsing `kitten @ ls`")?;
+    let x = x_window.and_then(|w| w.parse::<u64>().ok());
+    let os_window = x
+        .and_then(|x| {
+            os_windows
+                .iter()
+                .find(|w| w["platform_window_id"].as_u64() == Some(x))
+        })
+        .or_else(|| os_windows.iter().find(|w| w["is_focused"] == true));
+    let active = |v: &serde_json::Value, list: &str| {
+        v[list]
+            .as_array()
+            .and_then(|l| l.iter().find(|i| i["is_active"] == true).cloned())
+    };
+    Ok(os_window
+        .and_then(|w| active(w, "tabs"))
+        .and_then(|t| active(&t, "windows"))
+        .and_then(|w| w["pid"].as_u64())
+        .and_then(|p| u32::try_from(p).ok()))
 }
 
 /// The `comm` of every process in process group `pgrp`, from `/proc/*/stat`. Debian's man runs less as `pager`
@@ -1215,9 +1311,16 @@ mod tests {
             assert!(crate::providers::KNOWN.contains(p), "{p}");
             assert!(is_terminal(class), "{class}");
         }
+        // kitty's own keys, in any case of its class, then the program inside it.
+        for class in ["kitty", "KITTY", "Kitty"] {
+            assert_eq!(
+                x(Some(class), Some("fish")),
+                ["xmonad", "espanso", "kitty", "fish", "sheets"]
+            );
+        }
         assert_eq!(
-            x(Some("kitty"), Some("fish")),
-            ["xmonad", "espanso", "fish", "sheets"]
+            x(Some("kitty"), None),
+            ["xmonad", "espanso", "kitty", "sheets"]
         );
         // Programs that use readline but aren't these shells, a shell in a browser or an unlisted class: none.
         assert_eq!(
@@ -1262,7 +1365,7 @@ mod tests {
         let hypr = |c, p| providers_for(wm_provider(Some("hyprland")), c, p, &[]);
         assert_eq!(
             hypr(Some("kitty"), Some("nvim")),
-            ["hyprland", "espanso", "nvim", "sheets"]
+            ["hyprland", "espanso", "kitty", "nvim", "sheets"]
         );
         assert_eq!(
             hypr(Some("Alacritty"), Some("tmux: client")),
@@ -1294,7 +1397,7 @@ mod tests {
                 Some("git"),
                 &group(&["git", "less"])
             ),
-            ["sway", "espanso", "less", "sheets"]
+            ["sway", "espanso", "kitty", "less", "sheets"]
         );
         assert_eq!(
             providers_for(None, Some("foot"), Some("bash"), &group(&["bash", "less"])),
@@ -1420,7 +1523,7 @@ mod tests {
         }
         // alacritty's own provider stays alacritty's; an unknown class gets nothing from inside it.
         assert_eq!(
-            providers_for(Some("xmonad"), Some("kitty"), Some("nvim"), &[]),
+            providers_for(Some("xmonad"), Some("foot"), Some("nvim"), &[]),
             ["xmonad", "espanso", "nvim", "sheets"]
         );
         assert_eq!(
@@ -2398,17 +2501,17 @@ mod tests {
         };
         // Not a terminal: no lookup, even with a pid that has no process.
         assert_eq!(
-            program_in(&props("Gimp", Some(u32::MAX)), "pid").unwrap(),
+            program_in(&props("Gimp", Some(u32::MAX)), "pid", None).unwrap(),
             None
         );
-        assert_eq!(program_in(&Props::default(), "pid").unwrap(), None);
-        let e = program_in(&props("Alacritty", None), "pid in sway's tree").unwrap_err();
+        assert_eq!(program_in(&Props::default(), "pid", None).unwrap(), None);
+        let e = program_in(&props("Alacritty", None), "pid in sway's tree", None).unwrap_err();
         assert!(e.to_string().contains("no pid in sway's tree"), "{e}");
-        assert!(program_in(&props("Alacritty", Some(u32::MAX)), "pid").is_err());
+        assert!(program_in(&props("Alacritty", Some(u32::MAX)), "pid", None).is_err());
         // Any terminal is looked inside, and the error names it.
-        let e = program_in(&props("kitty", None), "_NET_WM_PID").unwrap_err();
+        let e = program_in(&props("kitty", None), "_NET_WM_PID", None).unwrap_err();
         assert_eq!(e.to_string(), "kitty window has no _NET_WM_PID");
-        let e = program_in(&props("foot", Some(u32::MAX)), "pid").unwrap_err();
+        let e = program_in(&props("foot", Some(u32::MAX)), "pid", None).unwrap_err();
         assert!(e.to_string().contains("inside foot"), "{e}");
     }
 
@@ -2659,9 +2762,14 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         pid
     }
 
+    /// `foreground` for a terminal that can't be asked which child has focus, on this host's `/proc`.
+    fn fg(pid: u32) -> anyhow::Result<Option<Foreground>> {
+        foreground(pid, "foot", None, &|_| None, std::path::Path::new("/proc"))
+    }
+
     /// The leader's comm, which most tests look at.
     fn foreground_comm(pid: u32) -> anyhow::Result<Option<String>> {
-        foreground(pid).map(|f| f.map(|f| f.comm))
+        fg(pid).map(|f| f.map(|f| f.comm))
     }
 
     fn kill_pid(pid: u32) {
@@ -2694,7 +2802,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             pid: Some(pid),
             title: None,
         };
-        let comm = || program_in(&props, "pid").map(|f| f.map(|f| f.comm));
+        let comm = || program_in(&props, "pid", None).map(|f| f.map(|f| f.comm));
         let mut got = comm();
         for _ in 0..200 {
             if got.as_ref().ok().and_then(|c| c.as_deref()) == Some(want) {
@@ -2746,7 +2854,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             pid: Some(sh),
             title: None,
         };
-        let got = program_in(&props, "pid");
+        let got = program_in(&props, "pid", None);
         // The shell leads its own session and process group: kill the group, sleeps included.
         let _ = Command::new("kill")
             .args(["--", &format!("-{sh}")])
@@ -2755,6 +2863,234 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         assert!(e.starts_with("finding the program inside foot: "), "{e}");
         assert!(
             e.contains("has 2 children (one process serving several windows or tabs?)"),
+            "{e}"
+        );
+    }
+
+    fn kitty_fixture(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/kitty")
+            .join(name)
+    }
+
+    #[test]
+    fn kitty_ls_gives_the_focused_windows_pid() {
+        let ls = std::fs::read_to_string(kitty_fixture("ls.json")).unwrap();
+        // X11: the OS window with the focused X id, though another has kitty's focus flag.
+        assert_eq!(kitty_focused_pid(&ls, Some("4194310")).unwrap(), Some(1001));
+        // Wayland (no X id), or an id kitty doesn't list: the focused OS window, its active tab's active split.
+        assert_eq!(kitty_focused_pid(&ls, None).unwrap(), Some(2003));
+        assert_eq!(kitty_focused_pid(&ls, Some("12345")).unwrap(), Some(2003));
+        assert_eq!(kitty_focused_pid("[]", None).unwrap(), None);
+        assert!(kitty_focused_pid("{not json", None).is_err());
+    }
+
+    /// A fake `kitten` in a new directory under `dir` that prints `ls` for `@ --to unix:@x --use-password never ls` and
+    /// fails otherwise. Returns the directory, for `PATH`.
+    fn fake_kitten(dir: &std::path::Path, ls: &str) -> std::path::PathBuf {
+        let bin = dir.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let script = format!(
+            "#!/bin/sh\n[ \"$*\" = '@ --to unix:@x --use-password never ls' ] || exit 1\ncat <<'EOF'\n{ls}\nEOF\n"
+        );
+        write_script(&bin.join("kitten"), &script);
+        bin
+    }
+
+    /// Writes an executable `script` at `path` through `sh` (a file we wrote and then run can fail with ETXTBSY).
+    fn write_script(path: &std::path::Path, script: &str) {
+        let mut sh = Command::new("sh")
+            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(path)
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        sh.stdin
+            .take()
+            .unwrap()
+            .write_all(script.as_bytes())
+            .unwrap();
+        assert!(sh.wait().unwrap().success());
+    }
+
+    #[test]
+    fn kitty_is_asked_which_child_has_focus() {
+        let tmp = std::env::temp_dir().join(format!("kbf-kitty-focus-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        // A /proc of a kitty (100) with children 1001 (remote control by fd only), 2003 (by socket) and 2002.
+        let proc = tmp.join("proc");
+        let task = proc.join("100/task/100");
+        std::fs::create_dir_all(&task).unwrap();
+        std::fs::write(task.join("children"), "1001 2003 2002 ").unwrap();
+        for (pid, comm, environ) in [
+            ("1001", "zsh", "A=b\0KITTY_LISTEN_ON=fd:3\0"),
+            ("2002", "zsh", "A=b\0"),
+            ("2003", "less", "KITTY_LISTEN_ON=unix:@x\0B=c\0"),
+        ] {
+            std::fs::create_dir_all(proc.join(pid)).unwrap();
+            std::fs::write(proc.join(pid).join("comm"), format!("{comm}\n")).unwrap();
+            std::fs::write(proc.join(pid).join("environ"), environ).unwrap();
+            // No controlling terminal (tpgid -1): the child is its own program.
+            std::fs::write(
+                proc.join(pid).join("stat"),
+                format!("{pid} ({comm}) S 100 {pid} {pid} 0 -1 4194304"),
+            )
+            .unwrap();
+        }
+        assert_eq!(kitty_listen_on(&proc, "1001"), None);
+        assert_eq!(kitty_listen_on(&proc, "2003").as_deref(), Some("unix:@x"));
+        assert_eq!(kitty_listen_on(&proc, "9999"), None);
+        for tcp in ["tcp:localhost:12488", "tcp6:[::1]:12488"] {
+            std::fs::write(
+                proc.join("2002/environ"),
+                format!("KITTY_LISTEN_ON={tcp}\0"),
+            )
+            .unwrap();
+            assert_eq!(kitty_listen_on(&proc, "2002").as_deref(), Some(tcp));
+        }
+        std::fs::write(proc.join("2002/environ"), "A=b\0").unwrap();
+        let ls = std::fs::read_to_string(kitty_fixture("ls.json")).unwrap();
+        let bin = fake_kitten(&tmp, &ls);
+        let path = bin.to_string_lossy().into_owned();
+        let with_kitten = |k: &str| (k == "PATH").then(|| path.clone());
+        let comm = |class: &str, x: Option<&str>, env: crate::providers::kitty::Env| {
+            foreground(100, class, x, env, &proc).map(|f| f.map(|f| f.comm))
+        };
+        assert_eq!(
+            comm("kitty", None, &with_kitten).unwrap().as_deref(),
+            Some("less")
+        );
+        assert_eq!(
+            comm("KITTY", Some("4194310"), &with_kitten)
+                .unwrap()
+                .as_deref(),
+            Some("zsh")
+        );
+        // Not kitty: never asked, and no hint.
+        let e = format!("{:#}", comm("foot", None, &with_kitten).unwrap_err());
+        assert_eq!(
+            e,
+            "pid 100 has 3 children (one process serving several windows or tabs?)"
+        );
+        // No kitten: the hint.
+        let none = |_: &str| None;
+        let e = format!("{:#}", comm("kitty", None, &none).unwrap_err());
+        assert!(
+            e.starts_with(
+                "pid 100 has 3 children (one process serving several windows or tabs?); "
+            ),
+            "{e}"
+        );
+        assert!(
+            e.ends_with(
+                "set `allow_remote_control socket-only` and `listen_on unix:@kitty` in kitty.conf"
+            ),
+            "{e}"
+        );
+        // The focused window's pid (1001) isn't one of this process's children: no match.
+        std::fs::write(task.join("children"), "2003 2002").unwrap();
+        let e = format!(
+            "{:#}",
+            comm("kitty", Some("4194310"), &with_kitten).unwrap_err()
+        );
+        assert!(e.contains("allow_remote_control"), "{e}");
+        // No usable address (fd: only): kitty isn't asked.
+        std::fs::write(task.join("children"), "1001 2002").unwrap();
+        let e = format!("{:#}", comm("kitty", None, &with_kitten).unwrap_err());
+        assert!(e.contains("allow_remote_control"), "{e}");
+        // `ls` failing (another address) or printing junk.
+        std::fs::write(proc.join("2003/environ"), "KITTY_LISTEN_ON=unix:@y\0").unwrap();
+        std::fs::write(task.join("children"), "2003 2002").unwrap();
+        assert!(
+            format!("{:#}", comm("kitty", None, &with_kitten).unwrap_err())
+                .contains("allow_remote_control")
+        );
+        std::fs::write(proc.join("2003/environ"), "KITTY_LISTEN_ON=unix:@x\0").unwrap();
+        let junk = fake_kitten(&tmp.join("junk"), "{not json");
+        let junk = junk.to_string_lossy().into_owned();
+        let with_junk = |k: &str| (k == "PATH").then(|| junk.clone());
+        assert!(
+            format!("{:#}", comm("kitty", None, &with_junk).unwrap_err())
+                .contains("allow_remote_control")
+        );
+        // A kitten that hangs (a password prompt) is killed at 1 s.
+        let hang = tmp.join("hang/bin");
+        std::fs::create_dir_all(&hang).unwrap();
+        write_script(&hang.join("kitten"), "#!/bin/sh\nsleep 10\n");
+        let hang = hang.to_string_lossy().into_owned();
+        let with_hang = |k: &str| (k == "PATH").then(|| hang.clone());
+        let started = Instant::now();
+        let e = format!("{:#}", comm("kitty", None, &with_hang).unwrap_err());
+        assert!(e.contains("allow_remote_control"), "{e}");
+        // Waited for it (so it ran), then gave up at the limit.
+        let took = started.elapsed();
+        assert!(
+            took >= Duration::from_millis(900) && took < Duration::from_secs(3),
+            "{took:?}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn a_stand_in_kitty_finds_its_focused_tab() {
+        use std::io::BufRead;
+        // Two tabs: one child with remote control by fd only, one with a socket address.
+        let mut setsid = KillOnDrop(
+            Command::new("setsid")
+                .args([
+                    "sh",
+                    "-c",
+                    "KITTY_LISTEN_ON=fd:3 sleep 5 & KITTY_LISTEN_ON=unix:@x sleep 5 & echo $$ $!; wait",
+                ])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let mut line = String::new();
+        std::io::BufReader::new(setsid.0.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let mut pids = line.split_whitespace().map(|p| p.parse::<u32>().unwrap());
+        let (sh, tab) = (pids.next().unwrap(), pids.next().unwrap());
+        let tmp = std::env::temp_dir().join(format!("kbf-kitty-standin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let ls = format!(
+            r#"[{{"id": 1, "platform_window_id": null, "is_focused": true, "tabs": [{{"id": 1, "is_active": true, "windows": [{{"id": 1, "is_active": true, "pid": {tab}}}]}}]}}]"#
+        );
+        let bin = fake_kitten(&tmp, &ls);
+        let path = bin.to_string_lossy().into_owned();
+        let with_kitten = |k: &str| (k == "PATH").then(|| path.clone());
+        let proc = std::path::Path::new("/proc");
+        // The children exec `sleep` (and get their environment) a moment after the fork.
+        let mut got = None;
+        for _ in 0..200 {
+            got =
+                Some(foreground(sh, "kitty", None, &with_kitten, proc).map(|f| f.map(|f| f.comm)));
+            if matches!(&got, Some(Ok(Some(c))) if c == "sleep") {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let addresses: Vec<Option<String>> =
+            std::fs::read_to_string(format!("/proc/{sh}/task/{sh}/children"))
+                .unwrap_or_default()
+                .split_whitespace()
+                .map(|c| kitty_listen_on(proc, c))
+                .collect();
+        let none = |_: &str| None;
+        let no_kitten = foreground(sh, "kitty", None, &none, proc);
+        let _ = Command::new("kill")
+            .args(["--", &format!("-{sh}")])
+            .status();
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert_eq!(got.unwrap().unwrap().as_deref(), Some("sleep"));
+        let mut addresses = addresses;
+        addresses.sort();
+        assert_eq!(addresses, [None, Some("unix:@x".to_string())]);
+        let e = format!("{:#}", no_kitten.unwrap_err());
+        assert!(
+            e.contains("has 2 children") && e.contains("allow_remote_control socket-only"),
             "{e}"
         );
     }
@@ -2830,7 +3166,9 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
                 )
                 .map(|o| parse_xprop(&String::from_utf8_lossy(&o.stdout)));
                 if let Ok(props) = props {
-                    if let Ok(Some(Foreground { comm, .. })) = program_in(&props, "_NET_WM_PID") {
+                    if let Ok(Some(Foreground { comm, .. })) =
+                        program_in(&props, "_NET_WM_PID", None)
+                    {
                         let done = comm == "sleep";
                         found = Some((props.class, comm));
                         if done {
@@ -2947,7 +3285,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
     fn group_until(pid: u32, done: impl Fn(&[String]) -> bool) -> Option<Foreground> {
         let mut fg = None;
         for _ in 0..200 {
-            fg = foreground(pid).ok().flatten();
+            fg = self::fg(pid).ok().flatten();
             if fg.as_ref().is_some_and(|f| done(&f.group)) {
                 break;
             }

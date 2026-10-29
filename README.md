@@ -21,6 +21,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | other Wayland compositors (niri, GNOME) | espanso only: the focused window isn't read, so no app below | untested; fuzzel needs layer-shell (not GNOME), wtype the virtual-keyboard protocol (not GNOME or KDE: a pick there is refused, [below](#kde-plasma)) |
 | alacritty | its keys: alacritty's defaults merged with your `[[keyboard.bindings]]` | none |
 | Ghostty | its keys from `ghostty +list-keybinds`, as your config sets them | none ([below](#ghostty)) |
+| kitty | its default shortcuts for its version (0.49.2 built in) with your `kitty.conf` maps on top | none; the program in a tab needs remote control ([below](#kitty)) |
 | nvim | your maps from a headless nvim with your config, with each map's `desc` | none |
 | vim | your maps (`:map`, `:map!`, `:tmap`, `:lmap`) from a headless vim with your vimrc; not vim's built-in keys | none; it runs your vimrc ([below](#vim)) |
 | nano | its main-menu keys: nano's defaults for its version (7.2, 8.4 and 9.2 built in) with your nanorc's `bind`/`unbind` on top | none ([below](#nano)) |
@@ -41,7 +42,8 @@ WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxv
 sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
 GNOME Terminal, Xfce Terminal, WezTerm, Ghostty and Terminator), keybind-find can't tell which is the focused one: it prints a one-line warning
-and shows the list without the program inside (the terminal's own keys, alacritty's or Ghostty's, are still listed). espanso's `word: true` matches (they
+and shows the list without the program inside (the terminal's own keys, alacritty's, Ghostty's or kitty's, are still listed).
+kitty can say which tab has focus when its remote control is on ([below](#kitty)). espanso's `word: true` matches (they
 wait for a space or punctuation after the trigger) and regex matches (no literal trigger) can't be typed, picks do nothing while the espanso service is stopped, and matches limited by `filter_exec` aren't
 listed.
 
@@ -181,6 +183,35 @@ different key. Started from the desktop, Ghostty runs every window, tab and spli
 found only when that process runs one shell; otherwise you get Ghostty's keys and the one-line warning above. A
 window whose class you changed (Ghostty's `class` option) isn't recognised as Ghostty.
 
+### kitty
+
+In a kitty window, keybind-find lists kitty's default shortcuts for its version (from kitty's
+`kitty/options/definition.py` at 0.49.2; another version gets the nearest, with a one-line note; with no `kitty` on
+`PATH` or in `~/.local/kitty.app/bin`, the newest) with your `kitty.conf` on top, read as kitty reads it: the file in
+`$KITTY_CONFIG_DIRECTORY`, else the first `kitty/kitty.conf` under `$XDG_CONFIG_HOME`, `$XDG_CONFIG_DIRS` and
+`~/.config`, following `include` and `globinclude`. Your `map` lines replace or remove (`map <key>` with no action, or
+`no_op`) the default on the same key, `kitty_mod` applies to every map that uses it, and `clear_all_shortcuts yes` drops
+every map before it. A key in a keyboard mode (`map --mode resize …`) is tagged with it (`[keyboard_mode=resize]`), and
+the key that enters the mode (`--new-mode`) is listed too. A default keeps kitty's title (`Copy to clipboard`); your
+own map shows its action. Not read: `envinclude` and `geninclude` (it runs a program), noted in one line; left out and
+counted in one line: `--when-focus-on` maps (they depend on the window, which keybind-find can't see), `hyper`,
+`caps_lock` and `num_lock` modifiers, keys with no X keysym, and a mode name that can't be a scope.
+
+kitty runs every OS window, tab and split from one process, so with more than one shell open keybind-find has to ask
+kitty which one is focused before it can list the program inside (nvim, a shell). It asks only when kitty's remote
+control is reachable from outside: put these in `kitty.conf` and restart kitty:
+
+```
+allow_remote_control socket-only
+listen_on unix:@kitty
+```
+
+keybind-find then finds the address in a shell's environment (`KITTY_LISTEN_ON`) and runs `kitten @ ls` (1 s limit).
+keybind-find never sends a password (so kitty never asks you to allow it), so with `allow_remote_control password`
+it gets no answer. Without an answer you get kitty's keys and the one-line warning above, ending with the two lines to
+add. Anything that can reach that socket can control kitty, as
+kitty's own documentation warns.
+
 ### KDE Plasma
 
 On Plasma, keybind-find reads the shortcuts kglobalacceld saves in `~/.config/kglobalshortcutsrc` (or under
@@ -269,6 +300,7 @@ keybind-find keys            # grab the keyboard, print each key you press in bi
 | `fzf` 0.60+ (0.66+ for key search) | the list on X11 | `fzf` | `fzf` (stable has 0.60: no key search) |
 | `alacritty` | the window fzf runs in | `alacritty` | `alacritty` |
 | `ghostty` | Ghostty: its keys (only when a Ghostty window has focus) | `ghostty` | not in Debian's repositories: a third-party build |
+| `kitty`, `kitten` | kitty: its version (else the newest defaults), and the program in its focused tab | `kitty` | `kitty` (stable has 0.41: the 0.49.2 defaults, with a note) |
 | `xmodmap` | key search, and checking your `config.toml` keys | `xorg-xmodmap` | `x11-xserver-utils` |
 | `dmenu` | the list on X11 without fzf or alacritty (or with fzf older than 0.60, via `KEYBIND_FIND_PICKER`) | `dmenu` | `suckless-tools` |
 | `fuzzel` | the list on Wayland | `fuzzel` | `fuzzel` |

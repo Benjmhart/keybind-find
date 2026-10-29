@@ -10,10 +10,12 @@ mod ghostty;
 mod herdr;
 mod hyprland;
 mod kde;
+pub(crate) mod kitty;
 mod less;
 mod mpv;
 mod nano;
 mod nvim;
+mod pinned;
 // `src/plugins.rs`, declared here because `main.rs` is not this story's to edit.
 #[path = "../plugins.rs"]
 pub mod plugins;
@@ -49,6 +51,7 @@ pub const KNOWN: &[&str] = &[
     "kde",
     "ghostty",
     "screen",
+    "kitty",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -71,6 +74,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "vim" => vim::sheet(ctx),
         "nano" => nano::sheet(),
         "screen" => screen::sheet(),
+        "kitty" => kitty::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
@@ -111,6 +115,8 @@ mod tests {
         // The arm reaches the alacritty provider (it falls back to defaults, so this holds on any host).
         assert_eq!(sheet("alacritty", &ctx).unwrap().provider, "alacritty");
         assert_eq!(sheet("sheets", &ctx).unwrap().provider, "sheets");
+        // kitty falls back to its pinned defaults with no kitty installed.
+        assert_eq!(sheet("kitty", &ctx).unwrap().provider, "kitty");
         for p in KNOWN {
             if let Err(e) = sheet(p, &ctx) {
                 assert!(!e.to_string().contains("unknown provider"), "{p}: {e}");
