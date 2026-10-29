@@ -108,15 +108,15 @@ fn sheet_with(
     }
     let mut lines = Vec::new();
     // As kitty's `resolve_config`: the system file, then the user's, each with its own memory of what it read. When
-    // the search lands on the system file itself, it's read once (kitty would read it twice, to the same maps). A
-    // system file kitty can't open it skips quietly. No file (an unset `KITTY_CONFIG_DIRECTORY` holds none yet):
-    // kitty's defaults, as kitty uses them.
+    // the search lands on the system file itself, it's read once (kitty would read it twice, to the same maps). kitty
+    // skips a system file it can't open, quietly, even when the search lands on it. No file (an unset
+    // `KITTY_CONFIG_DIRECTORY` holds none yet): kitty's defaults, as kitty uses them.
     let canon = |f: &Path| std::fs::canonicalize(f).unwrap_or_else(|_| f.to_path_buf());
-    let system =
-        Some(system.to_path_buf()).filter(|f| f.is_file() && std::fs::File::open(f).is_ok());
     let user = config_file(env)
         .filter(|f| f.exists())
-        .filter(|f| system.as_deref().map(canon) != Some(canon(f)));
+        .filter(|f| canon(system) != canon(f));
+    let system =
+        Some(system.to_path_buf()).filter(|f| f.is_file() && std::fs::File::open(f).is_ok());
     for conf in system.into_iter().chain(user) {
         Conf::new(env).read(&conf, 0, &mut lines, &mut notes);
     }
@@ -1071,6 +1071,8 @@ mod tests {
 
     #[test]
     fn system_file_underneath() {
+        const ENVINCLUDE_NOTE: &str =
+            "envinclude and geninclude lines aren't followed (geninclude runs a program)";
         let tmp = std::env::temp_dir().join(format!("kbf-kitty-system-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         for d in ["etc/kitty", "home/.config/kitty", "link/.config/kitty"] {
@@ -1091,7 +1093,7 @@ mod tests {
         let system = tmp.join("etc/kitty/kitty.conf");
         std::fs::write(
             &system,
-            format!("kitty_mod ctrl+alt\nmap kitty_mod+f1 show_kitty_doc overview\nmap kitty_mod+f2 next_tab\ninclude {shared}\ninclude sys.conf\n"),
+            format!("kitty_mod ctrl+alt\nmap kitty_mod+f1 show_kitty_doc overview\nmap kitty_mod+f2 next_tab\ninclude {shared}\ninclude sys.conf\nenvinclude KITTY_CONF_X\n"),
         )
         .unwrap();
         let user = tmp.join("home/.config/kitty/kitty.conf");
@@ -1116,7 +1118,7 @@ mod tests {
         // files read is read for each, with no note.
         std::fs::write(
             &user,
-            format!("map kitty_mod+f1 next_layout\ninclude {shared}\ninclude mine.conf\n"),
+            format!("map kitty_mod+f1 next_layout\ninclude {shared}\ninclude mine.conf\nenvinclude KITTY_CONF_X\n"),
         )
         .unwrap();
         let (s, notes) = sheet(&home);
@@ -1126,7 +1128,8 @@ mod tests {
         assert_eq!(one(&s, "F9"), "close_window");
         assert_eq!(one(&s, "F8"), "next_window");
         assert_eq!(one(&s, "F7"), "new_tab");
-        assert!(notes.is_empty(), "{notes:?}");
+        // An envinclude in each file: one note.
+        assert_eq!(notes, [ENVINCLUDE_NOTE], "{notes:?}");
 
         // The user's kitty_mod wins over the system's.
         std::fs::write(&user, "kitty_mod ctrl+shift\n").unwrap();
@@ -1139,7 +1142,7 @@ mod tests {
         let (s, notes) = sheet(&home);
         let keys: Vec<&str> = s.binds.values().flatten().map(|b| b.key.as_str()).collect();
         assert_eq!(keys, ["F12"]);
-        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(notes, [ENVINCLUDE_NOTE], "{notes:?}");
 
         // The search lands on the system file itself: read once (one --when-focus-on map left out, not two).
         std::fs::write(
@@ -1155,6 +1158,7 @@ mod tests {
         std::os::unix::fs::symlink(&system, tmp.join("link/.config/kitty/kitty.conf")).unwrap();
         let (_, notes) = sheet(&[("HOME", t("link"))]);
         assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].starts_with("leaving out 1 maps ("), "{notes:?}");
         // The system file alone (the user's search finds nothing): its maps, no other note.
         let (s, notes) = sheet(&[("HOME", t("nowhere"))]);
         assert_eq!(one(&s, "ctrl+shift+F2"), "next_tab");
