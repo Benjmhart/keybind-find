@@ -40,12 +40,17 @@ fn env_var(k: &str) -> Option<String> {
 }
 
 fn current_session() -> Option<&'static str> {
-    session(env_var, wm_check_name, || {
-        use std::os::unix::fs::MetadataExt;
-        std::fs::metadata("/proc/self")
-            .map(|m| user_comms(std::path::Path::new("/proc"), m.uid()))
-            .unwrap_or_default()
-    })
+    session(
+        env_var,
+        |p| p.exists(),
+        wm_check_name,
+        || {
+            use std::os::unix::fs::MetadataExt;
+            std::fs::metadata("/proc/self")
+                .map(|m| user_comms(std::path::Path::new("/proc"), m.uid()))
+                .unwrap_or_default()
+        },
+    )
 }
 
 /// The context for `session`, with the focus read from sway's tree, Hyprland's or KWin's active window (each through `query`,
@@ -437,9 +442,13 @@ fn is_xmonad_config(comm: &str) -> bool {
 }
 
 /// Which session this is (`None`: unknown), from `env` (an empty variable counts as unset), and on X11 also the EWMH
-/// check window's name and the user's process names. Each source is a closure, asked only when reached.
+/// check window's name and the user's process names. Each source is a closure, asked only when reached; `exists` tests
+/// a path. Under Wayland a compositor variable counts only while its socket (Hyprland: its instance directory) exists,
+/// and a KDE or GNOME desktop entry only with evidence of that desktop running: the variable alone is often set for
+/// theming or portals on another compositor.
 fn session(
     env: impl Fn(&str) -> Option<String>,
+    exists: impl Fn(&std::path::Path) -> bool,
     wm_name: impl FnOnce() -> Option<String>,
     comms: impl FnOnce() -> Vec<String>,
 ) -> Option<&'static str> {
@@ -449,26 +458,53 @@ fn session(
             .map(|d| d.split(':').map(str::to_string).collect::<Vec<_>>())
             .unwrap_or_default()
     };
+    let comms = std::cell::LazyCell::new(comms);
+    let running = |c: &str| comms.iter().any(|p| p == c);
     if env("WAYLAND_DISPLAY").is_some() {
+        let live = |var: &str| {
+            let Some(v) = env(var) else { return false };
+            if var != "HYPRLAND_INSTANCE_SIGNATURE" {
+                return exists(std::path::Path::new(&v));
+            }
+            // Hyprland 0.40+ keeps its sockets in `$XDG_RUNTIME_DIR/hypr/<signature>/`, older ones in `/tmp/hypr/`.
+            // A signature with a `/` names no directory of its own.
+            !v.contains('/')
+                && env("XDG_RUNTIME_DIR")
+                    .map(std::path::PathBuf::from)
+                    .into_iter()
+                    .chain([std::path::PathBuf::from("/tmp")])
+                    .any(|d| exists(&d.join("hypr").join(&v)))
+        };
         for (var, name) in [
             ("SWAYSOCK", "sway"),
             ("HYPRLAND_INSTANCE_SIGNATURE", "hyprland"),
             ("NIRI_SOCKET", "niri"),
         ] {
-            if env(var).is_some() {
+            if live(var) {
                 return Some(name);
             }
         }
+        // Plasma's startup exports `KDE_FULL_SESSION=true` and `KDE_SESSION_VERSION`; its compositor is
+        // `kwin_wayland`, GNOME's `gnome-shell`.
+        let evident = |s: &str| match s {
+            "kde" => {
+                env("KDE_FULL_SESSION").as_deref() == Some("true")
+                    || env("KDE_SESSION_VERSION").is_some()
+                    || running("kwin_wayland")
+            }
+            "gnome" => running("gnome-shell"),
+            _ => true,
+        };
         return desktop()
             .iter()
-            .find_map(|d| known(d).filter(|s| WAYLAND.contains(s)));
+            .find_map(|d| known(d).filter(|s| WAYLAND.contains(s) && evident(s)));
     }
     let x11 = |s: Option<&'static str>| s.filter(|s| !WAYLAND_ONLY.contains(s));
     x11(wm_name().as_deref().and_then(known))
         .or_else(|| desktop().iter().find_map(|d| x11(known(d))))
         // Older display managers set a path (`/usr/share/xsessions/plasma`, maybe `.desktop`).
         .or_else(|| x11(env("DESKTOP_SESSION").and_then(|d| known(session_file_name(&d)))))
-        .or_else(|| comms().iter().find_map(|c| x11(known_comm(c))))
+        .or_else(|| comms.iter().find_map(|c| x11(known_comm(c))))
 }
 
 /// `DESKTOP_SESSION`'s last path segment, without a `.desktop` suffix.
@@ -2160,12 +2196,23 @@ mod tests {
         }
     }
 
-    /// The session under Wayland, where neither the X name nor the process list may be asked.
+    /// The session under Wayland, every path existing, where neither the X name nor the process list may be asked.
     fn wayland(vars: &[&str]) -> Option<&'static str> {
         session(
             env(vars),
+            |_| true,
             || panic!("X name read under Wayland"),
             || panic!("process list read under Wayland"),
+        )
+    }
+
+    /// The session under Wayland where only the paths `live` exist and the user runs `comms`.
+    fn wayland_in(vars: &[&str], live: &[&str], comms: &[&str]) -> Option<&'static str> {
+        session(
+            env(vars),
+            |p| live.iter().any(|l| std::path::Path::new(l) == p),
+            || panic!("X name read under Wayland"),
+            || comms.iter().map(|c| c.to_string()).collect(),
         )
     }
 
@@ -2199,11 +2246,17 @@ mod tests {
             ("i3:GNOME", Some("gnome")),
         ] {
             let d = format!("XDG_CURRENT_DESKTOP={desktop}");
-            assert_eq!(wayland(&[w, &d]), want, "{desktop}");
+            let running = ["kwin_wayland", "gnome-shell"];
+            assert_eq!(wayland_in(&[w, &d], &[], &running), want, "{desktop}");
         }
         // Empty variables count as unset.
         assert_eq!(
-            wayland(&[w, "SWAYSOCK=", "XDG_CURRENT_DESKTOP=KDE"]),
+            wayland(&[
+                w,
+                "SWAYSOCK=",
+                "XDG_CURRENT_DESKTOP=KDE",
+                "KDE_FULL_SESSION=true"
+            ]),
             Some("kde")
         );
         assert_eq!(
@@ -2219,10 +2272,139 @@ mod tests {
         assert_eq!(wayland(&[w]), None);
     }
 
+    #[test]
+    fn wayland_sessions_need_evidence() {
+        let w = "WAYLAND_DISPLAY=wayland-1";
+        let run = "XDG_RUNTIME_DIR=/run/user/1000";
+        // A compositor variable counts only while what it names exists; a stale one gives way to the next.
+        let sway = [w, "SWAYSOCK=/run/sway.sock"];
+        assert_eq!(wayland_in(&sway, &["/run/sway.sock"], &[]), Some("sway"));
+        assert_eq!(wayland_in(&sway, &[], &[]), None);
+        let niri = [w, "NIRI_SOCKET=/run/niri.sock"];
+        assert_eq!(wayland_in(&niri, &["/run/niri.sock"], &[]), Some("niri"));
+        assert_eq!(wayland_in(&niri, &[], &[]), None);
+        let hypr = [w, run, "HYPRLAND_INSTANCE_SIGNATURE=abc"];
+        assert_eq!(
+            wayland_in(&hypr, &["/run/user/1000/hypr/abc"], &[]),
+            Some("hyprland")
+        );
+        assert_eq!(wayland_in(&hypr, &["/tmp/hypr/abc"], &[]), Some("hyprland"));
+        assert_eq!(
+            wayland_in(
+                &[w, "HYPRLAND_INSTANCE_SIGNATURE=abc"],
+                &["/tmp/hypr/abc"],
+                &[]
+            ),
+            Some("hyprland")
+        );
+        assert_eq!(wayland_in(&hypr, &["/run/user/1000/hypr"], &[]), None);
+        assert_eq!(
+            wayland_in(&[w, "HYPRLAND_INSTANCE_SIGNATURE=../x"], &["/tmp/x"], &[]),
+            None
+        );
+        // A stale SWAYSOCK beside a live Hyprland.
+        assert_eq!(
+            wayland_in(
+                &[
+                    w,
+                    run,
+                    "SWAYSOCK=/run/sway.sock",
+                    "HYPRLAND_INSTANCE_SIGNATURE=abc"
+                ],
+                &["/run/user/1000/hypr/abc"],
+                &[]
+            ),
+            Some("hyprland")
+        );
+        // A stale socket, then the desktop variable.
+        assert_eq!(
+            wayland_in(&[w, "SWAYSOCK=/s", "XDG_CURRENT_DESKTOP=niri"], &[], &[]),
+            Some("niri")
+        );
+        // KDE: Plasma's variables or KWin running.
+        let kde = [w, "XDG_CURRENT_DESKTOP=KDE"];
+        for evidence in ["KDE_FULL_SESSION=true", "KDE_SESSION_VERSION=6"] {
+            assert_eq!(
+                wayland_in(&[kde[0], kde[1], evidence], &[], &[]),
+                Some("kde"),
+                "{evidence}"
+            );
+        }
+        assert_eq!(wayland_in(&kde, &[], &["zsh", "kwin_wayland"]), Some("kde"));
+        assert_eq!(wayland_in(&kde, &[], &["zsh", "kwin_x11"]), None);
+        assert_eq!(
+            wayland_in(
+                &[w, "XDG_CURRENT_DESKTOP=KDE", "KDE_FULL_SESSION=false"],
+                &[],
+                &[]
+            ),
+            None
+        );
+        assert_eq!(
+            wayland_in(&[w, "XDG_CURRENT_DESKTOP=plasma"], &[], &[]),
+            None
+        );
+        // GNOME: gnome-shell running.
+        let gnome = [w, "XDG_CURRENT_DESKTOP=GNOME"];
+        assert_eq!(wayland_in(&gnome, &[], &["gnome-shell"]), Some("gnome"));
+        assert_eq!(wayland_in(&gnome, &[], &["gnome-keyring-d"]), None);
+        assert_eq!(
+            wayland_in(&[w, "XDG_CURRENT_DESKTOP=Budgie:GNOME"], &[], &[]),
+            None
+        );
+        // An entry without evidence is skipped, not the end.
+        assert_eq!(
+            wayland_in(&[w, "XDG_CURRENT_DESKTOP=KDE:GNOME"], &[], &["gnome-shell"]),
+            Some("gnome")
+        );
+        // The process list is read at most once, and not when a compositor variable decides.
+        let reads = std::cell::Cell::new(0);
+        let count = || {
+            reads.set(reads.get() + 1);
+            Vec::new()
+        };
+        let none = session(
+            env(&[w, "XDG_CURRENT_DESKTOP=KDE:GNOME"]),
+            |_| false,
+            || panic!(),
+            count,
+        );
+        assert_eq!((none, reads.get()), (None, 1));
+        assert_eq!(
+            session(
+                env(&[w, "SWAYSOCK=/s", "XDG_CURRENT_DESKTOP=GNOME"]),
+                |_| true,
+                || panic!(),
+                || panic!("process list read when SWAYSOCK decides"),
+            ),
+            Some("sway")
+        );
+    }
+
+    /// A Wayland compositor that sets `XDG_CURRENT_DESKTOP=KDE` without Plasma running reads no window: no kdotool.
+    #[test]
+    fn kde_without_evidence_reads_no_window() {
+        let s = wayland_in(
+            &["WAYLAND_DISPLAY=w", "XDG_CURRENT_DESKTOP=KDE"],
+            &[],
+            &["labwc"],
+        );
+        assert_eq!(s, None);
+        let (ctx, _) = focus(
+            s,
+            true,
+            |_| panic!("X read under Wayland"),
+            |p, _| panic!("{p} asked without a known compositor"),
+        );
+        assert_eq!(ctx.window_id, None);
+        assert_eq!(ctx.providers, ["espanso"]);
+    }
+
     /// The session on X11 with the check window named `name` (`None`: unreadable) and processes `comms`.
     fn x11(vars: &[&str], name: Option<&str>, comms: &[&str]) -> Option<&'static str> {
         session(
             env(vars),
+            |p| panic!("{p:?} tested on X11"),
             || name.map(str::to_string),
             || comms.iter().map(|c| c.to_string()).collect(),
         )
