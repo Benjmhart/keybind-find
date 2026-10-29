@@ -15,10 +15,12 @@ const TIMEOUT: Duration = Duration::from_secs(3);
 /// Marks where the bindings start on stdout, so whatever the user's scripts print can't break the parse.
 const SENTINEL: &str = "KEYBIND-FIND-MPV";
 
-/// On mpv's `idle` event, waits for the bindings to settle, prints them on the line after the sentinel and quits, even
-/// when the dump fails. `idle` comes once every script has called `mpv_wait_event`, but a Lua script does that before
+/// On mpv's `idle` event, waits for the bindings to settle, prints them on the line after the sentinel and quits (quits
+/// even when the dump fails, printing nothing). `idle` comes once every script has called `mpv_wait_event`, but a Lua script does that before
 /// its idle handler flushes the keys it bound (mpv 0.41 `defaults.lua`), so a script's key could still be missing
 /// (1 run in 200). So it reads `input-bindings` every 50 ms until two reads match, for at most 1 s after `idle`.
+/// ponytail: "settled" is 50 ms without a change; a key a script binds later than that (in a slow event callback, on a
+/// timer) is missed. A per-script readiness signal would close it, if mpv ever offers one.
 /// `idle` is deprecated, but observing `idle-active` instead fires before other scripts finish loading. Its file name is
 /// the script's name in mpv, so it is one no user script is likely to have.
 const LUA: &str = r#"local function bindings()
@@ -744,6 +746,30 @@ mod tests {
                 .any(|b| b.key == "ctrl+j" && b.action.contains("kbf-slow")),
             "the slow script's key"
         );
+    }
+
+    #[test]
+    fn real_mpv_dumps_bindings_that_never_settle_within_the_cap() {
+        if !has_mpv() {
+            return;
+        }
+        let base = std::env::temp_dir().join(format!("kbf-mpv-churn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("scripts")).unwrap();
+        std::fs::write(
+            base.join("scripts/s.lua"),
+            "local n = 0 mp.add_periodic_timer(0.03, function() n = n + 1 \
+             mp.add_key_binding('Ctrl+' .. string.char(97 + n % 26), 'c' .. n, function() end) end)",
+        )
+        .unwrap();
+        // The provider's own limit: the 1 s cap must dump before it.
+        let r = real(&base, TIMEOUT);
+        let _ = std::fs::remove_dir_all(&base);
+        let Some(r) = r else {
+            return;
+        };
+        let (s, _) = r.unwrap();
+        assert_eq!(find(&s, "mpv", "q")[0].action, "quit");
     }
 
     #[test]
