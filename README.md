@@ -188,8 +188,9 @@ window whose class you changed (Ghostty's `class` option) isn't recognised as Gh
 In a kitty window, keybind-find lists kitty's default shortcuts for its version (from kitty's
 `kitty/options/definition.py` at 0.49.2; another version gets the nearest, with a one-line note; with no `kitty` on
 `PATH` or in `~/.local/kitty.app/bin`, the newest) with your `kitty.conf` on top, read as kitty reads it: the file in
-`$KITTY_CONFIG_DIRECTORY`, else the first `kitty/kitty.conf` under `$XDG_CONFIG_HOME`, `$XDG_CONFIG_DIRS` and
-`~/.config`, following `include` and `globinclude`. Your `map` lines replace or remove (`map <key>` with no action, or
+`$KITTY_CONFIG_DIRECTORY`, else the first `kitty/kitty.conf` under `$XDG_CONFIG_HOME`, `~/.config`, then each
+`$XDG_CONFIG_DIRS` entry (a config directory you can't write to, which kitty skips, is still read), with the system file
+`/etc/xdg/kitty/kitty.conf`, when there is one, read first and yours on top, following `include` and `globinclude`. Your `map` lines replace or remove (`map <key>` with no action, or
 `no_op`) the default on the same key, `kitty_mod` applies to every map that uses it, and `clear_all_shortcuts yes` drops
 every map before it. A key in a keyboard mode (`map --mode resize …`) is tagged with it (`[keyboard_mode=resize]`), and
 the key that enters the mode (`--new-mode`) is listed too. A default keeps kitty's title (`Copy to clipboard`); your

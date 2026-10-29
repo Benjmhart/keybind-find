@@ -55,7 +55,12 @@ pub fn sheet() -> anyhow::Result<Sheet> {
             "kitty isn't on PATH or in ~/.local/kitty.app/bin"
         )),
     };
-    let (sheet, notes) = sheet_with(REGISTRY, version, &env)?;
+    let (sheet, notes) = sheet_with(
+        REGISTRY,
+        version,
+        Path::new("/etc/xdg/kitty/kitty.conf"),
+        &env,
+    )?;
     if !notes.is_empty() {
         eprintln!("keybind-find: kitty: {}", notes.join("; "));
     }
@@ -78,10 +83,11 @@ pub(crate) fn program(name: &str, env: Env) -> Option<PathBuf> {
 }
 
 /// The sheet and its notes: the pinned defaults picked by `version` (`kitty --version`'s output, or why it failed),
-/// then the user's kitty.conf found through `env`.
+/// then the system kitty.conf (`system`) and the user's found through `env`, in that order.
 fn sheet_with(
     registry: &[(&'static str, &'static str)],
     version: anyhow::Result<String>,
+    system: &Path,
     env: Env,
 ) -> anyhow::Result<(Sheet, Vec<String>)> {
     let mut notes = Vec::new();
@@ -101,8 +107,15 @@ fn sheet_with(
         bail!("data/kitty/{v}.toml names kitty {}", pinned.kitty_version);
     }
     let mut lines = Vec::new();
-    // No file (an unset `KITTY_CONFIG_DIRECTORY` holds none yet): kitty's defaults, as kitty uses them.
-    if let Some(conf) = config_file(env).filter(|f| f.exists()) {
+    // As kitty's `resolve_config`: the system file, then the user's, each with its own memory of what it read (the
+    // search can land on the system file itself: read once). No file (an unset `KITTY_CONFIG_DIRECTORY` holds none
+    // yet): kitty's defaults, as kitty uses them.
+    let canon = |f: &Path| std::fs::canonicalize(f).unwrap_or_else(|_| f.to_path_buf());
+    let system = Some(system.to_path_buf()).filter(|f| f.exists());
+    let user = config_file(env)
+        .filter(|f| f.exists())
+        .filter(|f| system.as_deref().map(canon) != Some(canon(f)));
+    for conf in system.into_iter().chain(user) {
         Conf::new(env).read(&conf, 0, &mut lines, &mut notes);
     }
     let (sheet, left_out) = parse(&pinned.map, &lines);
@@ -120,9 +133,11 @@ fn version_of(text: &str) -> Option<String> {
     pinned::parse_version(v).map(|_| v.to_string())
 }
 
-/// kitty.conf: `$KITTY_CONFIG_DIRECTORY/kitty.conf` when that is set, else the first `kitty/kitty.conf` that exists
-/// under `$XDG_CONFIG_HOME`, each `$XDG_CONFIG_DIRS` entry, then `~/.config`. Empty or relative directories are
-/// skipped.
+/// The user's kitty.conf, as kitty's launcher (`get_config_dir`) finds it: `$KITTY_CONFIG_DIRECTORY/kitty.conf` when
+/// that is set, else the first `kitty/kitty.conf` that exists under `$XDG_CONFIG_HOME`, `~/.config`, then each
+/// `$XDG_CONFIG_DIRS` entry. Empty or relative directories are skipped.
+// ponytail: kitty also skips a directory the user can't write to (`access(W_OK)`); that needs `libc`, so a read-only
+// config directory is still read here. Add the check with a decision-log entry for `libc` if that ever misleads.
 fn config_file(env: Env) -> Option<PathBuf> {
     let abs = |d: &str| Some(PathBuf::from(d)).filter(|p| p.is_absolute());
     if let Some(dir) = env("KITTY_CONFIG_DIRECTORY").and_then(|d| abs(&d)) {
@@ -132,8 +147,8 @@ fn config_file(env: Env) -> Option<PathBuf> {
     env("XDG_CONFIG_HOME")
         .and_then(|d| abs(&d))
         .into_iter()
-        .chain(dirs.split(':').filter_map(abs))
         .chain(env("HOME").and_then(|h| abs(&h)).map(|h| h.join(".config")))
+        .chain(dirs.split(':').filter_map(abs))
         .map(|d| d.join("kitty/kitty.conf"))
         .find(|f| f.is_file())
 }
@@ -734,6 +749,11 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kitty")
     }
 
+    /// A system kitty.conf that doesn't exist, so the tests don't read the machine's `/etc/xdg/kitty/kitty.conf`.
+    fn no_system() -> PathBuf {
+        fixtures().join("no-system.conf")
+    }
+
     fn defaults() -> Pinned {
         toml::from_str(REGISTRY[0].1).unwrap()
     }
@@ -807,6 +827,7 @@ mod tests {
         let (s, notes) = sheet_with(
             REGISTRY,
             Ok("kitty 0.49.2 created by Kovid Goyal\n".into()),
+            &no_system(),
             &env,
         )
         .unwrap();
@@ -892,6 +913,7 @@ mod tests {
         let (s, notes) = sheet_with(
             REGISTRY,
             Ok("kitty 0.49.2 created by Kovid Goyal".into()),
+            &no_system(),
             &env,
         )
         .unwrap();
@@ -968,10 +990,19 @@ mod tests {
             pick(std::slice::from_ref(&home)),
             Some(tmp.join("home/.config/kitty/kitty.conf"))
         );
+        // ~/.config before XDG_CONFIG_DIRS, as kitty's launcher; an XDG_CONFIG_DIRS entry when neither other has one.
+        assert_eq!(
+            pick(&[home.clone(), ("XDG_CONFIG_DIRS", t("dirs"))]),
+            Some(tmp.join("home/.config/kitty/kitty.conf"))
+        );
         assert_eq!(
             pick(&[
-                home.clone(),
-                ("XDG_CONFIG_DIRS", format!("/nonexistent:{}", t("dirs")))
+                ("HOME", t("nowhere")),
+                ("XDG_CONFIG_HOME", t("nowhere")),
+                (
+                    "XDG_CONFIG_DIRS",
+                    format!("/nonexistent::rel:{}", t("dirs"))
+                )
             ]),
             Some(tmp.join("dirs/kitty/kitty.conf"))
         );
@@ -1006,6 +1037,7 @@ mod tests {
         let (s, notes) = sheet_with(
             REGISTRY,
             Ok("kitty 0.49.2 created by Kovid Goyal".into()),
+            &no_system(),
             &env,
         )
         .unwrap();
@@ -1017,11 +1049,92 @@ mod tests {
         let (s, notes) = sheet_with(
             REGISTRY,
             Ok("kitty 0.49.2 created by Kovid Goyal".into()),
+            &no_system(),
             &env,
         )
         .unwrap();
         assert_eq!(s.binds["kitty"].len(), 79);
         assert!(notes.is_empty(), "{notes:?}");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn system_file_underneath() {
+        let tmp = std::env::temp_dir().join(format!("kbf-kitty-system-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        for d in ["etc/kitty", "home/.config/kitty"] {
+            std::fs::create_dir_all(tmp.join(d)).unwrap();
+        }
+        let t = |p: &str| tmp.join(p).to_string_lossy().into_owned();
+        let shared = t("shared.conf");
+        std::fs::write(&shared, "map f9 close_window\n").unwrap();
+        let system = tmp.join("etc/kitty/kitty.conf");
+        std::fs::write(
+            &system,
+            format!("kitty_mod ctrl+alt\nmap kitty_mod+f1 show_kitty_doc overview\nmap kitty_mod+f2 next_tab\ninclude {shared}\n"),
+        )
+        .unwrap();
+        let user = tmp.join("home/.config/kitty/kitty.conf");
+        let sheet = |vars: &[(&str, String)]| {
+            let env = |k: &str| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
+            sheet_with(
+                REGISTRY,
+                Ok("kitty 0.49.2 created by Kovid Goyal".into()),
+                &system,
+                &env,
+            )
+            .unwrap()
+        };
+        let one = |s: &Sheet, key: &str| {
+            let got = find(s, key);
+            assert_eq!(got.len(), 1, "{key}: {got:?}");
+            got[0].action.clone()
+        };
+        let home = [("HOME", t("home"))];
+
+        // The user's map wins, the system's untouched map stays, the system's kitty_mod applies, and the include both
+        // files read is read for each, with no note.
+        std::fs::write(
+            &user,
+            format!("map kitty_mod+f1 next_layout\ninclude {shared}\n"),
+        )
+        .unwrap();
+        let (s, notes) = sheet(&home);
+        assert_eq!(one(&s, "ctrl+alt+F1"), "next_layout");
+        assert_eq!(one(&s, "ctrl+alt+F2"), "next_tab");
+        assert_eq!(one(&s, "ctrl+alt+v"), "paste_from_clipboard");
+        assert_eq!(one(&s, "F9"), "close_window");
+        assert!(notes.is_empty(), "{notes:?}");
+
+        // The user's kitty_mod wins over the system's.
+        std::fs::write(&user, "kitty_mod ctrl+shift\n").unwrap();
+        let (s, _) = sheet(&home);
+        assert_eq!(one(&s, "ctrl+shift+F2"), "next_tab");
+        assert!(find(&s, "ctrl+alt+F2").is_empty());
+
+        // The user's clear_all_shortcuts drops the system file's maps too.
+        std::fs::write(&user, "clear_all_shortcuts yes\nmap f12 quit\n").unwrap();
+        let (s, notes) = sheet(&home);
+        let keys: Vec<&str> = s.binds.values().flatten().map(|b| b.key.as_str()).collect();
+        assert_eq!(keys, ["F12"]);
+        assert!(notes.is_empty(), "{notes:?}");
+
+        // The search lands on the system file itself: read once (one --when-focus-on map left out, not two).
+        std::fs::write(
+            &system,
+            "map kitty_mod+f2 next_tab\nmap --when-focus-on title:x f3 quit\n",
+        )
+        .unwrap();
+        let (s, notes) = sheet(&[("HOME", t("nowhere")), ("XDG_CONFIG_DIRS", t("etc"))]);
+        assert_eq!(one(&s, "ctrl+shift+F2"), "next_tab");
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].starts_with("leaving out 1 maps ("), "{notes:?}");
+        // The system file alone (the user's search finds nothing): its maps, no other note.
+        let (s, notes) = sheet(&[("HOME", t("nowhere"))]);
+        assert_eq!(one(&s, "ctrl+shift+F2"), "next_tab");
+        assert_eq!(s.binds["kitty"].len(), 79);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].starts_with("leaving out 1 maps ("), "{notes:?}");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -1038,8 +1151,13 @@ mod tests {
         assert_eq!(version_of("something else"), None);
         let env = |_: &str| None;
         // No kitty: the newest defaults, the reason and the version note.
-        let (s, notes) =
-            sheet_with(REGISTRY, Err(anyhow::anyhow!("kitty isn't on PATH")), &env).unwrap();
+        let (s, notes) = sheet_with(
+            REGISTRY,
+            Err(anyhow::anyhow!("kitty isn't on PATH")),
+            &no_system(),
+            &env,
+        )
+        .unwrap();
         assert_eq!(s.binds["kitty"].len(), 79);
         assert_eq!(
             notes,
@@ -1051,6 +1169,7 @@ mod tests {
         let (_, notes) = sheet_with(
             REGISTRY,
             Ok("kitty 0.50.1 created by Kovid Goyal".into()),
+            &no_system(),
             &env,
         )
         .unwrap();
@@ -1058,7 +1177,13 @@ mod tests {
             notes,
             ["kitty 0.50.1: using the defaults of 0.49.2; add data/kitty/0.50.1.toml"]
         );
-        let err = sheet_with(&[("0.49.2", "map = [")], Ok(String::new()), &env).unwrap_err();
+        let err = sheet_with(
+            &[("0.49.2", "map = [")],
+            Ok(String::new()),
+            &no_system(),
+            &env,
+        )
+        .unwrap_err();
         assert!(
             format!("{err:#}").contains("data/kitty/0.49.2.toml"),
             "{err:#}"
