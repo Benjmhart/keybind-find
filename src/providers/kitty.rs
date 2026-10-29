@@ -431,6 +431,18 @@ fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize) {
     // Modes defined so far by `--new-mode`, in order.
     let mut modes: Vec<String> = Vec::new();
     for (title, map) in maps {
+        // kitty drops these at parse time: they define no mode either.
+        if kitty_drops(&map.shortcut) {
+            left_out += usize::from(!map.action.is_empty() || !map.new_mode.is_empty());
+            continue;
+        }
+        if !map.new_mode.is_empty() {
+            // A mode defined again starts empty (kitty makes a new one).
+            out.retain(|o| o.mode != map.new_mode);
+            if !modes.contains(&map.new_mode) {
+                modes.push(map.new_mode.clone());
+            }
+        }
         if map.when_focus_on {
             left_out += 1;
             continue;
@@ -438,11 +450,6 @@ fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize) {
         let action = if map.new_mode.is_empty() {
             map.action
         } else {
-            // A mode defined again starts empty (kitty makes a new one).
-            out.retain(|o| o.mode != map.new_mode);
-            if !modes.contains(&map.new_mode) {
-                modes.push(map.new_mode.clone());
-            }
             format!("push_keyboard_mode {}", map.new_mode)
         };
         // kitty ignores a map in a mode no `--new-mode` before it defined.
@@ -533,25 +540,41 @@ fn single_key(sc: &str, kitty_mod: &str) -> Option<String> {
     let (key, mod_names) = parts.split_last()?;
     let mut mods = Vec::new();
     for m in mod_names {
-        if m.eq_ignore_ascii_case("kitty_mod") || m.eq_ignore_ascii_case("kitty") {
-            // A `kitty_mod` kitty can't read is no modifiers at all; one it can but we can't show leaves the map out.
-            match kitty_mod
-                .split('+')
-                .map(modifier)
-                .collect::<Option<Vec<_>>>()
-            {
-                Some(k) => mods.extend(k.into_iter().flatten()),
-                None if kitty_mod.split('+').any(unshowable) => return None,
-                None => {}
+        if is_kitty_mod(m) {
+            // A `kitty_mod` kitty can't read (an unknown name, `none`) is no modifiers at all; one it reads but we
+            // can't show leaves the map out.
+            let names: Vec<&str> = kitty_mod.split('+').collect();
+            if names.iter().all(|k| modifier(k).is_some() || unshowable(k)) {
+                for k in names {
+                    mods.push(modifier(k)?);
+                }
             }
-        } else if let Some(m) = modifier(m)? {
-            mods.push(m);
-        } else if mod_names.iter().all(|m| m.eq_ignore_ascii_case("none")) {
-            // Only `none`: kitty finds no modifiers where some were written and drops the map.
-            return None;
+        } else {
+            mods.push(modifier(m)?);
         }
     }
     Some(chord(&mods, &keysym(key)?))
+}
+
+/// Whether kitty drops this shortcut while reading the config (`parse_shortcut`): a modifier it doesn't know, or
+/// `none` (its `parse_mods` gives up on it).
+/// ponytail: an unknown key name is dropped by kitty too, but can't be told from an XKB name kitty looks up; such a map
+/// is only left out (it still defines its `--new-mode`).
+fn kitty_drops(shortcut: &str) -> bool {
+    shortcut.split('>').any(|part| {
+        let part = part
+            .strip_suffix('+')
+            .filter(|h| !h.is_empty())
+            .unwrap_or(part);
+        let mods: Vec<&str> = part.split('+').collect();
+        mods[..mods.len().saturating_sub(1)]
+            .iter()
+            .any(|m| !(is_kitty_mod(m) || modifier(m).is_some() || unshowable(m)))
+    })
+}
+
+fn is_kitty_mod(m: &str) -> bool {
+    m.eq_ignore_ascii_case("kitty_mod") || m.eq_ignore_ascii_case("kitty")
 }
 
 /// A kitty modifier kitty reads but keybind-find's notation can't show.
@@ -559,17 +582,16 @@ fn unshowable(m: &str) -> bool {
     ["hyper", "caps_lock", "num_lock"].contains(&m.to_ascii_lowercase().as_str())
 }
 
-/// A kitty modifier as keybind-find's: `Some(None)` for `none`, `None` for one it can't show (or doesn't know).
-fn modifier(m: &str) -> Option<Option<&'static str>> {
-    Some(Some(match m.to_ascii_lowercase().as_str() {
+/// A kitty modifier as keybind-find's; `None` for one it can't show or kitty doesn't take (`none` included).
+fn modifier(m: &str) -> Option<&'static str> {
+    Some(match m.to_ascii_lowercase().as_str() {
         "ctrl" | "control" | "⌃" => "ctrl",
         "shift" | "⇧" => "shift",
         "alt" | "opt" | "option" | "⌥" => "alt",
         "super" | "cmd" | "command" | "⌘" => "super",
         "meta" => "meta",
-        "none" => return Some(None),
         _ => return None,
-    }))
+    })
 }
 
 /// A kitty key name or character (kitty 0.49.2 `key_names.py` aliases, `GLFW_FKEY_*` names) as an X keysym; `None`
@@ -902,6 +924,16 @@ mod tests {
             keys("map --mode m a quit\nmap --new-mode m f1\nmap --mode m b quit\nmap --new-mode m f2\nmap --mode m c quit"),
             (vec!["F1".to_string(), "F2".into(), "m:c".into()], 1)
         );
+        // A --new-mode map kitty drops defines (or empties) nothing; one under --when-focus-on still defines its mode.
+        assert_eq!(keys("map --new-mode m bogus+x\nmap --mode m h quit").1, 2);
+        assert_eq!(
+            keys("map --new-mode m f1\nmap --mode m h quit\nmap --new-mode m none+x\nmap --mode m j quit").0,
+            ["F1", "m:h", "m:j"]
+        );
+        assert_eq!(
+            keys("map --when-focus-on title:x --new-mode m f1\nmap --mode m h quit"),
+            (vec!["m:h".to_string()], 1)
+        );
         // clear_all_shortcuts in any case of yes/y/true; not for no.
         for yes in ["yes", "YES", "y", "True"] {
             assert_eq!(
@@ -1101,8 +1133,29 @@ mod tests {
         assert_eq!(n("kitty+c").as_deref(), Some("ctrl+shift+c"));
         assert_eq!(notation("kitty_mod+c", "ctrl+bogus").as_deref(), Some("c"));
         assert_eq!(notation("kitty_mod+c", "hyper").as_deref(), None);
-        assert_eq!(n("none+ctrl+a").as_deref(), Some("ctrl+a"));
-        assert_eq!(n("none+a"), None);
+        // `none` anywhere, or a modifier kitty doesn't know, and kitty drops the map.
+        assert_eq!(notation("kitty_mod+c", "ctrl+none").as_deref(), Some("c"));
+        assert_eq!(notation("kitty_mod+c", "hyper+bogus").as_deref(), Some("c"));
+        for dropped in [
+            "none+a",
+            "none+ctrl+a",
+            "ctrl+none+a",
+            "foo+x",
+            "ctrl+a>none+b",
+        ] {
+            assert_eq!(n(dropped), None, "{dropped}");
+            assert!(kitty_drops(dropped), "{dropped}");
+        }
+        for kept in [
+            "hyper+x",
+            "kitty_mod+c",
+            "kitty+c",
+            "ctrl++",
+            "x",
+            "ctrl+bogus",
+        ] {
+            assert!(!kitty_drops(kept), "{kept}");
+        }
         for left_out in [
             "hyper+x",
             "caps_lock+x",

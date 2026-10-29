@@ -1088,7 +1088,7 @@ const KITTY_HINT: &str = "; to find the program in kitty's focused tab, set `all
 
 /// Which of a terminal's `children` has focus, asked of the terminal; `Err` holds what to add to the several-children
 /// warning. kitty (the only one so far): its remote-control address from a child's environment, `kitten @ ls` (1 s,
-/// no password prompt: stdin is closed), and the focused window's pid, which must be one of `children`.
+/// never with a password, so kitty never asks the user), and the focused window's pid, which must be one of `children`.
 fn focused_child(
     class: &str,
     x_window: Option<&str>,
