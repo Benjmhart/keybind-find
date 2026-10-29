@@ -30,6 +30,7 @@ mod vimium;
 mod xfce;
 mod xmonad;
 mod yazi;
+mod zathura;
 
 pub(crate) use sheets::is_browser;
 
@@ -58,6 +59,7 @@ pub const KNOWN: &[&str] = &[
     "xfce",
     "i3",
     "yazi",
+    "zathura",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -84,6 +86,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "screen" => screen::sheet(),
         "kitty" => kitty::sheet(),
         "yazi" => yazi::sheet(),
+        "zathura" => zathura::sheet(ctx),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
