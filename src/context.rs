@@ -1105,7 +1105,9 @@ fn focused_child(
         .ok_or(KITTY_HINT)?;
     let kitten = crate::providers::kitty::program("kitten", env).ok_or(KITTY_HINT)?;
     let mut cmd = Command::new(kitten);
-    cmd.args(["@", "--to", &address, "ls"])
+    // Never a password: one from `KITTY_RC_PASSWORD` or an `rc-pass` file that kitty doesn't know would make it ask the
+    // user in their window.
+    cmd.args(["@", "--to", &address, "--use-password", "never", "ls"])
         .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
     let ls = run_for(cmd, Duration::from_secs(1)).map_err(|_| KITTY_HINT)?;
     let pid = kitty_focused_pid(&ls, x_window)
@@ -1119,15 +1121,15 @@ fn focused_child(
         .ok_or(KITTY_HINT)
 }
 
-/// `KITTY_LISTEN_ON` from `child`'s environment, when it is an address another process can use (`unix:`, `tcp:`;
-/// not `fd:`, a descriptor only that child holds).
+/// `KITTY_LISTEN_ON` from `child`'s environment, when it is an address another process can use (`unix:`, `tcp:`,
+/// `tcp6:`; not `fd:`, a descriptor only that child holds).
 fn kitty_listen_on(proc: &std::path::Path, child: &str) -> Option<String> {
     let environ = std::fs::read(proc.join(format!("{child}/environ"))).ok()?;
     environ
         .split(|b| *b == 0)
         .filter_map(|v| v.strip_prefix(b"KITTY_LISTEN_ON="))
         .map(|v| String::from_utf8_lossy(v).into_owned())
-        .find(|v| v.starts_with("unix:") || v.starts_with("tcp:"))
+        .find(|v| ["unix:", "tcp:", "tcp6:"].iter().any(|p| v.starts_with(p)))
 }
 
 /// The pid of the focused window in `kitten @ ls`'s output: in the OS window whose `platform_window_id` is
@@ -2883,17 +2885,23 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         assert!(kitty_focused_pid("{not json", None).is_err());
     }
 
-    /// A fake `kitten` in a new directory under `dir` that prints `ls` for `@ --to unix:@x ls` and fails otherwise;
-    /// written through `sh` (a file we wrote and then run can fail with ETXTBSY). Returns the directory, for `PATH`.
+    /// A fake `kitten` in a new directory under `dir` that prints `ls` for `@ --to unix:@x --use-password never ls` and
+    /// fails otherwise. Returns the directory, for `PATH`.
     fn fake_kitten(dir: &std::path::Path, ls: &str) -> std::path::PathBuf {
         let bin = dir.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         let script = format!(
-            "#!/bin/sh\n[ \"$*\" = '@ --to unix:@x ls' ] || exit 1\ncat <<'EOF'\n{ls}\nEOF\n"
+            "#!/bin/sh\n[ \"$*\" = '@ --to unix:@x --use-password never ls' ] || exit 1\ncat <<'EOF'\n{ls}\nEOF\n"
         );
+        write_script(&bin.join("kitten"), &script);
+        bin
+    }
+
+    /// Writes an executable `script` at `path` through `sh` (a file we wrote and then run can fail with ETXTBSY).
+    fn write_script(path: &std::path::Path, script: &str) {
         let mut sh = Command::new("sh")
             .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
-            .arg(bin.join("kitten"))
+            .arg(path)
             .stdin(Stdio::piped())
             .spawn()
             .unwrap();
@@ -2904,7 +2912,6 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             .write_all(script.as_bytes())
             .unwrap();
         assert!(sh.wait().unwrap().success());
-        bin
     }
 
     #[test]
@@ -2934,6 +2941,15 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         assert_eq!(kitty_listen_on(&proc, "1001"), None);
         assert_eq!(kitty_listen_on(&proc, "2003").as_deref(), Some("unix:@x"));
         assert_eq!(kitty_listen_on(&proc, "9999"), None);
+        for tcp in ["tcp:localhost:12488", "tcp6:[::1]:12488"] {
+            std::fs::write(
+                proc.join("2002/environ"),
+                format!("KITTY_LISTEN_ON={tcp}\0"),
+            )
+            .unwrap();
+            assert_eq!(kitty_listen_on(&proc, "2002").as_deref(), Some(tcp));
+        }
+        std::fs::write(proc.join("2002/environ"), "A=b\0").unwrap();
         let ls = std::fs::read_to_string(kitty_fixture("ls.json")).unwrap();
         let bin = fake_kitten(&tmp, &ls);
         let path = bin.to_string_lossy().into_owned();
@@ -2972,9 +2988,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             ),
             "{e}"
         );
-        // The focused window's pid isn't one of this process's children: no match.
-        std::fs::write(task.join("children"), "1001 2003").unwrap();
-        assert!(comm("kitty", Some("8388614"), &with_kitten).is_ok());
+        // The focused window's pid (1001) isn't one of this process's children: no match.
         std::fs::write(task.join("children"), "2003 2002").unwrap();
         let e = format!(
             "{:#}",
@@ -2999,6 +3013,20 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         assert!(
             format!("{:#}", comm("kitty", None, &with_junk).unwrap_err())
                 .contains("allow_remote_control")
+        );
+        // A kitten that hangs (a password prompt) is killed at 1 s.
+        let hang = tmp.join("hang/bin");
+        std::fs::create_dir_all(&hang).unwrap();
+        write_script(&hang.join("kitten"), "#!/bin/sh\nsleep 10\n");
+        let hang = hang.to_string_lossy().into_owned();
+        let with_hang = |k: &str| (k == "PATH").then(|| hang.clone());
+        let started = Instant::now();
+        let e = format!("{:#}", comm("kitty", None, &with_hang).unwrap_err());
+        assert!(e.contains("allow_remote_control"), "{e}");
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            started.elapsed()
         );
         let _ = std::fs::remove_dir_all(&tmp);
     }

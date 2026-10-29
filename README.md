@@ -207,8 +207,9 @@ listen_on unix:@kitty
 ```
 
 keybind-find then finds the address in a shell's environment (`KITTY_LISTEN_ON`) and runs `kitten @ ls` (1 s limit).
-Without it (or with `remote_control_password` set, which `kitten @` would prompt for), you get kitty's keys and the
-one-line warning above, ending with the two lines to add. Anything that can reach that socket can control kitty, as
+keybind-find never sends a password (so kitty never asks you to allow it), so with `allow_remote_control password`
+it gets no answer. Without an answer you get kitty's keys and the one-line warning above, ending with the two lines to
+add. Anything that can reach that socket can control kitty, as
 kitty's own documentation warns.
 
 ### KDE Plasma

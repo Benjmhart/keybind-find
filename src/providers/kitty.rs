@@ -101,13 +101,14 @@ fn sheet_with(
         bail!("data/kitty/{v}.toml names kitty {}", pinned.kitty_version);
     }
     let mut lines = Vec::new();
-    if let Some(conf) = config_file(env) {
+    // No file (an unset `KITTY_CONFIG_DIRECTORY` holds none yet): kitty's defaults, as kitty uses them.
+    if let Some(conf) = config_file(env).filter(|f| f.exists()) {
         Conf::new(env).read(&conf, 0, &mut lines, &mut notes);
     }
     let (sheet, left_out) = parse(&pinned.map, &lines);
     if left_out > 0 {
         notes.push(format!(
-            "leaving out {left_out} maps (a hyper, caps_lock or num_lock modifier, a key with no X keysym, a mode name that can't be a scope, or --when-focus-on)"
+            "leaving out {left_out} maps (a hyper, caps_lock or num_lock modifier, a key with no X keysym, a mode no --new-mode defined or whose name can't be a scope, or --when-focus-on)"
         ));
     }
     Ok((sheet, notes))
@@ -417,12 +418,18 @@ fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize) {
         match key {
             "map" => maps.extend(split_map(value).map(|m| (None, m))),
             "kitty_mod" => kitty_mod = value.to_string(),
-            "clear_all_shortcuts" if matches!(value, "y" | "yes" | "true") => maps.clear(),
+            "clear_all_shortcuts"
+                if matches!(value.to_ascii_lowercase().as_str(), "y" | "yes" | "true") =>
+            {
+                maps.clear()
+            }
             _ => {}
         }
     }
     let mut left_out = 0;
     let mut out: Vec<Out> = Vec::new();
+    // Modes defined so far by `--new-mode`, in order.
+    let mut modes: Vec<String> = Vec::new();
     for (title, map) in maps {
         if map.when_focus_on {
             left_out += 1;
@@ -431,8 +438,18 @@ fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize) {
         let action = if map.new_mode.is_empty() {
             map.action
         } else {
+            // A mode defined again starts empty (kitty makes a new one).
+            out.retain(|o| o.mode != map.new_mode);
+            if !modes.contains(&map.new_mode) {
+                modes.push(map.new_mode.clone());
+            }
             format!("push_keyboard_mode {}", map.new_mode)
         };
+        // kitty ignores a map in a mode no `--new-mode` before it defined.
+        if !map.mode.is_empty() && !modes.contains(&map.mode) {
+            left_out += usize::from(!action.is_empty());
+            continue;
+        }
         let keys = notation(&map.shortcut, &kitty_mod);
         // Keys with no notation are told apart by what was written.
         let same = |o: &Out| {
@@ -516,16 +533,30 @@ fn single_key(sc: &str, kitty_mod: &str) -> Option<String> {
     let (key, mod_names) = parts.split_last()?;
     let mut mods = Vec::new();
     for m in mod_names {
-        if m.eq_ignore_ascii_case("kitty_mod") {
-            for k in kitty_mod.split('+') {
-                mods.push(modifier(k)?);
+        if m.eq_ignore_ascii_case("kitty_mod") || m.eq_ignore_ascii_case("kitty") {
+            // A `kitty_mod` kitty can't read is no modifiers at all; one it can but we can't show leaves the map out.
+            match kitty_mod
+                .split('+')
+                .map(modifier)
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(k) => mods.extend(k.into_iter().flatten()),
+                None if kitty_mod.split('+').any(unshowable) => return None,
+                None => {}
             }
-        } else {
-            mods.push(modifier(m)?);
+        } else if let Some(m) = modifier(m)? {
+            mods.push(m);
+        } else if mod_names.iter().all(|m| m.eq_ignore_ascii_case("none")) {
+            // Only `none`: kitty finds no modifiers where some were written and drops the map.
+            return None;
         }
     }
-    let mods: Vec<&str> = mods.into_iter().flatten().collect();
     Some(chord(&mods, &keysym(key)?))
+}
+
+/// A kitty modifier kitty reads but keybind-find's notation can't show.
+fn unshowable(m: &str) -> bool {
+    ["hyper", "caps_lock", "num_lock"].contains(&m.to_ascii_lowercase().as_str())
 }
 
 /// A kitty modifier as keybind-find's: `Some(None)` for `none`, `None` for one it can't show (or doesn't know).
@@ -703,8 +734,9 @@ mod tests {
     fn pinned_rows_all_parse() {
         let pinned = defaults();
         assert_eq!(pinned.kitty_version, "0.49.2");
-        // kitty 0.49.2's definition.py: 134 `map(` entries, 54 of them macOS-only.
-        assert_eq!(pinned.map.len(), 134 - 54);
+        // kitty 0.49.2's definition.py: 134 `map(` entries, 54 of them macOS-only and one a documentation example
+        // (`add_to_default=False`): the 79 of types.py's default keymap.
+        assert_eq!(pinned.map.len(), 134 - 54 - 1);
         let (sheet, left_out) = parse(&pinned.map, &[]);
         assert_eq!(left_out, 0);
         let binds: Vec<&Bind> = sheet.binds.values().flatten().collect();
@@ -770,7 +802,16 @@ mod tests {
             (b.desc.as_str(), b.action.as_str()),
             ("launch --cwd=current", "launch --cwd=current")
         );
-        assert_eq!(one("ctrl+alt+c").desc, "Copy to clipboard");
+        let copy = find(&s, "ctrl+alt+c");
+        assert_eq!(copy.len(), 2, "{copy:?}");
+        assert_eq!(
+            (copy[0].desc.as_str(), mode(copy[0])),
+            ("Copy to clipboard", None)
+        );
+        assert_eq!(
+            (copy[1].action.as_str(), mode(copy[1]).as_deref()),
+            ("quit", Some("resize"))
+        );
         // Unmapped (kitty_mod+alt+t lands on the same keys, so the unmap removes it too), and no_op.
         assert!(find(&s, "ctrl+alt+t").is_empty());
         assert!(find(&s, "ctrl+alt+w").is_empty());
@@ -795,10 +836,14 @@ mod tests {
         assert_eq!(one("super+ctrl+alt+F35").action, "no_such_action");
         // include (with ${VAR}) and globinclude, sorted; not a file the glob doesn't match.
         assert_eq!(one("F1").action, "show_kitty_doc overview");
-        assert_eq!(one("F2").action, "new_tab");
+        assert_eq!(one("F2").action, "next_tab");
         assert_eq!(one("F3").action, "close_tab");
         assert!(find(&s, "F4").is_empty());
         assert_eq!(s.binds["kitty"].len(), 88);
+        // The documentation example kitty doesn't bind.
+        assert!(s.binds["kitty"]
+            .iter()
+            .all(|b| !b.action.contains("Hello World")));
         assert_eq!(notes.len(), 3, "{notes:?}");
         assert!(
             notes[0].ends_with("kitty.conf is included again (a cycle?); read once"),
@@ -830,6 +875,45 @@ mod tests {
         let keys: Vec<&str> = s.binds.values().flatten().map(|b| b.key.as_str()).collect();
         assert_eq!(keys, ["ctrl+y"]);
         assert!(notes.is_empty(), "{notes:?}");
+    }
+
+    #[test]
+    fn modes_clear_and_kitty_mod_as_kitty_does() {
+        let lines = |text: &str| logical_lines(text);
+        let keys = |text: &str| {
+            let (s, left_out) = parse(&[], &lines(text));
+            let mut k: Vec<String> = s
+                .binds
+                .values()
+                .flatten()
+                .map(|b| {
+                    format!(
+                        "{}{}",
+                        mode(b).map(|m| format!("{m}:")).unwrap_or_default(),
+                        b.key
+                    )
+                })
+                .collect();
+            k.sort();
+            (k, left_out)
+        };
+        // A mode used before its --new-mode is ignored (counted); defining it again empties it.
+        assert_eq!(
+            keys("map --mode m a quit\nmap --new-mode m f1\nmap --mode m b quit\nmap --new-mode m f2\nmap --mode m c quit"),
+            (vec!["F1".to_string(), "F2".into(), "m:c".into()], 1)
+        );
+        // clear_all_shortcuts in any case of yes/y/true; not for no.
+        for yes in ["yes", "YES", "y", "True"] {
+            assert_eq!(
+                keys(&format!("map f1 a\nclear_all_shortcuts {yes}\nmap f2 b")).0,
+                ["F2"],
+                "{yes}"
+            );
+        }
+        assert_eq!(
+            keys("map f1 a\nclear_all_shortcuts no\nmap f2 b").0,
+            ["F1", "F2"]
+        );
     }
 
     #[test]
@@ -881,6 +965,17 @@ mod tests {
             ]),
             Some(tmp.join("home/.config/kitty/kitty.conf"))
         );
+        // KITTY_CONFIG_DIRECTORY with no kitty.conf in it yet: kitty's defaults, no note.
+        let empty = tmp.join("empty").to_string_lossy().into_owned();
+        let env = |k: &str| (k == "KITTY_CONFIG_DIRECTORY").then(|| empty.clone());
+        let (s, notes) = sheet_with(
+            REGISTRY,
+            Ok("kitty 0.49.2 created by Kovid Goyal".into()),
+            &env,
+        )
+        .unwrap();
+        assert_eq!(s.binds["kitty"].len(), 79);
+        assert!(notes.is_empty(), "{notes:?}");
         // None anywhere: no file, and the defaults alone with no note.
         assert_eq!(pick(&[("HOME", t("nowhere"))]), None);
         let env = |k: &str| (k == "HOME").then(|| t("nowhere"));
@@ -890,7 +985,7 @@ mod tests {
             &env,
         )
         .unwrap();
-        assert_eq!(s.binds["kitty"].len(), 80);
+        assert_eq!(s.binds["kitty"].len(), 79);
         assert!(notes.is_empty(), "{notes:?}");
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -910,7 +1005,7 @@ mod tests {
         // No kitty: the newest defaults, the reason and the version note.
         let (s, notes) =
             sheet_with(REGISTRY, Err(anyhow::anyhow!("kitty isn't on PATH")), &env).unwrap();
-        assert_eq!(s.binds["kitty"].len(), 80);
+        assert_eq!(s.binds["kitty"].len(), 79);
         assert_eq!(
             notes,
             [
@@ -972,6 +1067,7 @@ mod tests {
             ("resize", "h", "resize_window narrower")
         );
         assert_eq!(split_map("ctrl+x no-op").unwrap().action, "");
+        assert_eq!(split_map("ctrl+x noop").unwrap().action, "");
         assert_eq!(split_map("ctrl+x").unwrap().action, "");
         assert!(split_map("--no-such-option x ctrl+x quit").is_none());
         assert!(split_map("").is_none());
@@ -1001,6 +1097,12 @@ mod tests {
             Some("ctrl+XF86AudioPlay")
         );
         assert_eq!(n("ctrl+semicolon").as_deref(), Some("ctrl+semicolon"));
+        // `kitty` is kitty_mod too; a kitty_mod kitty can't read is no modifiers; `none` alone drops the map.
+        assert_eq!(n("kitty+c").as_deref(), Some("ctrl+shift+c"));
+        assert_eq!(notation("kitty_mod+c", "ctrl+bogus").as_deref(), Some("c"));
+        assert_eq!(notation("kitty_mod+c", "hyper").as_deref(), None);
+        assert_eq!(n("none+ctrl+a").as_deref(), Some("ctrl+a"));
+        assert_eq!(n("none+a"), None);
         for left_out in [
             "hyper+x",
             "caps_lock+x",

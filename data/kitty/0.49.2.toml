@@ -1,8 +1,9 @@
 # kitty's default shortcuts, read by keybind-find's kitty provider (story 6.14).
 # Source: kitty tag v0.49.2 (commit b2cb871, tag object e300597), GPL-3.0-only: kitty/options/definition.py,
-# every `map(` entry without only='macos', in source order. `title` is the entry's title; `map` is its definition without the leading
-# option name: what a `map` line in kitty.conf takes. Generated from the source at that tag; to support another kitty
-# version, add a file next to this one.
+# every `map(` entry without only='macos' or add_to_default=False (documentation examples), in source order: the 79
+# that kitty/options/types.py lists as the default keymap off macOS. `title` is the entry's title; `map` is its
+# definition without the leading option name: what a `map` line in kitty.conf takes. Generated from the source at that
+# tag; to support another kitty version, add a file next to this one.
 kitty_version = "0.49.2"
 source = "kitty@b2cb871"
 
@@ -321,8 +322,4 @@ map = "kitty_mod+f5 load_config_file"
 [[map]]
 title = "Debug kitty configuration"
 map = "kitty_mod+f6 debug_config"
-
-[[map]]
-title = "Send arbitrary text on key presses"
-map = "ctrl+shift+alt+h send_text all Hello World"
 
