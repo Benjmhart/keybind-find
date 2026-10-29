@@ -2865,6 +2865,207 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         );
     }
 
+    fn kitty_fixture(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/kitty")
+            .join(name)
+    }
+
+    #[test]
+    fn kitty_ls_gives_the_focused_windows_pid() {
+        let ls = std::fs::read_to_string(kitty_fixture("ls.json")).unwrap();
+        // X11: the OS window with the focused X id, though another has kitty's focus flag.
+        assert_eq!(kitty_focused_pid(&ls, Some("4194310")).unwrap(), Some(1001));
+        // Wayland (no X id), or an id kitty doesn't list: the focused OS window, its active tab's active split.
+        assert_eq!(kitty_focused_pid(&ls, None).unwrap(), Some(2003));
+        assert_eq!(kitty_focused_pid(&ls, Some("12345")).unwrap(), Some(2003));
+        assert_eq!(kitty_focused_pid("[]", None).unwrap(), None);
+        assert!(kitty_focused_pid("{not json", None).is_err());
+    }
+
+    /// A fake `kitten` in a new directory under `dir` that prints `ls` for `@ --to unix:@x ls` and fails otherwise;
+    /// written through `sh` (a file we wrote and then run can fail with ETXTBSY). Returns the directory, for `PATH`.
+    fn fake_kitten(dir: &std::path::Path, ls: &str) -> std::path::PathBuf {
+        let bin = dir.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let script = format!(
+            "#!/bin/sh\n[ \"$*\" = '@ --to unix:@x ls' ] || exit 1\ncat <<'EOF'\n{ls}\nEOF\n"
+        );
+        let mut sh = Command::new("sh")
+            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(bin.join("kitten"))
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        sh.stdin
+            .take()
+            .unwrap()
+            .write_all(script.as_bytes())
+            .unwrap();
+        assert!(sh.wait().unwrap().success());
+        bin
+    }
+
+    #[test]
+    fn kitty_is_asked_which_child_has_focus() {
+        let tmp = std::env::temp_dir().join(format!("kbf-kitty-focus-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        // A /proc of a kitty (100) with children 1001 (remote control by fd only), 2003 (by socket) and 2002.
+        let proc = tmp.join("proc");
+        let task = proc.join("100/task/100");
+        std::fs::create_dir_all(&task).unwrap();
+        std::fs::write(task.join("children"), "1001 2003 2002 ").unwrap();
+        for (pid, comm, environ) in [
+            ("1001", "zsh", "A=b\0KITTY_LISTEN_ON=fd:3\0"),
+            ("2002", "zsh", "A=b\0"),
+            ("2003", "less", "KITTY_LISTEN_ON=unix:@x\0B=c\0"),
+        ] {
+            std::fs::create_dir_all(proc.join(pid)).unwrap();
+            std::fs::write(proc.join(pid).join("comm"), format!("{comm}\n")).unwrap();
+            std::fs::write(proc.join(pid).join("environ"), environ).unwrap();
+            // No controlling terminal (tpgid -1): the child is its own program.
+            std::fs::write(
+                proc.join(pid).join("stat"),
+                format!("{pid} ({comm}) S 100 {pid} {pid} 0 -1 4194304"),
+            )
+            .unwrap();
+        }
+        assert_eq!(kitty_listen_on(&proc, "1001"), None);
+        assert_eq!(kitty_listen_on(&proc, "2003").as_deref(), Some("unix:@x"));
+        assert_eq!(kitty_listen_on(&proc, "9999"), None);
+        let ls = std::fs::read_to_string(kitty_fixture("ls.json")).unwrap();
+        let bin = fake_kitten(&tmp, &ls);
+        let path = bin.to_string_lossy().into_owned();
+        let with_kitten = |k: &str| (k == "PATH").then(|| path.clone());
+        let comm = |class: &str, x: Option<&str>, env: crate::providers::kitty::Env| {
+            foreground(100, class, x, env, &proc).map(|f| f.map(|f| f.comm))
+        };
+        assert_eq!(
+            comm("kitty", None, &with_kitten).unwrap().as_deref(),
+            Some("less")
+        );
+        assert_eq!(
+            comm("KITTY", Some("4194310"), &with_kitten)
+                .unwrap()
+                .as_deref(),
+            Some("zsh")
+        );
+        // Not kitty: never asked, and no hint.
+        let e = format!("{:#}", comm("foot", None, &with_kitten).unwrap_err());
+        assert_eq!(
+            e,
+            "pid 100 has 3 children (one process serving several windows or tabs?)"
+        );
+        // No kitten: the hint.
+        let none = |_: &str| None;
+        let e = format!("{:#}", comm("kitty", None, &none).unwrap_err());
+        assert!(
+            e.starts_with(
+                "pid 100 has 3 children (one process serving several windows or tabs?); "
+            ),
+            "{e}"
+        );
+        assert!(
+            e.ends_with(
+                "set `allow_remote_control socket-only` and `listen_on unix:@kitty` in kitty.conf"
+            ),
+            "{e}"
+        );
+        // The focused window's pid isn't one of this process's children: no match.
+        std::fs::write(task.join("children"), "1001 2003").unwrap();
+        assert!(comm("kitty", Some("8388614"), &with_kitten).is_ok());
+        std::fs::write(task.join("children"), "2003 2002").unwrap();
+        let e = format!(
+            "{:#}",
+            comm("kitty", Some("4194310"), &with_kitten).unwrap_err()
+        );
+        assert!(e.contains("allow_remote_control"), "{e}");
+        // No usable address (fd: only): kitty isn't asked.
+        std::fs::write(task.join("children"), "1001 2002").unwrap();
+        let e = format!("{:#}", comm("kitty", None, &with_kitten).unwrap_err());
+        assert!(e.contains("allow_remote_control"), "{e}");
+        // `ls` failing (another address) or printing junk.
+        std::fs::write(proc.join("2003/environ"), "KITTY_LISTEN_ON=unix:@y\0").unwrap();
+        std::fs::write(task.join("children"), "2003 2002").unwrap();
+        assert!(
+            format!("{:#}", comm("kitty", None, &with_kitten).unwrap_err())
+                .contains("allow_remote_control")
+        );
+        std::fs::write(proc.join("2003/environ"), "KITTY_LISTEN_ON=unix:@x\0").unwrap();
+        let junk = fake_kitten(&tmp.join("junk"), "{not json");
+        let junk = junk.to_string_lossy().into_owned();
+        let with_junk = |k: &str| (k == "PATH").then(|| junk.clone());
+        assert!(
+            format!("{:#}", comm("kitty", None, &with_junk).unwrap_err())
+                .contains("allow_remote_control")
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn a_stand_in_kitty_finds_its_focused_tab() {
+        use std::io::BufRead;
+        // Two tabs: one child with remote control by fd only, one with a socket address.
+        let mut setsid = KillOnDrop(
+            Command::new("setsid")
+                .args([
+                    "sh",
+                    "-c",
+                    "KITTY_LISTEN_ON=fd:3 sleep 5 & KITTY_LISTEN_ON=unix:@x sleep 5 & echo $$ $!; wait",
+                ])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let mut line = String::new();
+        std::io::BufReader::new(setsid.0.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let mut pids = line.split_whitespace().map(|p| p.parse::<u32>().unwrap());
+        let (sh, tab) = (pids.next().unwrap(), pids.next().unwrap());
+        let tmp = std::env::temp_dir().join(format!("kbf-kitty-standin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let ls = format!(
+            r#"[{{"id": 1, "platform_window_id": null, "is_focused": true, "tabs": [{{"id": 1, "is_active": true, "windows": [{{"id": 1, "is_active": true, "pid": {tab}}}]}}]}}]"#
+        );
+        let bin = fake_kitten(&tmp, &ls);
+        let path = bin.to_string_lossy().into_owned();
+        let with_kitten = |k: &str| (k == "PATH").then(|| path.clone());
+        let proc = std::path::Path::new("/proc");
+        // The children exec `sleep` (and get their environment) a moment after the fork.
+        let mut got = None;
+        for _ in 0..200 {
+            got =
+                Some(foreground(sh, "kitty", None, &with_kitten, proc).map(|f| f.map(|f| f.comm)));
+            if matches!(&got, Some(Ok(Some(c))) if c == "sleep") {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let addresses: Vec<Option<String>> =
+            std::fs::read_to_string(format!("/proc/{sh}/task/{sh}/children"))
+                .unwrap_or_default()
+                .split_whitespace()
+                .map(|c| kitty_listen_on(proc, c))
+                .collect();
+        let none = |_: &str| None;
+        let no_kitten = foreground(sh, "kitty", None, &none, proc);
+        let _ = Command::new("kill")
+            .args(["--", &format!("-{sh}")])
+            .status();
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert_eq!(got.unwrap().unwrap().as_deref(), Some("sleep"));
+        let mut addresses = addresses;
+        addresses.sort();
+        assert_eq!(addresses, [None, Some("unix:@x".to_string())]);
+        let e = format!("{:#}", no_kitten.unwrap_err());
+        assert!(
+            e.contains("has 2 children") && e.contains("allow_remote_control socket-only"),
+            "{e}"
+        );
+    }
+
     /// AC: a real xterm under Xvfb. Skipped (with a message, seen with `--nocapture`) when `xterm`, `Xvfb`, `xdotool`
     /// or `xprop` is missing.
     #[test]
@@ -2936,7 +3137,9 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
                 )
                 .map(|o| parse_xprop(&String::from_utf8_lossy(&o.stdout)));
                 if let Ok(props) = props {
-                    if let Ok(Some(Foreground { comm, .. })) = program_in(&props, "_NET_WM_PID", None) {
+                    if let Ok(Some(Foreground { comm, .. })) =
+                        program_in(&props, "_NET_WM_PID", None)
+                    {
                         let done = comm == "sleep";
                         found = Some((props.class, comm));
                         if done {

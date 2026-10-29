@@ -115,6 +115,8 @@ mod tests {
         // The arm reaches the alacritty provider (it falls back to defaults, so this holds on any host).
         assert_eq!(sheet("alacritty", &ctx).unwrap().provider, "alacritty");
         assert_eq!(sheet("sheets", &ctx).unwrap().provider, "sheets");
+        // kitty falls back to its pinned defaults with no kitty installed.
+        assert_eq!(sheet("kitty", &ctx).unwrap().provider, "kitty");
         for p in KNOWN {
             if let Err(e) = sheet(p, &ctx) {
                 assert!(!e.to_string().contains("unknown provider"), "{p}: {e}");

@@ -1,0 +1,59 @@
+[
+  {
+    "id": 1,
+    "platform_window_id": 4194310,
+    "is_active": false,
+    "is_focused": false,
+    "last_focused": false,
+    "wm_class": "kitty",
+    "wm_name": "kitty",
+    "background_opacity": 1.0,
+    "active_tab_history": [1],
+    "tabs": [
+      {
+        "id": 1,
+        "is_focused": false,
+        "is_active": true,
+        "title": "zsh",
+        "layout": "tall",
+        "windows": [
+          {"id": 1, "is_focused": false, "is_active": true, "title": "zsh", "pid": 1001, "cwd": "/tmp", "env": {}, "foreground_processes": []}
+        ]
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "platform_window_id": 8388614,
+    "is_active": true,
+    "is_focused": true,
+    "last_focused": true,
+    "wm_class": "kitty",
+    "wm_name": "kitty",
+    "background_opacity": 1.0,
+    "active_tab_history": [2, 3],
+    "tabs": [
+      {
+        "id": 2,
+        "is_focused": false,
+        "is_active": false,
+        "title": "nvim",
+        "layout": "tall",
+        "windows": [
+          {"id": 2, "is_focused": false, "is_active": true, "title": "nvim", "pid": 2001, "cwd": "/tmp", "env": {}, "foreground_processes": []}
+        ]
+      },
+      {
+        "id": 3,
+        "is_focused": true,
+        "is_active": true,
+        "title": "split",
+        "layout": "splits",
+        "windows": [
+          {"id": 3, "is_focused": false, "is_active": false, "title": "zsh", "pid": 2002, "cwd": "/tmp", "env": {}, "foreground_processes": []},
+          {"id": 4, "is_focused": true, "is_active": true, "title": "less", "pid": 2003, "cwd": "/tmp", "env": {}, "foreground_processes": []}
+        ]
+      }
+    ]
+  }
+]

@@ -15,7 +15,10 @@ use std::time::Duration;
 /// One entry per kitty version whose defaults we know, oldest first. Supporting a new kitty: add its file and a line.
 const REGISTRY: &[(&str, &str)] = &[(
     "0.49.2",
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/data/kitty/0.49.2.toml")),
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/data/kitty/0.49.2.toml"
+    )),
 )];
 
 const VERSION_TIMEOUT: Duration = Duration::from_secs(2);
@@ -95,10 +98,7 @@ fn sheet_with(
     let pinned: Pinned =
         toml::from_str(text).with_context(|| format!("reading data/kitty/{v}.toml"))?;
     if pinned.kitty_version != v {
-        bail!(
-            "data/kitty/{v}.toml names kitty {}",
-            pinned.kitty_version
-        );
+        bail!("data/kitty/{v}.toml names kitty {}", pinned.kitty_version);
     }
     let mut lines = Vec::new();
     if let Some(conf) = config_file(env) {
@@ -157,10 +157,19 @@ impl<'a> Conf<'a> {
 
     /// Appends `file`'s lines (with continuation lines joined, comments and blank lines dropped) to `lines`, an
     /// include's lines in its place. `depth` is how many includes led here.
-    fn read(&mut self, file: &Path, depth: usize, lines: &mut Vec<String>, notes: &mut Vec<String>) {
+    fn read(
+        &mut self,
+        file: &Path,
+        depth: usize,
+        lines: &mut Vec<String>,
+        notes: &mut Vec<String>,
+    ) {
         let key = std::fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
         if self.seen.contains(&key) {
-            notes.push(format!("{} is included again (a cycle?); read once", file.display()));
+            notes.push(format!(
+                "{} is included again (a cycle?); read once",
+                file.display()
+            ));
             return;
         }
         // Lossily, as kitty reads with `errors='replace'`.
@@ -426,7 +435,9 @@ fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize) {
         };
         let keys = notation(&map.shortcut, &kitty_mod);
         // Keys with no notation are told apart by what was written.
-        let same = |o: &Out| o.mode == map.mode && o.keys == keys && (keys.is_some() || o.shortcut == map.shortcut);
+        let same = |o: &Out| {
+            o.mode == map.mode && o.keys == keys && (keys.is_some() || o.shortcut == map.shortcut)
+        };
         let at = out.iter().position(same);
         if action.is_empty() {
             if let Some(i) = at {
@@ -585,7 +596,10 @@ fn keysym(key: &str) -> Option<String> {
     {
         return Some(format!("F{n}"));
     }
-    if let Some(d) = name.strip_prefix("KP_").filter(|d| d.len() == 1 && d.as_bytes()[0].is_ascii_digit()) {
+    if let Some(d) = name
+        .strip_prefix("KP_")
+        .filter(|d| d.len() == 1 && d.as_bytes()[0].is_ascii_digit())
+    {
         return Some(format!("KP_{d}"));
     }
     let x = match name {
@@ -657,4 +671,404 @@ fn keysym(key: &str) -> Option<String> {
         _ => return None,
     };
     Some(x.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixtures() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kitty")
+    }
+
+    fn defaults() -> Pinned {
+        toml::from_str(REGISTRY[0].1).unwrap()
+    }
+
+    fn find<'a>(s: &'a Sheet, key: &str) -> Vec<&'a Bind> {
+        s.binds
+            .values()
+            .flatten()
+            .filter(|b| b.key == key)
+            .collect()
+    }
+
+    fn mode(b: &Bind) -> Option<String> {
+        b.when
+            .get("keyboard_mode")
+            .map(|v| v.iter().map(|n| n.to_string()).collect())
+    }
+
+    #[test]
+    fn pinned_rows_all_parse() {
+        let pinned = defaults();
+        assert_eq!(pinned.kitty_version, "0.49.2");
+        // kitty 0.49.2's definition.py: 134 `map(` entries, 54 of them macOS-only.
+        assert_eq!(pinned.map.len(), 134 - 54);
+        let (sheet, left_out) = parse(&pinned.map, &[]);
+        assert_eq!(left_out, 0);
+        let binds: Vec<&Bind> = sheet.binds.values().flatten().collect();
+        assert_eq!(binds.len(), pinned.map.len());
+        assert_eq!(sheet.binds.keys().collect::<Vec<_>>(), ["kitty"]);
+        assert!(binds
+            .iter()
+            .all(|b| b.when.is_empty() && !b.desc.is_empty()));
+        // Keys a generator or a name table could mis-spell.
+        for (key, desc) in [
+            ("ctrl+shift+c", "Copy to clipboard"),
+            ("shift+Insert", "Paste from selection"),
+            ("ctrl+shift+Prior", "Scroll page up"),
+            ("ctrl+shift+bracketright", "Next window"),
+            ("ctrl+shift+bracketleft", "Previous window"),
+            ("ctrl+shift+grave", "Move window to top"),
+            ("ctrl+shift+slash", "Search the scrollback within a pager"),
+            ("ctrl+shift+Return", "New window"),
+            ("ctrl+shift+plus", "Increase font size"),
+            ("ctrl+shift+KP_Add", "Increase font size"),
+            ("ctrl+shift+KP_Subtract", "Decrease font size"),
+            ("ctrl+shift+BackSpace", "Reset font size"),
+            ("ctrl+shift+F11", "Toggle fullscreen"),
+            ("ctrl+alt+shift+t", "Set tab title"),
+            ("ctrl+shift+p shift+f", "Open selected path"),
+            ("ctrl+shift+a m", "Increase background opacity"),
+            ("ctrl+Tab", "Next tab"),
+            ("ctrl+shift+Escape", "Open the kitty command shell"),
+        ] {
+            let got = find(&sheet, key);
+            assert_eq!(got.len(), 1, "{key}");
+            assert_eq!(got[0].desc, desc, "{key}");
+        }
+        assert_eq!(find(&sheet, "ctrl+shift+c")[0].action, "copy_to_clipboard");
+    }
+
+    #[test]
+    fn config_over_defaults() {
+        let dir = fixtures().join("config/kitty");
+        let d = dir.to_string_lossy().into_owned();
+        let env = |k: &str| match k {
+            "XDG_CONFIG_HOME" => Some(fixtures().join("config").to_string_lossy().into_owned()),
+            "KITTY_TEST_DIR" => Some(d.clone()),
+            _ => None,
+        };
+        let (s, notes) = sheet_with(
+            REGISTRY,
+            Ok("kitty 0.49.2 created by Kovid Goyal\n".into()),
+            &env,
+        )
+        .unwrap();
+        let one = |key: &str| {
+            let got = find(&s, key);
+            assert_eq!(got.len(), 1, "{key}: {got:?}");
+            got[0].clone()
+        };
+        // kitty_mod is ctrl+alt for every map, though set last.
+        assert!(find(&s, "ctrl+shift+v").is_empty());
+        assert_eq!(one("ctrl+alt+v").desc, "Paste from clipboard");
+        // Replaced: the action is the description. Same action: the default's title.
+        let b = one("ctrl+alt+Return");
+        assert_eq!(
+            (b.desc.as_str(), b.action.as_str()),
+            ("launch --cwd=current", "launch --cwd=current")
+        );
+        assert_eq!(one("ctrl+alt+c").desc, "Copy to clipboard");
+        // Unmapped (kitty_mod+alt+t lands on the same keys, so the unmap removes it too), and no_op.
+        assert!(find(&s, "ctrl+alt+t").is_empty());
+        assert!(find(&s, "ctrl+alt+w").is_empty());
+        // A sequence over a continuation line.
+        assert_eq!(one("ctrl+a n").desc, "combine : new_window : next_layout");
+        // The key entering a mode replaces the default on it; the mode's own keys carry it.
+        let enter = one("ctrl+alt+r");
+        assert_eq!(enter.action, "push_keyboard_mode resize");
+        assert_eq!(mode(&enter), None);
+        assert_eq!(mode(&one("h")).as_deref(), Some("resize"));
+        assert_eq!(one("Escape").action, "pop_keyboard_mode");
+        assert_eq!(mode(&one("Escape")).as_deref(), Some("resize"));
+        assert_eq!(one("ctrl+alt+m").action, "push_keyboard_mode bad,mode");
+        assert!(find(&s, "x").is_empty());
+        // Left out: --when-focus-on, hyper, a mode that can't be a scope.
+        assert!(find(&s, "ctrl+j").is_empty());
+        assert!(s.binds.values().flatten().all(|b| !b.key.contains("hyper")));
+        // Key names and modifier aliases.
+        assert_eq!(one("Prior").action, "scroll_page_up");
+        assert_eq!(one("KP_Add").action, "change_font_size all +2.0");
+        assert_eq!(one("ctrl+bracketleft").action, "previous_tab");
+        assert_eq!(one("super+ctrl+alt+F35").action, "no_such_action");
+        // include (with ${VAR}) and globinclude, sorted; not a file the glob doesn't match.
+        assert_eq!(one("F1").action, "show_kitty_doc overview");
+        assert_eq!(one("F2").action, "new_tab");
+        assert_eq!(one("F3").action, "close_tab");
+        assert!(find(&s, "F4").is_empty());
+        assert_eq!(s.binds["kitty"].len(), 88);
+        assert_eq!(notes.len(), 3, "{notes:?}");
+        assert!(
+            notes[0].ends_with("kitty.conf is included again (a cycle?); read once"),
+            "{notes:?}"
+        );
+        assert_eq!(
+            notes[1],
+            "envinclude and geninclude lines aren't followed (geninclude runs a program)"
+        );
+        assert!(notes[2].starts_with("leaving out 3 maps ("), "{notes:?}");
+    }
+
+    #[test]
+    fn clear_all_shortcuts_drops_what_came_before() {
+        let env = |k: &str| {
+            (k == "KITTY_CONFIG_DIRECTORY").then(|| {
+                fixtures()
+                    .join("clear/kitty")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+        };
+        let (s, notes) = sheet_with(
+            REGISTRY,
+            Ok("kitty 0.49.2 created by Kovid Goyal".into()),
+            &env,
+        )
+        .unwrap();
+        let keys: Vec<&str> = s.binds.values().flatten().map(|b| b.key.as_str()).collect();
+        assert_eq!(keys, ["ctrl+y"]);
+        assert!(notes.is_empty(), "{notes:?}");
+    }
+
+    #[test]
+    fn config_paths() {
+        let tmp = std::env::temp_dir().join(format!("kbf-kitty-paths-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        for d in ["home/.config/kitty", "xdg/kitty", "dirs/kitty", "kcd"] {
+            std::fs::create_dir_all(tmp.join(d)).unwrap();
+            std::fs::write(tmp.join(d).join("kitty.conf"), "").unwrap();
+        }
+        let t = |p: &str| tmp.join(p).to_string_lossy().into_owned();
+        let pick = |vars: &[(&str, String)]| {
+            config_file(&|k: &str| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone()))
+        };
+        let home = ("HOME", t("home"));
+        assert_eq!(
+            pick(std::slice::from_ref(&home)),
+            Some(tmp.join("home/.config/kitty/kitty.conf"))
+        );
+        assert_eq!(
+            pick(&[
+                home.clone(),
+                ("XDG_CONFIG_DIRS", format!("/nonexistent:{}", t("dirs")))
+            ]),
+            Some(tmp.join("dirs/kitty/kitty.conf"))
+        );
+        assert_eq!(
+            pick(&[
+                home.clone(),
+                ("XDG_CONFIG_HOME", t("xdg")),
+                ("XDG_CONFIG_DIRS", t("dirs"))
+            ]),
+            Some(tmp.join("xdg/kitty/kitty.conf"))
+        );
+        // KITTY_CONFIG_DIRECTORY wins, even with no file there yet; empty or relative values are unset.
+        assert_eq!(
+            pick(&[
+                home.clone(),
+                ("XDG_CONFIG_HOME", t("xdg")),
+                ("KITTY_CONFIG_DIRECTORY", t("kcd"))
+            ]),
+            Some(tmp.join("kcd/kitty.conf"))
+        );
+        assert_eq!(
+            pick(&[
+                home.clone(),
+                ("KITTY_CONFIG_DIRECTORY", String::new()),
+                ("XDG_CONFIG_HOME", "rel".into())
+            ]),
+            Some(tmp.join("home/.config/kitty/kitty.conf"))
+        );
+        // None anywhere: no file, and the defaults alone with no note.
+        assert_eq!(pick(&[("HOME", t("nowhere"))]), None);
+        let env = |k: &str| (k == "HOME").then(|| t("nowhere"));
+        let (s, notes) = sheet_with(
+            REGISTRY,
+            Ok("kitty 0.49.2 created by Kovid Goyal".into()),
+            &env,
+        )
+        .unwrap();
+        assert_eq!(s.binds["kitty"].len(), 80);
+        assert!(notes.is_empty(), "{notes:?}");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn version_and_missing_kitty() {
+        assert_eq!(
+            version_of("kitty 0.49.2 created by Kovid Goyal").as_deref(),
+            Some("0.49.2")
+        );
+        assert_eq!(
+            version_of("kitty 0.50.0 (abc1234567) created by Kovid Goyal").as_deref(),
+            Some("0.50.0")
+        );
+        assert_eq!(version_of("something else"), None);
+        let env = |_: &str| None;
+        // No kitty: the newest defaults, the reason and the version note.
+        let (s, notes) =
+            sheet_with(REGISTRY, Err(anyhow::anyhow!("kitty isn't on PATH")), &env).unwrap();
+        assert_eq!(s.binds["kitty"].len(), 80);
+        assert_eq!(
+            notes,
+            [
+                "kitty isn't on PATH",
+                "kitty's version is unknown: using the defaults of 0.49.2"
+            ]
+        );
+        let (_, notes) = sheet_with(
+            REGISTRY,
+            Ok("kitty 0.50.1 created by Kovid Goyal".into()),
+            &env,
+        )
+        .unwrap();
+        assert_eq!(
+            notes,
+            ["kitty 0.50.1: using the defaults of 0.49.2; add data/kitty/0.50.1.toml"]
+        );
+        let err = sheet_with(&[("0.49.2", "map = [")], Ok(String::new()), &env).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("data/kitty/0.49.2.toml"),
+            "{err:#}"
+        );
+    }
+
+    #[test]
+    fn program_lookup() {
+        let tmp = std::env::temp_dir().join(format!("kbf-kitty-program-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let bin = tmp.join(".local/kitty.app/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(tmp.join("path")).unwrap();
+        let write = |p: &Path, mode: u32| {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(p, "").unwrap();
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode)).unwrap();
+        };
+        write(&bin.join("kitten"), 0o755);
+        write(&tmp.join("path/kitten"), 0o644);
+        let home = tmp.to_string_lossy().into_owned();
+        let path = format!("rel:{}", tmp.join("path").display());
+        let env = |k: &str| match k {
+            "HOME" => Some(home.clone()),
+            "PATH" => Some(path.clone()),
+            _ => None,
+        };
+        // Not executable on PATH: the installer's place.
+        assert_eq!(program("kitten", &env), Some(bin.join("kitten")));
+        write(&tmp.join("path/kitten"), 0o755);
+        assert_eq!(program("kitten", &env), Some(tmp.join("path/kitten")));
+        assert_eq!(program("kitty", &env), None);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn map_values_and_key_names() {
+        let m = split_map("--mode=resize --on-unknown end h resize_window narrower").unwrap();
+        assert_eq!(
+            (m.mode.as_str(), m.shortcut.as_str(), m.action.as_str()),
+            ("resize", "h", "resize_window narrower")
+        );
+        assert_eq!(split_map("ctrl+x no-op").unwrap().action, "");
+        assert_eq!(split_map("ctrl+x").unwrap().action, "");
+        assert!(split_map("--no-such-option x ctrl+x quit").is_none());
+        assert!(split_map("").is_none());
+        assert!(
+            split_map("--when-focus-on 'title:a b' ctrl+x quit")
+                .unwrap()
+                .when_focus_on
+        );
+        assert_eq!(
+            split_map("--when-focus-on 'title:a b' ctrl+x quit")
+                .unwrap()
+                .shortcut,
+            "ctrl+x"
+        );
+        let n = |s: &str| notation(s, "ctrl+shift");
+        assert_eq!(n("kitty_mod+c").as_deref(), Some("ctrl+shift+c"));
+        assert_eq!(n("page_up").as_deref(), Some("Prior"));
+        assert_eq!(n("kp_add").as_deref(), Some("KP_Add"));
+        assert_eq!(n("[").as_deref(), Some("bracketleft"));
+        assert_eq!(n("ctrl++").as_deref(), Some("ctrl+plus"));
+        assert_eq!(n("ctrl+a>n").as_deref(), Some("ctrl+a n"));
+        assert_eq!(n("control+opt+cmd+C").as_deref(), Some("super+ctrl+alt+c"));
+        assert_eq!(n("⌃+⌥+⌘+⇧+x").as_deref(), Some("super+ctrl+alt+shift+x"));
+        assert_eq!(n("meta+esc").as_deref(), Some("meta+Escape"));
+        assert_eq!(
+            n("ctrl+XF86AudioPlay").as_deref(),
+            Some("ctrl+XF86AudioPlay")
+        );
+        assert_eq!(n("ctrl+semicolon").as_deref(), Some("ctrl+semicolon"));
+        for left_out in [
+            "hyper+x",
+            "caps_lock+x",
+            "num_lock+x",
+            "ctrl+0x61",
+            "ctrl+é",
+            "ctrl+bogus",
+            "foo+x",
+        ] {
+            assert_eq!(n(left_out), None, "{left_out}");
+        }
+    }
+
+    #[test]
+    fn include_depth_and_expansion() {
+        let tmp = std::env::temp_dir().join(format!("kbf-kitty-depth-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("sub")).unwrap();
+        // 0.conf includes sub/1.conf, which includes 2.conf from its own directory, and so on.
+        for i in 0..=10 {
+            let dir = if i == 0 { tmp.clone() } else { tmp.join("sub") };
+            std::fs::write(
+                dir.join(format!("{i}.conf")),
+                format!(
+                    "map f{} quit\ninclude {}{}.conf\n",
+                    i + 1,
+                    if i == 0 { "sub/" } else { "" },
+                    i + 1
+                ),
+            )
+            .unwrap();
+        }
+        let env = |_: &str| None;
+        let (mut lines, mut notes) = (Vec::new(), Vec::new());
+        Conf::new(&env).read(&tmp.join("0.conf"), 0, &mut lines, &mut notes);
+        assert_eq!(lines.len(), 9, "{lines:?}");
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].starts_with("includes nest deeper than 8 at "),
+            "{notes:?}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+        let home = |k: &str| match k {
+            "HOME" => Some("/h".to_string()),
+            "A" => Some("x".to_string()),
+            _ => None,
+        };
+        let c = Conf::new(&home);
+        assert_eq!(
+            c.expand("~/a/$A/${A}b/$$A/$NOPE/${KITTY_OS}"),
+            "/h/a/x/xb/$A/$NOPE/linux"
+        );
+        assert_eq!(c.expand("~user/${"), "~user/${");
+        assert!(
+            wildcard("*.conf", "a.conf") && wildcard("a?c", "abc") && !wildcard("*.conf", "a.txt")
+        );
+    }
+
+    #[test]
+    fn real_kitty_version() {
+        let env = |k: &str| std::env::var(k).ok();
+        let Some(kitty) = program("kitty", &env) else {
+            eprintln!("skipping: kitty is not installed");
+            return;
+        };
+        let mut cmd = Command::new(kitty);
+        cmd.arg("--version").env("LC_ALL", "C");
+        let text = run_for(cmd, Duration::from_secs(10)).unwrap();
+        assert!(version_of(&text).is_some(), "{text:?}");
+    }
 }

@@ -7,6 +7,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Added
 
+- kitty: its keys from pinned defaults (0.49.2) with your kitty.conf on top, and, with kitty's remote control on, the program in its focused tab.
 - GNU screen: its command keys from pinned defaults (4.9.1, 5.0.2) with your screenrc on top, and nvim inside screen.
 - Ghostty: its keys from `ghostty +list-keybinds` (key tables tagged), when a Ghostty window has focus.
 - KDE Plasma: its global shortcuts and apps' launch shortcuts, the focused window on Wayland through `kdotool`, and, on KDE and GNOME under Wayland, an error naming the keys to press instead of a send that can only fail.
