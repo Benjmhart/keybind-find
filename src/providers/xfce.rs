@@ -21,7 +21,7 @@ pub fn sheet() -> anyhow::Result<Sheet> {
     if left_out > 0 {
         eprintln!(
             "keybind-find: xfce: leaving out {left_out} shortcuts keybind-find can't send (a <Meta>, <Hyper>, \
-             <Release> or other <ModN> modifier, or a key that isn't a keysym)"
+             <Release> or other <ModN> modifier, a keycode, or a key not shaped like a keysym name)"
         );
     }
     Ok(sheet)
@@ -105,7 +105,7 @@ fn parse(text: &str) -> (Sheet, usize) {
 }
 
 /// A GTK accelerator (`<Primary><Alt>Delete`) in keybind-find's notation (`ctrl+alt+Delete`); `None` for `<Meta>`,
-/// `<Hyper>`, `<Release>`, a `<ModN>` other than 1 and 4, a keycode, or a key that isn't a keysym name. Modifier
+/// `<Hyper>`, `<Release>`, a `<ModN>` other than 1 and 4, a keycode, or a key not shaped like a keysym name. Modifier
 /// names in any case, as GTK's `gtk_accelerator_parse`; a single letter is lower case.
 // ponytail: no keysym table; any well-formed name (a letter, then letters, digits and `_`) passes as a keysym.
 pub(crate) fn gtk_accel(accel: &str) -> Option<String> {
