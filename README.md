@@ -17,7 +17,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | sway | your `bindsym` lines (following `include` and `set $var`), and the focused window from sway's tree | none |
 | Hyprland | its binds from the running compositor (`hyprctl -j binds`), with each bind's description, and the focused window from `hyprctl` | none ([below](#hyprland)) |
 | KDE Plasma | its global shortcuts (`kglobalshortcutsrc`) and the launch shortcuts of `.desktop` files, and the focused window (on Wayland from `kdotool`) | on Wayland, `kdotool`; picks there are not sent ([below](#kde-plasma)) |
-| i3 | the bindings of the config i3 has loaded (`i3-msg -t get_config`, includes followed and variables replaced by i3) | none ([below](#i3)) |
+| i3 | the bindings of the config i3 has loaded (`i3-msg -t get_config`; from 4.20, includes followed and variables replaced by i3) | none ([below](#i3)) |
 | Xfce | xfwm4's window shortcuts and your application shortcuts, from `xfconf-query` (X11) | `xfconf-query` ([below](#xfce)) |
 | any other X11 window manager | the focused window, so every app below works; not the window manager's own keys | an EWMH window manager (it sets `_NET_ACTIVE_WINDOW`) |
 | other Wayland compositors (niri, GNOME) | espanso only: the focused window isn't read, so no app below | untested; fuzzel needs layer-shell (not GNOME), wtype the virtual-keyboard protocol (not GNOME or KDE: a pick there is refused, [below](#kde-plasma)) |
@@ -240,8 +240,9 @@ Under i3, keybind-find asks the running i3 for the config it loaded (`i3-msg -t 
 `bindsym` lines as sway's are read: top-level binds under `i3`, a mode's under the mode's name. The files on disk are
 not read: i3 4.20 and newer reply with every file it included and its variables already replaced, so
 `set_from_resource` values are right too; before 4.20 there is no `include`, and `set_from_resource` variables stay
-as written. `bindcode` lines (keycodes, with no key name to show or send) are left out, counted in one line. Without
-`i3-msg`, or with no i3 answering, that is one line and the list goes on without i3's keys.
+as written. `bindcode` lines (keycodes, with no key name to show or send) are left out, counted in one line. A key
+bound twice, which i3 reports as an error, shows its last binding, while i3 runs the first. Without `i3-msg`, or with
+no i3 answering, that is one line and the list goes on without i3's keys.
 
 ### Xfce
 
@@ -283,7 +284,7 @@ Other channels; those still planned are marked:
   read and then starts it.
 - **sway:** `bindsym $mod+slash exec keybind-find` (with `$mod` set to `Mod4`).
 - **i3:** `bindsym Mod4+slash exec keybind-find` (or `bindsym $mod+slash exec keybind-find` with `$mod` set to
-  `Mod4`); i3's default modifier is `Mod1`, which leaves `Super+/` free.
+  `Mod4`); i3's default config doesn't bind `Super+/`.
 - **Anything else:** bind `Super+/` to run `keybind-find`.
 
 Prefer another key? Change only that one binding; keybind-find doesn't care which key started it.

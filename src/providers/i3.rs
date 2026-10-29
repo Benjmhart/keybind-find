@@ -13,8 +13,8 @@ const TIMEOUT: Duration = Duration::from_secs(1);
 
 pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
     let (sheet, notes) = read(|cmd| run_for(cmd, TIMEOUT))?;
-    for note in notes {
-        eprintln!("keybind-find: i3: {note}");
+    if !notes.is_empty() {
+        eprintln!("keybind-find: i3: {}", notes.join("; "));
     }
     Ok(sheet)
 }
@@ -44,27 +44,37 @@ struct Included {
 
 fn from_reply(reply: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
     let reply: Reply = serde_json::from_str(reply).context("reading i3-msg's reply")?;
-    // Each file on its own, as i3 parses them: an unclosed block ends with its file.
-    let files: Vec<(String, String)> = match (reply.included_configs, reply.config) {
-        (Some(included), _) if !included.is_empty() => included
-            .into_iter()
-            .map(|f| {
-                let path = f.path.unwrap_or_else(|| "an included config".into());
-                (path, f.variable_replaced_contents)
-            })
-            .collect(),
-        (_, Some(config)) => vec![("i3's config".into(), config)],
-        _ => bail!("i3-msg -t get_config replied with neither `included_configs` nor `config`"),
-    };
+    // Each file on its own, as i3 parses them: an unclosed block ends with its file. i3 has replaced the variables of
+    // 4.20+'s files (in `set` lines too: `set $up l` comes back as `set l l`), so their `set` lines are dropped: read
+    // again, they would turn a `$1` i3 left alone (an `awk` program's) into a variable.
+    let (files, replaced): (Vec<(String, String)>, bool) =
+        match (reply.included_configs, reply.config) {
+            (Some(included), _) if !included.is_empty() => (
+                included
+                    .into_iter()
+                    .map(|f| {
+                        let path = f.path.unwrap_or_else(|| "an included config".into());
+                        (path, f.variable_replaced_contents)
+                    })
+                    .collect(),
+                true,
+            ),
+            (_, Some(config)) => (vec![("i3's config".into(), config)], false),
+            _ => bail!("i3-msg -t get_config replied with neither `included_configs` nor `config`"),
+        };
     let mut notes = Vec::new();
     let mut lines = Vec::new();
     for (label, text) in &files {
-        lines.extend(file_lines(label, text, &mut notes));
+        lines.extend(
+            file_lines(label, text, &mut notes)
+                .into_iter()
+                .filter(|l| !(replaced && first_word(l) == "set")),
+        );
     }
-    // Keycodes have no key name to show or send.
+    // Keycodes (`bindcode`, or its old name `bind`) have no key name to show or send.
     let codes = lines
         .iter()
-        .filter(|l| l.split_whitespace().next() == Some("bindcode"))
+        .filter(|l| matches!(first_word(l), "bindcode" | "bind"))
         .count();
     if codes > 0 {
         let lines = if codes == 1 { "line" } else { "lines" };
@@ -74,9 +84,14 @@ fn from_reply(reply: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
     }
     let sheet = parse_as("i3", &lines.join("\n"))?;
     if sheet.binds.is_empty() {
-        bail!("i3's config has no bindsym lines");
+        let why = notes.iter().map(|n| format!("; {n}")).collect::<String>();
+        bail!("i3's config has no bindsym lines{why}");
     }
     Ok((sheet, notes))
+}
+
+fn first_word(line: &str) -> &str {
+    line.split_whitespace().next().unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -99,7 +114,9 @@ mod tests {
     }
 
     /// `get_config-4.25.1.json`: its first file is i3's `etc/config` at tag 4.25.1 (commit `254879d`) plus an
-    /// `include`, with variables replaced as i3 replaces them (`set` lines too); the second a synthetic include.
+    /// `include`; the second a synthetic include. Not captured from a running i3: built with i3's replacement as
+    /// `src/config_parser.c` at that commit does it (every `set` first, longest name first, then the nearest match,
+    /// case-insensitive, across the whole file, `set` lines and comments too).
     #[test]
     fn reply_with_included_configs() {
         let (s, notes) = from_reply(&fixture("get_config-4.25.1.json")).unwrap();
@@ -163,6 +180,40 @@ mod tests {
     }
 
     #[test]
+    fn replied_files_are_read_as_i3_left_them() {
+        let reply = serde_json::json!({
+            // Ignored beside `included_configs`.
+            "config": "bindsym z exec from-config",
+            "included_configs": [{"variable_replaced_contents": concat!(
+                "set 1 1\n",
+                "bindsym x exec awk '{print $1}'\n",
+                "bindsym --release button2 kill\n",
+                "bindsym --whole-window Mod1+button3 kill\n",
+                "bindsym --release Mod1+k kill\n",
+                "bind 24 kill\n",
+            )}],
+        });
+        let (s, notes) = from_reply(&reply.to_string()).unwrap();
+        assert_eq!(find(&s, "i3", "x").unwrap().desc, "exec awk '{print $1}'");
+        assert!(find(&s, "i3", "z").is_none());
+        // Mouse buttons dropped as sway drops them; a flag is no part of the key.
+        let keys: Vec<&str> = s.binds["i3"].iter().map(|b| b.key.as_str()).collect();
+        assert_eq!(keys, ["x", "alt+k"]);
+        assert_eq!(
+            notes,
+            ["leaving out 1 bindcode line (keycodes have no key name)"]
+        );
+        // An entry with no path is named in notes all the same.
+        let reply = serde_json::json!({"included_configs": [
+            {"variable_replaced_contents": "mode \"m\" {\nbindsym a exec b\n"},
+        ]});
+        assert_eq!(
+            from_reply(&reply.to_string()).unwrap().1,
+            ["an included config: 1 block(s) not closed"]
+        );
+    }
+
+    #[test]
     fn reply_before_4_20() {
         let (s, notes) = from_reply(&fixture("get_config-old.json")).unwrap();
         // Raw `set $mod`, substituted by the parser.
@@ -188,7 +239,7 @@ mod tests {
             ("{}", "neither `included_configs` nor `config`"),
             (
                 r#"{"config": "bar {\n}\nbindcode 24 kill\n"}"#,
-                "has no bindsym lines",
+                "has no bindsym lines; leaving out 1 bindcode line",
             ),
             (
                 r#"{"included_configs": [{"path": "a"}]}"#,
@@ -251,14 +302,22 @@ mod tests {
             eprintln!("skipping real_i3_lists_an_included_bind: no {missing}");
             return;
         }
-        // Short: a socket path must fit in 108 bytes.
-        let tmp = PathBuf::from(format!("/tmp/kbf-i3-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
+        // Short: a socket path must fit in 108 bytes. Removed when the test ends, passed or not.
+        struct Dir(PathBuf);
+        impl Drop for Dir {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let dir = Dir(PathBuf::from(format!("/tmp/kbf-i3-{}", std::process::id())));
+        let tmp = &dir.0;
+        let _ = std::fs::remove_dir_all(tmp);
+        std::fs::create_dir_all(tmp).unwrap();
         let sock = tmp.join("i3.sock");
+        // A variable i3 replaces, and a `$1` it leaves alone.
         std::fs::write(
             tmp.join("extra.conf"),
-            "bindsym Mod1+F9 exec included-bind\n",
+            "set $what included-bind\nbindsym Mod1+F9 exec $what\nbindsym Mod1+F8 exec awk '{print $1}'\n",
         )
         .unwrap();
         std::fs::write(
@@ -309,6 +368,9 @@ mod tests {
         }
         let (s, _) = got.expect("i3 never opened its socket").unwrap();
         assert_eq!(find(&s, "i3", "alt+F9").unwrap().desc, "exec included-bind");
-        let _ = std::fs::remove_dir_all(&tmp);
+        assert_eq!(
+            find(&s, "i3", "alt+F8").unwrap().desc,
+            "exec awk '{print $1}'"
+        );
     }
 }
