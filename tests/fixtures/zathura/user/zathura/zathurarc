@@ -11,7 +11,7 @@ map <Button1> navigate next
 map <C-S-x> quit
 map gx goto top
 set recolor true
-include more.rc other.rc
+include other.rc more.rc
 include more.rc
 include loop-a.rc
 include missing.rc

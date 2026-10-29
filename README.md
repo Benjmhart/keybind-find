@@ -104,13 +104,13 @@ generated from zathura's and girara's source at each tag; another version uses t
 else the nearest older, and says so), with the `map` and `unmap` lines of the zathurarc files zathura reads laid over
 them, in its order: `zathurarc` in each `$XDG_CONFIG_DIRS` directory (else `/etc/xdg`) from the last, `/etc/zathurarc`,
 then your `~/.config/zathura/zathurarc` (or under `$XDG_CONFIG_HOME`; the Flatpak's under
-`~/.var/app/org.pwmt.zathura`), following `include`. As in zathura, a `map` with a function or mode zathura doesn't know
-changes nothing, and a line with an unclosed quote ends its file there (counted in one line). A fullscreen key that does
-the same as in normal mode is listed once, under `normal`. Each key shows its function and argument as a zathurarc line
-says them (`scroll down`, `focus_inputbar :open`; a default's argument with no zathurarc name in brackets: `zoom
-(original)`). Not listed: mouse binds (yours are counted in one line, as are keys girara refuses, such as two modifiers
-in `<C-S-x>`). Not read: a config dir given with `zathura -c`/`--config-dir`, and for the Flatpak, its runtime's `/etc`
-(the host's is read).
+`~/.var/app/org.pwmt.zathura`), following `include` (each file is read once, where zathura reads a file again each time
+it is included). As in zathura, a `map` with a function or mode zathura doesn't know changes nothing, and a line with an
+unclosed quote ends its file there (counted in one line). A fullscreen key that does the same as in normal mode is
+listed once, under `normal`. Each key shows its function and argument as a zathurarc line says them (`scroll down`,
+`focus_inputbar :open`; a default's argument with no zathurarc name in brackets: `zoom (original)`). Not listed: mouse
+binds (yours are counted in one line, as are keys girara refuses, such as two modifiers in `<C-S-x>`). Not read: a
+config dir given with `zathura -c`/`--config-dir`, and for the Flatpak, its runtime's `/etc` (the host's is read).
 
 ### Firefox and Chromium
 

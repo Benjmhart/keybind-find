@@ -70,15 +70,22 @@ struct Shortcut {
 
 pub fn sheet(ctx: &Context) -> anyhow::Result<Sheet> {
     let env = |k: &str| std::env::var(k).ok();
-    let flatpak = ctx
-        .class
-        .as_deref()
-        .is_some_and(|c| c.eq_ignore_ascii_case(FLATPAK));
-    let (sheet, notes) = sheet_with(REGISTRY, |_| {}, &env, flatpak, Path::new("/etc"))?;
+    let (sheet, notes) = sheet_with(
+        REGISTRY,
+        |_| {},
+        &env,
+        is_flatpak(ctx.class.as_deref()),
+        Path::new("/etc"),
+    )?;
     if !notes.is_empty() {
         eprintln!("keybind-find: zathura: {}", notes.join("; "));
     }
     Ok(sheet)
+}
+
+/// Whether a window of `class` is the Flatpak's zathura (its app id), any case.
+fn is_flatpak(class: Option<&str>) -> bool {
+    class.is_some_and(|c| c.eq_ignore_ascii_case(FLATPAK))
 }
 
 /// `sheet` over `registry`, with `setup` applied to `zathura --version` (a test seam: `PATH`), the config files found
@@ -223,15 +230,13 @@ impl Rc<'_> {
         }
     }
 
-    /// `include <path>`: relative to `from`'s directory; a file never includes itself.
+    /// `include <path>`: relative to `from`'s directory; a file never includes itself (it's been `seen`).
     fn include(&mut self, from: &Path, path: &str) {
         let target = match Path::new(path) {
             p if p.is_absolute() => p.to_path_buf(),
             p => from.parent().unwrap_or(Path::new("/")).join(p),
         };
-        if target == from {
-            return;
-        }
+
         if !target.exists() {
             self.notes.push(format!(
                 "{}: include {path}: no file at {}",
@@ -307,18 +312,23 @@ impl Rc<'_> {
 }
 
 /// A zathurarc line's words, split as `g_shell_parse_argv` splits them (single quotes literal; in double quotes `\`
-/// escapes `"`, `\`, `$`, `` ` ``; outside them it escapes any character; `#` at a word's start ends the line);
+/// escapes `"`, `\`, `$`, `` ` ``; outside them it escapes any character; `#` after a space ends the line);
 /// `None` when a quote isn't closed or a `\` ends the line.
 fn split(line: &str) -> Option<Vec<String>> {
     let mut words = Vec::new();
     let mut word: Option<String> = None;
     let mut chars = line.chars().peekable();
+    // GLib starts a comment at `#` only at the line's start or after a space (not a tab), and splits words only at
+    // spaces and tabs.
+    let mut prev = None;
     while let Some(c) = chars.next() {
+        let at = prev;
+        prev = Some(c);
         match c {
-            c if c.is_whitespace() => {
+            ' ' | '\t' => {
                 words.extend(word.take());
             }
-            '#' if word.is_none() => break,
+            '#' if matches!(at, None | Some(' ')) => break,
             '\'' => {
                 let w = word.get_or_insert_with(String::new);
                 loop {
@@ -341,7 +351,12 @@ fn split(line: &str) -> Option<Vec<String>> {
                 }
             }
             // A `\` ending the line is an error to `g_shell_parse_argv`, as an unclosed quote is.
-            '\\' => word.get_or_insert_with(String::new).push(chars.next()?),
+            '\\' => {
+                // The escaped character is the one GLib looks back at (`a\ #b`: a comment).
+                let next = chars.next()?;
+                prev = Some(next);
+                word.get_or_insert_with(String::new).push(next);
+            }
             c => word.get_or_insert_with(String::new).push(c),
         }
     }
@@ -507,6 +522,12 @@ mod tests {
         flatpak: bool,
         sysconf: &Path,
     ) -> (Sheet, Vec<String>, usize, usize) {
+        // Never the machine's /etc/xdg: XDG_CONFIG_DIRS is somewhere empty unless the test sets it.
+        let env = |k: &str| match env(k) {
+            None if k == "XDG_CONFIG_DIRS" => Some("/nonexistent-kbf".into()),
+            v => v,
+        };
+        let env: Env = &env;
         let pinned = pinned(v);
         let mut rc = Rc {
             pinned: &pinned,
@@ -629,9 +650,11 @@ mod tests {
         assert_eq!(find(&s, "index", "shift+q"), ["quit"]);
         assert_eq!(find(&s, "index", "q"), ["quit"]);
         assert!(find(&s, "presentation", "space").is_empty());
+        assert_eq!(find(&s, "normal", "space"), ["scroll full-down"]);
         // An unknown function or mode changes nothing; nor does an `include` with two paths.
         assert!(find(&s, "normal", "x").is_empty());
         assert!(!s.binds.contains_key("nosuchmode"));
+        assert!(find(&s, "normal", "F12").is_empty());
         // A quoted argument: the data, shown trimmed.
         assert_eq!(find(&s, "normal", "ctrl+o"), ["focus_inputbar :open"]);
         // A buffer command.
@@ -670,7 +693,10 @@ mod tests {
         for (dir, line) in [
             ("a", "map <F4> quit\nmap <F5> quit"),
             ("b", "map <F4> follow\nmap <F6> follow"),
-            ("etc", "map <F6> goto top\nmap <F7> goto top"),
+            (
+                "etc",
+                "map <F5> goto top\nmap <F6> goto top\nmap <F7> goto top",
+            ),
             ("home/.config/zathura", "map <F7> recolor"),
             (
                 "home/.var/app/org.pwmt.zathura/config/zathura",
@@ -690,13 +716,17 @@ mod tests {
         // b, then a, then /etc, then the user's: each later file wins.
         let (s, _, _, _) = read("2026.10.23", &env, false, &tmp.join("etc"));
         assert_eq!(find(&s, "normal", "F4"), ["quit"]);
+        // /etc after every XDG directory.
+        assert_eq!(find(&s, "normal", "F5"), ["goto top"]);
         assert_eq!(find(&s, "normal", "F6"), ["goto top"]);
         assert_eq!(find(&s, "normal", "F7"), ["recolor"]);
         assert!(find(&s, "normal", "F8").is_empty());
         // 0.5.2 reads /etc/zathurarc too (`GLOBAL_RC`).
         let (s, _, _, _) = read("0.5.2", &env, false, &tmp.join("etc"));
         assert_eq!(find(&s, "normal", "F6"), ["goto top"]);
-        // The Flatpak's file instead of ~/.config's.
+        // The Flatpak's file instead of ~/.config's, for the Flatpak's class.
+        assert!(is_flatpak(Some("org.pwmt.zathura")) && is_flatpak(Some("ORG.PWMT.ZATHURA")));
+        assert!(!is_flatpak(Some("Zathura")) && !is_flatpak(None));
         let (s, _, _, _) = read("2026.10.23", &env, true, &tmp.join("etc"));
         assert_eq!(find(&s, "normal", "F8"), ["reload"]);
         assert_eq!(find(&s, "normal", "F7"), ["goto top"]);
@@ -756,6 +786,11 @@ mod tests {
         assert_eq!(s(r"map a\ b quit").as_deref(), Some("map|a b|quit"));
         assert_eq!(s("map x 'open").as_deref(), None);
         assert_eq!(s("map x quit \\").as_deref(), None);
+        // After a tab `#` is a word; with an apostrophe it's an unclosed quote, as in GLib.
+        assert_eq!(s("map x quit\t#c").as_deref(), Some("map|x|quit|#c"));
+        assert_eq!(s("map x quit\t# don't").as_deref(), None);
+        assert_eq!(s("map a\\ #b quit").as_deref(), Some("map|a "));
+        assert_eq!(s("map\x0bx quit").as_deref(), Some("map\x0bx|quit"));
         assert_eq!(s("  ").as_deref(), Some(""));
     }
 
