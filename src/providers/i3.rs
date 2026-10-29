@@ -20,12 +20,22 @@ pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
 }
 
 /// Asks i3 for its config through `run` (a test seam; `i3-msg` finds the socket from `I3SOCK` or the X root window,
-/// so nothing is passed) and parses the reply. Also returns the lines for stderr.
+/// so nothing is passed) and parses the reply. Also returns the lines for stderr. Only `-r` prints the JSON reply;
+/// without it i3-msg prints the top-level file alone. i3-msg before 4.20 has no `-r` (and i3 no `include`): there
+/// that file is the whole config.
 fn read(run: impl Fn(Command) -> anyhow::Result<String>) -> anyhow::Result<(Sheet, Vec<String>)> {
-    let mut cmd = Command::new("i3-msg");
-    cmd.args(["-t", "get_config"]);
-    let reply = run(cmd).context("running i3-msg -t get_config")?;
-    from_reply(&reply)
+    let i3_msg = |args: &[&str]| {
+        let mut cmd = Command::new("i3-msg");
+        cmd.args(args);
+        run(cmd)
+    };
+    match i3_msg(&["-r", "-t", "get_config"]) {
+        Ok(reply) => from_reply(&reply),
+        Err(e) => match i3_msg(&["-t", "get_config"]) {
+            Ok(config) => from_files(vec![("i3's config".into(), config)], false),
+            Err(_) => Err(e).context("running i3-msg -r -t get_config"),
+        },
+    }
 }
 
 /// A GET_CONFIG reply: `config` is the top-level file (all of it before i3 4.20, which has no `include`);
@@ -62,6 +72,14 @@ fn from_reply(reply: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
             (_, Some(config)) => (vec![("i3's config".into(), config)], false),
             _ => bail!("i3-msg -t get_config replied with neither `included_configs` nor `config`"),
         };
+    from_files(files, replaced)
+}
+
+/// The sheet from i3's config files, each `(label, text)`; `replaced`: i3 has replaced their variables.
+fn from_files(
+    files: Vec<(String, String)>,
+    replaced: bool,
+) -> anyhow::Result<(Sheet, Vec<String>)> {
     let mut notes = Vec::new();
     let mut lines = Vec::new();
     for (label, text) in &files {
@@ -253,25 +271,43 @@ mod tests {
 
     #[test]
     fn runs_i3_msg_get_config() {
-        let seen = std::cell::RefCell::new(None);
-        let (s, _) = read(|cmd| {
-            let args: Vec<String> = cmd
-                .get_args()
+        let args = |cmd: &Command| {
+            cmd.get_args()
                 .map(|a| a.to_string_lossy().into_owned())
-                .collect();
-            *seen.borrow_mut() = Some((cmd.get_program().to_string_lossy().into_owned(), args));
-            Ok(r#"{"config": "bindsym a exec x"}"#.into())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        // 4.20+: `-r` for the JSON reply.
+        let seen = std::cell::RefCell::new(Vec::new());
+        let (s, _) = read(|cmd| {
+            assert_eq!(cmd.get_program(), "i3-msg");
+            seen.borrow_mut().push(args(&cmd));
+            Ok(
+                r#"{"included_configs": [{"variable_replaced_contents": "bindsym a exec x"}]}"#
+                    .into(),
+            )
         })
         .unwrap();
-        assert_eq!(
-            seen.into_inner(),
-            Some(("i3-msg".into(), vec!["-t".into(), "get_config".into()]))
-        );
+        assert_eq!(seen.into_inner(), ["-r -t get_config"]);
         assert!(find(&s, "i3", "a").is_some());
-        let err = read(|_| bail!("no socket")).unwrap_err();
-        assert!(
-            format!("{err:#}").contains("running i3-msg -t get_config: no socket"),
-            "{err:#}"
+        // Before 4.20 `-r` is refused, and without it the config itself is printed: its `set` lines are read.
+        let seen = std::cell::RefCell::new(Vec::new());
+        let (s, _) = read(|cmd| {
+            let a = args(&cmd);
+            seen.borrow_mut().push(a.clone());
+            match a.as_str() {
+                "-r -t get_config" => bail!("i3-msg: invalid option -- 'r'"),
+                _ => Ok("set $mod Mod1\nbindsym $mod+d exec dmenu_run\n".into()),
+            }
+        })
+        .unwrap();
+        assert_eq!(seen.into_inner(), ["-r -t get_config", "-t get_config"]);
+        assert_eq!(find(&s, "i3", "alt+d").unwrap().desc, "exec dmenu_run");
+        // Both fail (no i3): the first reason.
+        let err = read(|cmd| bail!("failed: {}", args(&cmd))).unwrap_err();
+        assert_eq!(
+            format!("{err:#}"),
+            "running i3-msg -r -t get_config: failed: -r -t get_config"
         );
     }
 

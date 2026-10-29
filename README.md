@@ -239,8 +239,8 @@ The list shows with fuzzel, which works on KWin.
 Under i3, keybind-find asks the running i3 for the config it loaded (`i3-msg -t get_config`) and reads its
 `bindsym` lines as sway's are read: top-level binds under `i3`, a mode's under the mode's name. The files on disk are
 not read: i3 4.20 and newer reply with every file it included and its variables already replaced, so
-`set_from_resource` values are right too; before 4.20 there is no `include`, and `set_from_resource` variables stay
-as written. `bindcode` lines (keycodes, with no key name to show or send) are left out, counted in one line. A key
+`set_from_resource` values are right too; before 4.20 there is no `include`, keybind-find replaces the variables
+itself (matching their case exactly, where i3 ignores case), and `set_from_resource` variables stay as written. `bindcode` lines (keycodes, with no key name to show or send) are left out, counted in one line. A key
 bound twice, which i3 reports as an error, shows its last binding, while i3 runs the first. Without `i3-msg`, or with
 no i3 answering, that is one line and the list goes on without i3's keys.
 
