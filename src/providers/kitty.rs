@@ -107,17 +107,27 @@ fn sheet_with(
         bail!("data/kitty/{v}.toml names kitty {}", pinned.kitty_version);
     }
     let mut lines = Vec::new();
-    // As kitty's `resolve_config`: the system file, then the user's, each with its own memory of what it read (the
-    // search can land on the system file itself: read once). No file (an unset `KITTY_CONFIG_DIRECTORY` holds none
-    // yet): kitty's defaults, as kitty uses them.
+    // As kitty's `resolve_config`: the system file, then the user's, each with its own memory of what it read. When
+    // the search lands on the system file itself, it's read once (kitty would read it twice, to the same maps). A
+    // system file kitty can't open it skips quietly. No file (an unset `KITTY_CONFIG_DIRECTORY` holds none yet):
+    // kitty's defaults, as kitty uses them.
     let canon = |f: &Path| std::fs::canonicalize(f).unwrap_or_else(|_| f.to_path_buf());
-    let system = Some(system.to_path_buf()).filter(|f| f.exists());
+    let system =
+        Some(system.to_path_buf()).filter(|f| f.is_file() && std::fs::File::open(f).is_ok());
     let user = config_file(env)
         .filter(|f| f.exists())
         .filter(|f| system.as_deref().map(canon) != Some(canon(f)));
     for conf in system.into_iter().chain(user) {
         Conf::new(env).read(&conf, 0, &mut lines, &mut notes);
     }
+    // Both files can earn the same note (an `envinclude` in each): say it once.
+    let mut said = Vec::new();
+    notes.retain(|n| {
+        !said.contains(n) && {
+            said.push(n.clone());
+            true
+        }
+    });
     let (sheet, left_out) = parse(&pinned.map, &lines);
     if left_out > 0 {
         notes.push(format!(
@@ -749,9 +759,10 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/kitty")
     }
 
-    /// A system kitty.conf that doesn't exist, so the tests don't read the machine's `/etc/xdg/kitty/kitty.conf`.
+    /// A system kitty.conf that can't exist (a file under a file), so the tests don't read the machine's
+    /// `/etc/xdg/kitty/kitty.conf`.
     fn no_system() -> PathBuf {
-        fixtures().join("no-system.conf")
+        fixtures().join("config/kitty/kitty.conf/no-system.conf")
     }
 
     fn defaults() -> Pinned {
@@ -1062,8 +1073,17 @@ mod tests {
     fn system_file_underneath() {
         let tmp = std::env::temp_dir().join(format!("kbf-kitty-system-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
-        for d in ["etc/kitty", "home/.config/kitty"] {
+        for d in ["etc/kitty", "home/.config/kitty", "link/.config/kitty"] {
             std::fs::create_dir_all(tmp.join(d)).unwrap();
+        }
+        // Relative includes resolve against the including file's own directory: each name is in both.
+        for (f, map) in [
+            ("etc/kitty/sys.conf", "map f8 next_window"),
+            ("home/.config/kitty/sys.conf", "map f8 quit"),
+            ("etc/kitty/mine.conf", "map f7 quit"),
+            ("home/.config/kitty/mine.conf", "map f7 new_tab"),
+        ] {
+            std::fs::write(tmp.join(f), map).unwrap();
         }
         let t = |p: &str| tmp.join(p).to_string_lossy().into_owned();
         let shared = t("shared.conf");
@@ -1071,7 +1091,7 @@ mod tests {
         let system = tmp.join("etc/kitty/kitty.conf");
         std::fs::write(
             &system,
-            format!("kitty_mod ctrl+alt\nmap kitty_mod+f1 show_kitty_doc overview\nmap kitty_mod+f2 next_tab\ninclude {shared}\n"),
+            format!("kitty_mod ctrl+alt\nmap kitty_mod+f1 show_kitty_doc overview\nmap kitty_mod+f2 next_tab\ninclude {shared}\ninclude sys.conf\n"),
         )
         .unwrap();
         let user = tmp.join("home/.config/kitty/kitty.conf");
@@ -1096,7 +1116,7 @@ mod tests {
         // files read is read for each, with no note.
         std::fs::write(
             &user,
-            format!("map kitty_mod+f1 next_layout\ninclude {shared}\n"),
+            format!("map kitty_mod+f1 next_layout\ninclude {shared}\ninclude mine.conf\n"),
         )
         .unwrap();
         let (s, notes) = sheet(&home);
@@ -1104,6 +1124,8 @@ mod tests {
         assert_eq!(one(&s, "ctrl+alt+F2"), "next_tab");
         assert_eq!(one(&s, "ctrl+alt+v"), "paste_from_clipboard");
         assert_eq!(one(&s, "F9"), "close_window");
+        assert_eq!(one(&s, "F8"), "next_window");
+        assert_eq!(one(&s, "F7"), "new_tab");
         assert!(notes.is_empty(), "{notes:?}");
 
         // The user's kitty_mod wins over the system's.
@@ -1129,6 +1151,10 @@ mod tests {
         assert_eq!(one(&s, "ctrl+shift+F2"), "next_tab");
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(notes[0].starts_with("leaving out 1 maps ("), "{notes:?}");
+        // Through a symlink to it, too.
+        std::os::unix::fs::symlink(&system, tmp.join("link/.config/kitty/kitty.conf")).unwrap();
+        let (_, notes) = sheet(&[("HOME", t("link"))]);
+        assert_eq!(notes.len(), 1, "{notes:?}");
         // The system file alone (the user's search finds nothing): its maps, no other note.
         let (s, notes) = sheet(&[("HOME", t("nowhere"))]);
         assert_eq!(one(&s, "ctrl+shift+F2"), "next_tab");
