@@ -107,8 +107,8 @@ fn sheet_with(
         let n = keymap.left_out;
         let bindings = if n == 1 { "binding" } else { "bindings" };
         notes.push(format!(
-            "leaving out {n} bindings.json {bindings}: mouse keys, raw escapes, keys with no keysym, or values that \
-             aren't strings"
+            "leaving out {n} bindings.json {bindings}: mouse keys, raw escapes, keys micro or keybind-find can't read, \
+             or values that aren't strings"
         ));
     }
     Ok((keymap.into_sheet(), notes))
@@ -384,9 +384,15 @@ fn parse_key(key: &str) -> Parsed {
     let mut events = Vec::new();
     let mut rest = key;
     while !rest.is_empty() {
+        // `.+?`: at least one character, up to the first `>`, never across a newline.
         let found = rest.match_indices('<').find_map(|(i, _)| {
-            let close = rest.get(i + 2..)?.find('>')? + i + 2;
-            Some((i, close))
+            let after = &rest[i + 1..];
+            let first = after.chars().next().filter(|c| *c != '\n')?;
+            let tail = &after[first.len_utf8()..];
+            let close = tail
+                .find(['>', '\n'])
+                .filter(|&j| tail[j..].starts_with('>'))?;
+            Some((i, i + 1 + first.len_utf8() + close))
         });
         let Some((open, close)) = found else {
             return parse_single(key);
@@ -691,6 +697,12 @@ mod tests {
             assert!(text.contains(&format!("at tag v{v}")), "{v}");
             assert!(text.contains(&format!("(commit {commit})")), "{v}");
             assert!(text.contains("MIT licensed"), "{v}");
+            for file in [
+                "internal/action/defaults_other.go",
+                "internal/action/defaults.go",
+            ] {
+                assert!(text.contains(file), "{v}: {file}");
+            }
             assert!(
                 defaults(text)
                     .unwrap()
@@ -800,6 +812,10 @@ mod tests {
             ("F35", Some("F35")),
             ("CtrlSpace", Some("ctrl+space")),
             ("CtrlLeftSq", Some("ctrl+bracketleft")),
+            ("CtrlBackslash", Some("ctrl+backslash")),
+            ("CtrlRightSq", Some("ctrl+bracketright")),
+            ("CtrlCarat", Some("ctrl+asciicircum")),
+            ("CtrlUnderscore", Some("ctrl+underscore")),
             ("<Ctrl-q><Ctrl-q>", Some("ctrl+q ctrl+q")),
             ("Alt-{", Some("alt+braceleft")),
             ("Enter", Some("Return")),
@@ -843,6 +859,12 @@ mod tests {
                 "{k}"
             );
         }
+        // A group can't start at a multi-byte character's middle, nor span a newline.
+        assert!(matches!(parse_key("<é><CtrlA>"), Parsed::Unknown));
+        let Parsed::Key(e) = parse_key("<\n><a>") else {
+            panic!()
+        };
+        assert_eq!(notation(&e[0]).as_deref(), Some("a"));
         for unknown in ["Nonsense", "", "<Ctrl-q", "<Nope>", "<Ctrl-q><Nope>"] {
             assert!(matches!(parse_key(unknown), Parsed::Unknown), "{unknown}");
         }
@@ -885,7 +907,10 @@ mod tests {
         assert_eq!(find(&s, "buffer", "ctrl+x ctrl+c"), ["Save,Quit"]);
         // In command only.
         assert_eq!(find(&s, "command", "ctrl+w"), ["WordLeft"]);
-        assert_ne!(find(&s, "buffer", "ctrl+w"), ["WordLeft"]);
+        assert_eq!(
+            find(&s, "buffer", "ctrl+w"),
+            find(&keymap("2.0.15").into_sheet(), "buffer", "ctrl+w")
+        );
         // Mouse, raw, unknown, a key with no keysym, `http://x`, and two values that aren't strings: counted.
         assert_eq!(left_out, 7);
         assert_eq!(
@@ -928,6 +953,15 @@ mod tests {
             Some(tmp.join("home/.config/micro/bindings.json"))
         );
         assert_eq!(pick(vec![("HOME", t("nowhere"))]), None);
+        // MICRO_CONFIG_HOME set with no file there: none, as micro (not the XDG one).
+        assert_eq!(
+            pick(vec![
+                home.clone(),
+                ("XDG_CONFIG_HOME", t("xdg")),
+                ("MICRO_CONFIG_HOME", t("nowhere"))
+            ]),
+            None
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -1033,7 +1067,10 @@ mod tests {
             return;
         };
         let text = String::from_utf8_lossy(&out.stdout);
-        let v = version_of(&text).unwrap_or_else(|| panic!("no version in {text:?}"));
-        assert!(pinned::select("micro", REGISTRY, Some(&v)).is_some());
+        // A build without a release version (`0.0.0-unknown`) has none: newest defaults, as unknown.
+        if !text.contains("0.0.0") {
+            let v = version_of(&text).unwrap_or_else(|| panic!("no version in {text:?}"));
+            assert!(pinned::parse_version(&v).is_some(), "{v}");
+        }
     }
 }
