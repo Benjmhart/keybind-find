@@ -1,0 +1,6 @@
+# Synthetic. An append on a default's keys (`q`) is dropped; a new one goes last.
+[mgr]
+append_keymap = [
+	{ on = "q", run = "shell never" },
+	{ on = "<C-A-y>", run = "shell appended" },
+]

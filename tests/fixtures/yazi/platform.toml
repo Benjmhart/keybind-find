@@ -1,0 +1,11 @@
+# Synthetic. Other platforms dropped; the first of two on the same keys kept; a run array joined.
+[mgr]
+prepend_keymap = [
+	{ on = "<C-A-m>", run = "shell mac", for = "macos" },
+	{ on = "<C-A-w>", run = "shell windows", for = "windows" },
+	{ on = "<C-A-u>", run = "shell unix", for = "unix" },
+	{ on = "<C-A-l>", run = "shell linux", for = "linux" },
+	{ on = "<C-A-d>", run = "shell first" },
+	{ on = "<C-A-d>", run = "shell second" },
+	{ on = "<C-A-r>", run = [ "plugin a", "plugin b" ], desc = "two   plugins" },
+]

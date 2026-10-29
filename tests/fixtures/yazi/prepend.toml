@@ -1,0 +1,6 @@
+# Synthetic. A prepend drops the default on the same first two keys (`g g`), not `g h`; a `noop` unbinds `Q`.
+[mgr]
+prepend_keymap = [
+	{ on = [ "g", "g" ], run = "arrow bot", desc = "Go to bottom, not top" },
+	{ on = "Q", run = "noop" },
+]

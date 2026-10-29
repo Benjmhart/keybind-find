@@ -1,0 +1,6 @@
+# Synthetic. An old section name, and a key with no notation.
+[manager]
+prepend_keymap = [ { on = "<C-A-o>", run = "shell old" } ]
+
+[mgr]
+prepend_keymap = [ { on = "<Foo>", run = "shell foo" } ]

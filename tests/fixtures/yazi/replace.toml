@@ -1,0 +1,6 @@
+# Synthetic. `keymap` replaces [input]'s defaults.
+[input]
+keymap = [
+	{ on = "<Esc>", run = "close" },
+	{ on = "<Enter>", run = "close --submit" },
+]

@@ -29,6 +29,7 @@ mod vim;
 mod vimium;
 mod xfce;
 mod xmonad;
+mod yazi;
 
 pub(crate) use sheets::is_browser;
 
@@ -56,6 +57,7 @@ pub const KNOWN: &[&str] = &[
     "kitty",
     "xfce",
     "i3",
+    "yazi",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -81,6 +83,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "nano" => nano::sheet(),
         "screen" => screen::sheet(),
         "kitty" => kitty::sheet(),
+        "yazi" => yazi::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
