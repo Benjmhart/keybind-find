@@ -525,7 +525,7 @@ fn session_file_name(d: &str) -> &str {
 /// The window-manager provider for a session: only sway, Hyprland, xmonad and KDE have one. Nothing falls back to
 /// xmonad: a leftover `xmonad.keys` under i3 must not show.
 fn wm_provider(session: Option<&'static str>) -> Option<&'static str> {
-    session.filter(|s| matches!(*s, "sway" | "hyprland" | "xmonad" | "kde"))
+    session.filter(|s| matches!(*s, "sway" | "hyprland" | "xmonad" | "kde" | "xfce"))
 }
 
 /// The EWMH check window's `_NET_WM_NAME` (who the window manager says it is); `None` when anything is unreadable.
@@ -1331,6 +1331,16 @@ mod tests {
         assert_eq!(
             providers_for(Some("kde"), Some("org.kde.konsole"), Some("zsh"), &[]),
             ["kde", "espanso", "zsh", "sheets"]
+        );
+        // An Xfce X11 session: xfwm4's keys from the `xfce` provider.
+        assert_eq!(
+            providers_for(
+                wm_provider(Some("xfce")),
+                Some("Alacritty"),
+                Some("bash"),
+                &[]
+            ),
+            ["xfce", "espanso", "alacritty", "bash", "sheets"]
         );
         // ghostty's own keys, in any case of its class, then the program inside it.
         for class in [
@@ -2599,7 +2609,7 @@ mod tests {
     #[test]
     fn which_sessions_have_a_provider() {
         // Each session with a window-manager provider names itself; a new one adds a row.
-        let with = ["sway", "hyprland", "xmonad", "kde"];
+        let with = ["sway", "hyprland", "xmonad", "kde", "xfce"];
         assert_eq!(wm_provider(None), None);
         for (s, _) in SESSIONS {
             let want = with.contains(s).then_some(*s);

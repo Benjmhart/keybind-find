@@ -26,6 +26,7 @@ mod sway;
 mod tmux;
 mod vim;
 mod vimium;
+mod xfce;
 mod xmonad;
 
 pub(crate) use sheets::is_browser;
@@ -52,6 +53,7 @@ pub const KNOWN: &[&str] = &[
     "ghostty",
     "screen",
     "kitty",
+    "xfce",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -60,6 +62,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "sway" => sway::sheet(ctx),
         "hyprland" => hyprland::sheet(ctx),
         "kde" => kde::sheet(ctx),
+        "xfce" => xfce::sheet(),
         "espanso" => espanso::sheet(ctx),
         "nvim" => nvim::sheet(ctx),
         "herdr" => herdr::sheet(ctx),

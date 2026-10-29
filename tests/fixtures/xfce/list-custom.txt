@@ -1,0 +1,18 @@
+/commands/custom/<Alt>F2                  xfce4-appfinder --collapsed
+/commands/custom/<Alt>F2/startup-notify   true
+/commands/custom/<Hyper>x                 xterm
+/commands/custom/<Primary><Alt>Delete     xfce4-session-logout
+/commands/custom/<Super>t                 sh -c 'kitty -- tmux new -A -s main'
+/commands/custom/override                 true
+/commands/default/<Alt>F2                 xfce4-appfinder --collapsed
+/commands/default/<Alt>F2/startup-notify  true
+/commands/default/<Primary><Alt>Delete    xfce4-session-logout
+/commands/default/<Super>l                xflock4
+/providers                                [commands,xfwm4]
+/xfwm4/custom/<Alt>F4                     close_window_key
+/xfwm4/custom/<Super>q                    close_window_key
+/xfwm4/custom/override                    false
+/xfwm4/default/<Alt>F4                    close_window_key
+/xfwm4/default/<Primary><Alt>KP_1         move_window_workspace_1_key
+/xfwm4/default/<Release><Alt>F5           maximize_window_key
+/xfwm4/default/Escape                     cancel_key
