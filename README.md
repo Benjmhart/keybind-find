@@ -164,14 +164,16 @@ another system nanorc than `/etc/nanorc` has that file's binds missed.
 
 Over micro in a terminal, keybind-find lists micro's keys by pane type (`buffer`, `command`, `terminal`): the Linux
 defaults of your micro's version (from `micro -version`; 2.0.11, 2.0.14 and 2.0.15 are built in, generated from micro's
-source at each tag; another version uses the nearest of the same major version, else the nearest older, and says so)
-with your `bindings.json` on top, as micro reads it: from `$MICRO_CONFIG_HOME`, else `$XDG_CONFIG_HOME/micro`, else
-`~/.config/micro`; comments and trailing commas allowed; a top-level `"key": "action"` binds in `buffer`, an object
-named after a pane binds there, and `"None"` unbinds. Two spellings of one key replace each other as in micro (`CtrlS`
-and `Ctrl-s`); keys micro tells apart stay apart, even where the terminal sends the same thing (`Ctrl-m` and `Enter`).
-Each key shows its action as written (`Copy|CopyLine`, `command:pwd`). A `bindings.json` that doesn't parse is one line,
-and micro's defaults are shown; mouse keys, raw escapes and keys with no X keysym are left out, counted in one line. Not
-read: keys bound by Lua plugins (unless written to `bindings.json`), and a config dir given with `-config-dir`.
+source at each tag; another version uses the nearest older one of the same major version (else a newer one of it), else
+the nearest older, else the oldest, and says so) with your `bindings.json` on top, as micro reads it: from
+`$MICRO_CONFIG_HOME`, else `$XDG_CONFIG_HOME/micro`, else `~/.config/micro`; comments and trailing commas allowed (other
+JSON5, such as single quotes, isn't); a top-level `"key": "action"` binds in `buffer`, an object named after a pane
+binds there, and `"None"` unbinds. Two spellings of one key replace each other as in micro (`CtrlS` and `Ctrl-s`); keys
+micro tells apart stay apart, even where the terminal sends the same thing (`Ctrl-m` and `Enter`). Each key shows its
+action as written (`Copy|CopyLine`, `command:pwd`). A `bindings.json` that doesn't parse is one line, and micro's
+defaults are shown; mouse keys, raw escapes, keys micro or keybind-find can't read and values that aren't strings are
+left out, counted in one line. Not read: keys bound by Lua plugins (unless written to `bindings.json`), and a config dir
+given with `-config-dir`.
 
 ### yazi
 

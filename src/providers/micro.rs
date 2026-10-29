@@ -114,17 +114,20 @@ fn sheet_with(
     Ok((keymap.into_sheet(), notes))
 }
 
-/// The first dotted number in `micro -version` (`Version: 2.0.15`, then the commit and build date).
+/// The first dotted number in `micro -version` (`Version: 2.0.15`, then the commit and build date); a build without
+/// a release version (`0.0.0-unknown`) has none.
 fn version_of(text: &str) -> Option<String> {
     text.split(|c: char| !(c.is_ascii_digit() || c == '.'))
         .map(|w| w.trim_matches('.'))
         .find(|w| w.contains('.') && pinned::parse_version(w).is_some())
+        .filter(|v| *v != "0.0.0")
         .map(str::to_string)
 }
 
 /// `bindings.json` in micro's config dir: `$MICRO_CONFIG_HOME`, else `$XDG_CONFIG_HOME/micro`, else
 /// `~/.config/micro` (an empty variable counts as unset); `None` when there's no file (micro would create one; this
 /// only reads).
+// ponytail: `env` is keybind-find's own; a `MICRO_CONFIG_HOME` set only in micro's shell, or `-config-dir`, isn't seen.
 fn bindings_file(env: Env) -> Option<PathBuf> {
     let set = |k: &str| env(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     let dir = set("MICRO_CONFIG_HOME")
@@ -171,7 +174,7 @@ fn defaults(text: &str) -> anyhow::Result<Vec<(String, Pairs)>> {
 /// JSON with comments, as JSON: `//` and `/* */` comments and trailing commas (before `]` or `}`) removed outside
 /// strings. Other JSON5 (single quotes, unquoted keys) is left for the JSON parser to refuse.
 pub(crate) fn strip_jsonc(text: &str) -> String {
-    // Comments first: each becomes a space (a newline stays), so positions of what's left keep their meaning.
+    // Comments first: each becomes a space, keeping its newlines, so a parse error's line number is the file's.
     let mut plain = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     let mut in_string = false;
@@ -376,22 +379,29 @@ const MOUSE: [&str; 7] = [
 /// prefixes (`Ctrl`, `Alt`, `Shift`, optional `-`) then a `keyEvents` name (after `Ctrl`, the rest upper-cased and
 /// tried as `Ctrl<k>` first), a mouse name, or one character.
 fn parse_key(key: &str) -> Parsed {
-    if key.starts_with('<') {
-        let mut events = Vec::new();
-        let mut rest = key;
-        while !rest.is_empty() {
-            let Some(inner) = rest.strip_prefix('<').and_then(|r| r.split_once('>')) else {
-                return Parsed::Unknown;
-            };
-            match parse_single(inner.0) {
-                Parsed::Key(mut e) => events.append(&mut e),
-                other => return other,
-            }
-            rest = inner.1;
+    // micro's `<(.+?)>`, unanchored: each match is one key of the sequence, and text between matches is skipped.
+    // When the first search finds none, or a later one finds none with text left, the key is read whole.
+    let mut events = Vec::new();
+    let mut rest = key;
+    while !rest.is_empty() {
+        let found = rest.match_indices('<').find_map(|(i, _)| {
+            let close = rest.get(i + 2..)?.find('>')? + i + 2;
+            Some((i, close))
+        });
+        let Some((open, close)) = found else {
+            return parse_single(key);
+        };
+        match parse_single(&rest[open + 1..close]) {
+            Parsed::Key(mut e) => events.append(&mut e),
+            Parsed::NotKey => return Parsed::NotKey,
+            Parsed::Unknown => return Parsed::Unknown,
         }
-        return Parsed::Key(events);
+        rest = &rest[close + 1..];
     }
-    parse_single(key)
+    if events.is_empty() {
+        return parse_single(key);
+    }
+    Parsed::Key(events)
 }
 
 fn parse_single(key: &str) -> Parsed {
@@ -426,23 +436,27 @@ fn parse_single(key: &str) -> Parsed {
             shift,
         }])
     };
+    // With ctrl, micro upper-cases the key's first letter and keeps it so (`Ctrl-up` is ctrl+Up).
+    let upper;
     if ctrl {
-        let mut up = k.to_string();
-        if let Some(first) = up.get(..1) {
-            up = first.to_uppercase() + &up[1..];
-        }
-        if let Some(code) = key_code(&format!("Ctrl{up}")) {
+        upper = match k.get(..1) {
+            Some(first) => first.to_uppercase() + &k[1..],
+            None => k.to_string(),
+        };
+        k = &upper;
+        if let Some(code) = key_code(&format!("Ctrl{k}")) {
             return event(code);
         }
     }
     if let Some(code) = key_code(k) {
         return event(code);
     }
-    let base = k
+    // micro strips the suffix from the key itself: `aDrag` is `a`.
+    let k = k
         .strip_suffix("Drag")
         .or_else(|| k.strip_suffix("Release"))
         .unwrap_or(k);
-    if MOUSE.contains(&base) {
+    if MOUSE.contains(&k) {
         return Parsed::NotKey;
     }
     match k.as_bytes() {
@@ -534,7 +548,7 @@ fn notation(e: &Event) -> Option<String> {
     Some(chord(&mods, &key))
 }
 
-/// Each pane's bindings: (event, key notation, action), in order.
+/// Each pane's bindings: (event, key notation, action), in the order they were bound.
 struct Keymap {
     panes: Vec<(String, Binds)>,
     left_out: usize,
@@ -543,7 +557,8 @@ struct Keymap {
 impl Keymap {
     /// Binds `key` to `action` in `pane`, replacing the binding of the same event (micro keeps one action per event);
     /// `None` unbinds it.
-    // ponytail: two spellings of one key in the same file have no defined winner in micro (a Go map); the later wins.
+    // ponytail: two spellings of one key in the same file have no defined winner in micro (a Go map); here the one
+    // serde_json gives last (its maps are sorted by key) wins.
     fn bind(&mut self, pane: &str, key: &str, action: &str) {
         let events = match parse_key(key) {
             Parsed::Key(e) => e,
@@ -597,9 +612,15 @@ impl Keymap {
             }
         }
         if !unknown.is_empty() {
+            let names: Vec<String> = unknown.iter().map(|n| format!("{n:?}")).collect();
+            let is = if names.len() == 1 {
+                "isn't a pane"
+            } else {
+                "aren't panes"
+            };
             notes.push(format!(
-                "bindings.json's {:?} isn't a pane (buffer, command, terminal); ignored",
-                unknown.join(", ")
+                "bindings.json's {} {is} (buffer, command, terminal); ignored",
+                names.join(", ")
             ));
         }
     }
@@ -734,6 +755,7 @@ mod tests {
             )
         );
         assert_eq!(pick("Version: 2.0.16").0, "2.0.15");
+        assert_eq!(pick("Version: 0.0.0-unknown").0, "2.0.15");
         assert_eq!(
             pick("garbage"),
             (
@@ -802,7 +824,26 @@ mod tests {
         for not in ["MouseLeft", "MouseWheelUpDrag", "\u{1b}ctrlback"] {
             assert!(matches!(parse_key(not), Parsed::NotKey), "{not}");
         }
-        for unknown in ["Nonsense", "", "<Ctrl-q", "<Nope>"] {
+        // Ctrl keeps the upper-cased name; micro's `<…>` is unanchored; `<` alone is a character.
+        for (k, want) in [
+            ("Ctrl-up", "ctrl+Up"),
+            ("x<Ctrl-a>", "ctrl+a"),
+            ("<", "less"),
+            ("aDrag", "a"),
+        ] {
+            let Parsed::Key(e) = parse_key(k) else {
+                panic!("{k}")
+            };
+            assert_eq!(
+                e.iter()
+                    .map(|e| notation(e).unwrap())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                want,
+                "{k}"
+            );
+        }
+        for unknown in ["Nonsense", "", "<Ctrl-q", "<Nope>", "<Ctrl-q><Nope>"] {
             assert!(matches!(parse_key(unknown), Parsed::Unknown), "{unknown}");
         }
         // F64 is a key to micro, with no X keysym.
@@ -845,8 +886,8 @@ mod tests {
         // In command only.
         assert_eq!(find(&s, "command", "ctrl+w"), ["WordLeft"]);
         assert_ne!(find(&s, "buffer", "ctrl+w"), ["WordLeft"]);
-        // Mouse, raw, unknown, a key with no keysym, `http://x`, and the number: counted.
-        assert_eq!(left_out, 6);
+        // Mouse, raw, unknown, a key with no keysym, `http://x`, and two values that aren't strings: counted.
+        assert_eq!(left_out, 7);
         assert_eq!(
             notes,
             [r#"bindings.json's "bogus" isn't a pane (buffer, command, terminal); ignored"#]
@@ -879,7 +920,11 @@ mod tests {
             Some(tmp.join("xdg/micro/bindings.json"))
         );
         assert_eq!(
-            pick(vec![home.clone(), ("XDG_CONFIG_HOME", String::new())]),
+            pick(vec![
+                home.clone(),
+                ("XDG_CONFIG_HOME", String::new()),
+                ("MICRO_CONFIG_HOME", String::new())
+            ]),
             Some(tmp.join("home/.config/micro/bindings.json"))
         );
         assert_eq!(pick(vec![("HOME", t("nowhere"))]), None);
@@ -925,7 +970,7 @@ mod tests {
         assert_eq!(find(&s, "buffer", "ctrl+s"), ["SaveAll"]);
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert!(
-            notes[1].starts_with("leaving out 6 bindings.json bindings"),
+            notes[1].starts_with("leaving out 7 bindings.json bindings"),
             "{notes:?}"
         );
         // Not JSON: the defaults and one line.
@@ -935,6 +980,12 @@ mod tests {
         assert!(
             notes[0].ends_with("; showing micro's defaults") && !notes[0].contains('\n'),
             "{notes:?}"
+        );
+        // Not an object: the defaults and one line.
+        let (_, notes) = sheet_with(REGISTRY, path(&bin), &dir("array")).unwrap();
+        assert_eq!(
+            notes,
+            ["bindings.json isn't a JSON object; showing micro's defaults"]
         );
         // No file: the defaults, no line.
         let (_, notes) = sheet_with(REGISTRY, path(&bin), &dir("nowhere")).unwrap();

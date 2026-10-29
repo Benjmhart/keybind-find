@@ -14,6 +14,7 @@
     "command": {
         "Ctrl-w": "WordLeft", // in command only
         "http://x": "Quit",
+        "Ctrl-e": true,
     },
     "bogus": {"Ctrl-b": "Quit"},
 }
