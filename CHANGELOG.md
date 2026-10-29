@@ -7,6 +7,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Added
 
+- micro: its keys from defaults pinned per version (2.0.11, 2.0.14, 2.0.15) with your `bindings.json` on top, when micro is in the focused terminal.
 - zathura: its keys from defaults pinned per version (0.5.2, 0.5.11, 2026.10.23) with your zathurarc's `map`/`unmap` on top, when a zathura window has focus.
 - yazi: its keys from pinned default keymaps (25.4.8, 25.5.31, 26.9.1) with your `keymap.toml` merged in, when yazi is in the focused terminal.
 - i3: the bindings of the config i3 has loaded, from `i3-msg -t get_config`, read with sway's parser.

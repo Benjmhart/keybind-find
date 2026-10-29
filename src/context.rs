@@ -633,6 +633,7 @@ fn providers_for(
             // The client in the terminal; the server renames its argv (`SCREEN`), not its comm.
             Some("screen") => providers.push("screen"),
             Some("yazi") => providers.push("yazi"),
+            Some("micro") => providers.push("micro"),
             _ => {}
         }
         // `man`, `git log` and `systemctl status` lead the pipeline that less runs in.
@@ -1342,6 +1343,11 @@ mod tests {
             providers_for(Some("kde"), Some("org.kde.konsole"), Some("zsh"), &[]),
             ["kde", "espanso", "zsh", "sheets"]
         );
+        // micro in a terminal, before `sheets`.
+        assert_eq!(
+            x(Some("Alacritty"), Some("micro")),
+            ["xmonad", "espanso", "alacritty", "micro", "sheets"]
+        );
         // yazi in a terminal, before `sheets`.
         assert_eq!(
             x(Some("Alacritty"), Some("yazi")),
@@ -1589,6 +1595,7 @@ mod tests {
                 (Some("rnano"), vec!["nano"]),
                 (Some("screen"), vec!["screen"]),
                 (Some("yazi"), vec!["yazi"]),
+                (Some("micro"), vec!["micro"]),
                 (Some("python3"), vec![]),
                 (None, vec![]),
             ] {

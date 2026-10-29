@@ -13,6 +13,7 @@ mod i3;
 mod kde;
 pub(crate) mod kitty;
 mod less;
+mod micro;
 mod mpv;
 mod nano;
 mod nvim;
@@ -60,6 +61,7 @@ pub const KNOWN: &[&str] = &[
     "i3",
     "yazi",
     "zathura",
+    "micro",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -87,6 +89,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "kitty" => kitty::sheet(),
         "yazi" => yazi::sheet(),
         "zathura" => zathura::sheet(ctx),
+        "micro" => micro::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
