@@ -523,10 +523,10 @@ fn session_file_name(d: &str) -> &str {
     name.strip_suffix(".desktop").unwrap_or(name)
 }
 
-/// The window-manager provider for a session: only sway, Hyprland, xmonad, KDE and Xfce have one. Nothing falls back to
+/// The window-manager provider for a session: only sway, Hyprland, xmonad, KDE, Xfce and i3 have one. Nothing falls back to
 /// xmonad: a leftover `xmonad.keys` under i3 must not show.
 fn wm_provider(session: Option<&'static str>) -> Option<&'static str> {
-    session.filter(|s| matches!(*s, "sway" | "hyprland" | "xmonad" | "kde" | "xfce"))
+    session.filter(|s| matches!(*s, "sway" | "hyprland" | "xmonad" | "kde" | "xfce" | "i3"))
 }
 
 /// The EWMH check window's `_NET_WM_NAME` (who the window manager says it is); `None` when anything is unreadable.
@@ -2610,7 +2610,7 @@ mod tests {
     #[test]
     fn which_sessions_have_a_provider() {
         // Each session with a window-manager provider names itself; a new one adds a row.
-        let with = ["sway", "hyprland", "xmonad", "kde", "xfce"];
+        let with = ["sway", "hyprland", "xmonad", "kde", "xfce", "i3"];
         assert_eq!(wm_provider(None), None);
         // Xfce's Wayland session is unknown: no xfwm4 keys on another compositor.
         assert_eq!(
@@ -2642,7 +2642,7 @@ mod tests {
             list("xmonad"),
             ["xmonad", "espanso", "alacritty", "nvim", "sheets"]
         );
-        assert_eq!(list("i3"), ["espanso", "alacritty", "nvim", "sheets"]);
+        assert_eq!(list("i3"), ["i3", "espanso", "alacritty", "nvim", "sheets"]);
     }
 
     #[test]
