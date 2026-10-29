@@ -240,10 +240,10 @@ xfwm4's window shortcuts under `window manager` (`<Alt>F4` → `close window`) a
 `commands`, each shown by its command, which is never run. As Xfce does, each of the two uses your customized set
 once you have changed it (`custom/override` is true), else Xfce's defaults. xfwm4's actions that work only while
 moving a window or cycling windows (`cancel_key` and the arrow actions, on `Escape` and the arrows by default) are left
-out. A shortcut keybind-find can't send (a `<Meta>`, `<Hyper>` or `<Release>` modifier, a keycode, or a key not shaped
-like an X keysym name; names aren't looked up) is left out, counted in one line. When `xfconf-query` is missing or fails (no D-Bus session to ask), that
-is one line and the list goes on without Xfce's keys. Xfce's Wayland session runs another compositor, so there xfwm4's
-keys aren't listed.
+out. A shortcut keybind-find can't send (a modifier other than ctrl, shift, alt and super, such as `<Meta>`, `<Hyper>`
+or `<Release>`; a keycode; or a key not shaped like an X keysym name, since names aren't looked up) is left out,
+counted in one line. When `xfconf-query` is missing or fails (no D-Bus session to ask), that is one line and the list
+goes on without Xfce's keys. Xfce's Wayland session runs another compositor, so there no Xfce shortcuts are listed.
 
 ## Install
 

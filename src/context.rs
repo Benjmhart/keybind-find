@@ -382,7 +382,7 @@ const SESSIONS: &[(&str, &[&str])] = &[
             "gnome-xorg",
         ],
     ),
-    // X11 only: Xfce's Wayland session runs another compositor, so xfwm4's keys don't apply there.
+    // X11 only (not in `WAYLAND`): Xfce's Wayland session runs another compositor, so xfwm4's keys don't apply.
     ("xfce", &["xfce", "xfwm4"]),
     // X11 window managers with no provider yet, so they are named rather than unknown.
     ("openbox", &["openbox"]),

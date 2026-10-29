@@ -19,9 +19,14 @@ const MODAL: [&str; 5] = ["cancel_key", "left_key", "right_key", "up_key", "down
 pub fn sheet() -> anyhow::Result<Sheet> {
     let (sheet, left_out) = read(TIMEOUT, |_| {})?;
     if left_out > 0 {
+        let shortcuts = if left_out == 1 {
+            "shortcut"
+        } else {
+            "shortcuts"
+        };
         eprintln!(
-            "keybind-find: xfce: leaving out {left_out} shortcuts keybind-find can't send (a <Meta>, <Hyper>, \
-             <Release> or other <ModN> modifier, a keycode, or a key not shaped like a keysym name)"
+            "keybind-find: xfce: leaving out {left_out} {shortcuts} keybind-find can't send (a modifier other than \
+             ctrl, shift, alt and super, a keycode, or a key not shaped like a keysym name)"
         );
     }
     Ok(sheet)
@@ -41,7 +46,11 @@ fn read(timeout: Duration, setup: impl Fn(&mut Command)) -> anyhow::Result<(Shee
         .lines()
         .find(|l| l.starts_with("Channel ") && l.contains("contains no properties"))
     {
-        bail!("xfconf-query: {}", line.trim());
+        // Also what it says when xfconfd can't be reached (the reason goes to stderr, which exit 0 drops).
+        bail!(
+            "xfconf-query: {} (no shortcuts saved, or xfconfd couldn't be reached)",
+            line.trim()
+        );
     }
     Ok(parse(&text))
 }
@@ -235,6 +244,16 @@ mod tests {
                 .len(),
             0
         );
+        // override in any case; true with no custom entries is an empty set, as in Xfce.
+        let commands = |t: &str| rows(&parse(t).0, "commands").len();
+        assert_eq!(
+            commands("/commands/custom/<Super>x  a\n/commands/custom/override  TRUE\n"),
+            1
+        );
+        assert_eq!(
+            commands("/commands/custom/override  true\n/commands/default/<Super>x  a\n"),
+            0
+        );
         // An empty value is no action: nothing.
         assert_eq!(parse("/commands/default/<Super>x\n").0.binds.len(), 0);
     }
@@ -260,6 +279,13 @@ mod tests {
             ("<Primary><Alt>KP_1", Some("ctrl+alt+KP_1")),
             ("<Alt>space", Some("alt+space")),
             ("<Super>1", Some("super+1")),
+            // A single character is named as a keysym; GTK writes `slash`, a hand edit `/`.
+            ("<Super>/", Some("super+slash")),
+            ("<Control><Primary>a", Some("ctrl+a")),
+            // The shape rule (AC #3): a letter, then letters, digits and `_`; real digit-first keysyms are refused.
+            ("<Super>Foo-Bar", None),
+            ("<Super>a$", None),
+            ("3270_Enter", None),
             ("<Meta>a", None),
             ("<Hyper>a", None),
             ("<Release>a", None),
@@ -321,6 +347,8 @@ mod tests {
         let bin = fake("hang", "exec /bin/sleep 10");
         let start = std::time::Instant::now();
         assert!(read(Duration::from_millis(300), path(&bin)).is_err());
+        // It waited for the timeout, not for a script that failed to start.
+        assert!(start.elapsed() >= Duration::from_millis(300));
         assert!(start.elapsed() < Duration::from_secs(3));
         let _ = std::fs::remove_dir_all(&bin);
         // Not installed.
