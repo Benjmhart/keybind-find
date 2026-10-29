@@ -15,17 +15,35 @@ const TIMEOUT: Duration = Duration::from_secs(3);
 /// Marks where the bindings start on stdout, so whatever the user's scripts print can't break the parse.
 const SENTINEL: &str = "KEYBIND-FIND-MPV";
 
-/// On mpv's `idle` event (sent once the user's scripts have loaded and bound their keys), prints the bindings on the
-/// line after the sentinel and quits, even when the dump fails. `idle` is deprecated, but observing `idle-active`
-/// instead fires before other scripts finish loading (a script's key was missing in 25 of 40 runs, mpv 0.41). Its
-/// file name is the script's name in mpv, so it is one no user script is likely to have.
-const LUA: &str = r#"mp.register_event("idle", function()
-  pcall(function()
-    local json = require("mp.utils").format_json(mp.get_property_native("input-bindings"))
-    io.stdout:write("\nKEYBIND-FIND-MPV\n" .. json .. "\n")
-    io.stdout:flush()
+/// On mpv's `idle` event, waits for the bindings to settle, prints them on the line after the sentinel and quits (quits
+/// even when the dump fails, printing nothing). `idle` comes once every script has called `mpv_wait_event`, but a Lua script does that before
+/// its idle handler flushes the keys it bound (mpv 0.41 `defaults.lua`), so a script's key could still be missing
+/// (1 run in 200). So it reads `input-bindings` every 50 ms until two reads match, for at most 1 s after `idle`.
+/// ponytail: "settled" is 50 ms without a change; a key a script binds later than that (in a slow event callback, on a
+/// timer) is missed. A per-script readiness signal would close it, if mpv ever offers one.
+/// `idle` is deprecated, but observing `idle-active` instead fires before other scripts finish loading. Its file name is
+/// the script's name in mpv, so it is one no user script is likely to have.
+const LUA: &str = r#"local function bindings()
+  local ok, json = pcall(function()
+    return require("mp.utils").format_json(mp.get_property_native("input-bindings"))
   end)
-  mp.command("quit")
+  return ok and json or nil
+end
+mp.register_event("idle", function()
+  local last, ticks, timer = bindings(), 0, nil
+  timer = mp.add_periodic_timer(0.05, function()
+    local now = bindings()
+    ticks = ticks + 1
+    if now == last or ticks >= 20 then
+      timer:kill()
+      pcall(function()
+        io.stdout:write("\nKEYBIND-FIND-MPV\n" .. now .. "\n")
+        io.stdout:flush()
+      end)
+      mp.command("quit")
+    end
+    last = now
+  end)
 end)
 "#;
 const SCRIPT_NAME: &str = "keybind-find-dump.lua";
@@ -713,6 +731,45 @@ mod tests {
                 .any(|b| b.key == "ctrl+k" && b.action.contains("kbf-test")),
             "the script's key"
         );
+    }
+
+    #[test]
+    fn real_mpv_waits_for_a_slow_scripts_key() {
+        let Some(r) = real(&fixtures().join("slow-config"), REAL_TIMEOUT) else {
+            return;
+        };
+        let (s, _) = r.unwrap();
+        assert!(
+            s.binds
+                .values()
+                .flatten()
+                .any(|b| b.key == "ctrl+j" && b.action.contains("kbf-slow")),
+            "the slow script's key"
+        );
+    }
+
+    #[test]
+    fn real_mpv_dumps_bindings_that_never_settle_within_the_cap() {
+        if !has_mpv() {
+            return;
+        }
+        let base = std::env::temp_dir().join(format!("kbf-mpv-churn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("scripts")).unwrap();
+        std::fs::write(
+            base.join("scripts/s.lua"),
+            "local n = 0 mp.add_periodic_timer(0.03, function() n = n + 1 \
+             mp.add_key_binding('Ctrl+' .. string.char(97 + n % 26), 'c' .. n, function() end) end)",
+        )
+        .unwrap();
+        // Without the cap the bindings never settle and mpv is killed at the limit.
+        let r = real(&base, REAL_TIMEOUT);
+        let _ = std::fs::remove_dir_all(&base);
+        let Some(r) = r else {
+            return;
+        };
+        let (s, _) = r.unwrap();
+        assert_eq!(find(&s, "mpv", "q")[0].action, "quit");
     }
 
     #[test]
