@@ -144,18 +144,19 @@ another system nanorc than `/etc/nanorc` has that file's binds missed.
 
 ### yazi
 
-Over yazi in a terminal, keybind-find lists yazi's keys by section (`mgr`, `input`, `tasks`, …; `manager` before
-yazi 25.5.28): the default keymap of your yazi's version (from `yazi --version`; 25.4.8, 25.5.31 and 26.9.1 are built
-in, yazi's own `keymap-default.toml` at each tag; another version uses the nearest of the same year, else the nearest
-older, else the oldest, and says so: 25.5.28 to 25.5.30 get 25.4.8's, with `manager` where they have `mgr`) with your
-`keymap.toml` merged in as yazi merges it. It is read from `$YAZI_CONFIG_HOME`, else
-`$XDG_CONFIG_HOME/yazi`, else `~/.config/yazi`. Per section, `keymap` replaces the defaults, `prepend_keymap` goes
-first and replaces the defaults on the same first two keys, and `append_keymap` goes last unless a default has those
-keys; an entry for another platform (`for = "macos"`; before 26.x also `for = "all"`) or one that runs `noop` (how yazi
-unbinds a key) isn't listed,and of two on the same keys only the first is, as yazi runs the first. A section your yazi doesn't have (`[manager]`
-from 25.5.28 on) is named in one line and ignored, as yazi ignores it. A `keymap.toml` yazi would refuse (not TOML, an
-entry without `on` or `run`, a key with a modifier yazi doesn't know) is one line, and yazi's defaults are shown. A key with no keysym keybind-find knows is
-left out, counted in one line. Not read: keys plugins or `init.lua` change at runtime; a plugin bound in
+Over yazi in a terminal, keybind-find lists yazi's keys by section (`mgr`, `input`, `tasks`, …; `manager` before yazi
+25.5.28): the default keymap of your yazi's version (from `yazi --version`; 25.4.8, 25.5.31 and 26.9.1 are built in,
+yazi's own `keymap-default.toml` at each tag; another version uses the nearest of the same year, else the nearest older,
+else the oldest, and says so: 25.5.28 to 25.5.30 get 25.4.8's, with `manager` where they have `mgr`, so there your
+`[mgr]` is ignored too) with your `keymap.toml` merged in as yazi merges it. It is read from `$YAZI_CONFIG_HOME`, else
+`$XDG_CONFIG_HOME/yazi`, else `~/.config/yazi`. Per section, `keymap` replaces the defaults, `prepend_keymap` goes first
+and replaces the defaults on the same first two keys, and `append_keymap` goes last unless a default has those keys; an
+entry for another platform (`for = "macos"`; before 26.x also `for = "all"`) or one that runs `noop` (how yazi unbinds a
+key) isn't listed, and of two on the same keys only the first is, as yazi runs the first. A section your yazi doesn't
+have (`[manager]` from 25.5.28 on) is named in one line and ignored, as yazi ignores it. A `keymap.toml` yazi would
+refuse (not TOML, an entry without `on` or `run`, a key with a modifier yazi doesn't know, from 26.x a `for` it doesn't
+know, a section that isn't a table) is one line, and yazi's defaults are shown. A key with no keysym keybind-find knows
+is left out, counted in one line. Not read: keys plugins or `init.lua` change at runtime; a plugin bound in
 `keymap.toml` (`run = "plugin foo"`) is listed by its `run`.
 
 ### Hyprland
