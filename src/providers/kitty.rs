@@ -834,6 +834,7 @@ mod tests {
             (copy[1].action.as_str(), mode(copy[1]).as_deref()),
             ("quit", Some("resize"))
         );
+        assert_eq!(one("ctrl+alt+equal").desc, "Increase font size");
         // Unmapped (kitty_mod+alt+t lands on the same keys, so the unmap removes it too), and no_op.
         assert!(find(&s, "ctrl+alt+t").is_empty());
         assert!(find(&s, "ctrl+alt+w").is_empty());
@@ -934,6 +935,8 @@ mod tests {
             keys("map --when-focus-on title:x --new-mode m f1\nmap --mode m h quit"),
             (vec!["m:h".to_string()], 1)
         );
+        // Two different keys with no notation stay two (both counted).
+        assert_eq!(keys("map hyper+x a\nmap hyper+y b").1, 2);
         // clear_all_shortcuts in any case of yes/y/true; not for no.
         for yes in ["yes", "YES", "y", "True"] {
             assert_eq!(

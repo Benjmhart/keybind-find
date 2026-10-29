@@ -3023,10 +3023,11 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         let started = Instant::now();
         let e = format!("{:#}", comm("kitty", None, &with_hang).unwrap_err());
         assert!(e.contains("allow_remote_control"), "{e}");
+        // Waited for it (so it ran), then gave up at the limit.
+        let took = started.elapsed();
         assert!(
-            started.elapsed() < Duration::from_secs(3),
-            "{:?}",
-            started.elapsed()
+            took >= Duration::from_millis(900) && took < Duration::from_secs(3),
+            "{took:?}"
         );
         let _ = std::fs::remove_dir_all(&tmp);
     }
