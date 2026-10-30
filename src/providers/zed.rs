@@ -67,7 +67,14 @@ fn read(title: Option<&str>, env: Env) -> (Sheet, Facts, Vec<String>) {
     let dir = config_dir(env);
     let user = |name: &str, notes: &mut Vec<String>| -> Option<Value> {
         let path = dir.as_ref()?.join(name);
-        let text = std::fs::read_to_string(&path).ok()?;
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(e) => {
+                notes.push(format!("{}: {e}; leaving it out", path.display()));
+                return None;
+            }
+        };
         serde_json::from_str(&super::micro::strip_jsonc(&text))
             .map_err(|e| notes.push(format!("{}: {e}; leaving it out", path.display())))
             .ok()
@@ -87,10 +94,14 @@ fn read(title: Option<&str>, env: Env) -> (Sheet, Facts, Vec<String>) {
     }
     let (sheet, left_out, bad_contexts) = build(&keymaps, &mut notes);
     if left_out + bad_contexts > 0 {
-        notes.push(format!(
+        let mut note = format!(
             "leaving out {left_out} key(s) keybind-find can't send (fn-, a lone modifier, shift- with a non-letter, \
-             or a key with no keysym); {bad_contexts} context(s) that didn't parse are shown untagged"
-        ));
+             or a key with no keysym)"
+        );
+        if bad_contexts > 0 {
+            note += &format!("; {bad_contexts} context(s) that didn't parse are shown untagged");
+        }
+        notes.push(note);
     }
     (sheet, facts(title), notes)
 }
@@ -191,7 +202,7 @@ fn build(keymaps: &[(&str, Value)], notes: &mut Vec<String>) -> (Sheet, usize, u
                         Some(Value::String(n)) => (n.clone(), a.get(1)),
                         _ => continue,
                     },
-                    // `null` (or anything else): removes the earlier binds, listing nothing.
+                    // `null` (`sections` refuses any other shape): removes the earlier binds, listing nothing.
                     _ => continue,
                 };
                 let desc = match args {
@@ -237,7 +248,7 @@ fn build(keymaps: &[(&str, Value)], notes: &mut Vec<String>) -> (Sheet, usize, u
     (sheet, left_out, bad_contexts)
 }
 
-/// A keymap's sections, `(context, bindings)`; `None` when it isn't Zed's shape.
+/// A keymap's sections, `(context, bindings)`; `None` when it isn't Zed's shape (in any section or action).
 fn sections(keymap: &Value) -> Option<Vec<(&str, &serde_json::Map<String, Value>)>> {
     keymap
         .as_array()?
@@ -247,7 +258,14 @@ fn sections(keymap: &Value) -> Option<Vec<(&str, &serde_json::Map<String, Value>
                 Value::Null => "",
                 c => c.as_str()?,
             };
-            Some((context, s["bindings"].as_object()?))
+            let bindings = s["bindings"].as_object()?;
+            // An action is a name, `[name, args]` or `null`.
+            let action = |a: &Value| match a {
+                Value::String(_) | Value::Null => true,
+                Value::Array(a) => a.first().is_some_and(Value::is_string),
+                _ => false,
+            };
+            bindings.values().all(action).then_some((context, bindings))
         })
         .collect()
 }
@@ -303,6 +321,7 @@ fn stroke(stroke: &str) -> Option<String> {
         "tab" => "Tab".into(),
         f if f.len() > 1
             && f.starts_with('f')
+            && !f[1..].starts_with('0')
             && f[1..].parse::<u8>().is_ok_and(|n| (1..=24).contains(&n)) =>
         {
             format!("F{}", &f[1..])
@@ -643,7 +662,9 @@ mod tests {
         let helix: Value = serde_json::json!({"helix_mode": true});
         assert_eq!(settings_of(Some(&helix), &mut notes), ("Zed", true));
         let (s, ..) = sheet_of("Zed", true, &[]);
-        assert!(all(&s).iter().any(|b| tags(b).contains("mode=normal")));
+        assert!(all(&s)
+            .iter()
+            .any(|b| tags(b).split(' ').any(|t| t == "mode=normal")));
     }
 
     /// Temp dirs for `env`: a fresh HOME.
@@ -728,9 +749,53 @@ mod tests {
         let notes = others(notes);
         assert_eq!((all(&s).len(), notes.len()), (917, 1), "{notes:?}");
         assert!(notes[0].contains("base_keymap \"Vim\""), "{notes:?}");
-        // `None`: no defaults.
+        // `None`: no defaults, so nothing left out and no line; the user's keymap still loads.
         std::fs::write(flatpak.join("settings.json"), r#"{"base_keymap": "None"}"#).unwrap();
-        assert!(read(None, &env_of(None)).0.binds.is_empty());
+        let (s, _, notes) = read(None, &env_of(None));
+        assert!(s.binds.is_empty() && notes.is_empty(), "{notes:?}");
+        std::fs::copy(fixture("keymap.json"), flatpak.join("keymap.json")).unwrap();
+        let (s, _, notes) = read(None, &env_of(None));
+        assert_eq!(
+            find(&s, "ctrl+shift+p", "Workspace=true"),
+            ["file_finder::Toggle"]
+        );
+        assert!(notes.is_empty(), "{notes:?}");
+        // A settings.json that doesn't parse, isn't an object, or has a base_keymap that isn't a string: Zed's
+        // defaults, one note each.
+        std::fs::remove_file(flatpak.join("keymap.json")).unwrap();
+        for (text, note) in [
+            ("{base_keymap", "settings.json: "),
+            ("[1]", "settings.json isn't an object"),
+            (r#"{"base_keymap": 5}"#, "settings.json's base_keymap 5 "),
+        ] {
+            std::fs::write(flatpak.join("settings.json"), text).unwrap();
+            let (s, _, notes) = read(None, &env_of(None));
+            let notes = others(notes);
+            assert_eq!((all(&s).len(), notes.len()), (917, 1), "{text}: {notes:?}");
+            assert!(notes[0].contains(note), "{text}: {notes:?}");
+        }
+        // An action of the wrong shape: the whole keymap.json left out (nothing removed), one note.
+        std::fs::write(flatpak.join("settings.json"), "{}").unwrap();
+        std::fs::write(
+            flatpak.join("keymap.json"),
+            r#"[{"context": "Workspace", "bindings": {"ctrl-w": []}}]"#,
+        )
+        .unwrap();
+        let (s, _, notes) = read(None, &env_of(None));
+        assert!(!find(&s, "ctrl+w", "Workspace=true").is_empty());
+        assert!(others(notes)[0].starts_with("keymap.json isn't a list"));
+        // A keymap.json that can't be read (a directory): one note.
+        std::fs::remove_file(flatpak.join("keymap.json")).unwrap();
+        std::fs::create_dir(flatpak.join("keymap.json")).unwrap();
+        let (_, _, notes) = read(None, &env_of(None));
+        assert_eq!(others(notes).len(), 1);
+        std::fs::remove_dir(flatpak.join("keymap.json")).unwrap();
+        // XDG_CONFIG_HOME set: its zed/ is read.
+        let xdg_zed = h.join("xdg/zed");
+        std::fs::create_dir_all(&xdg_zed).unwrap();
+        std::fs::copy(fixture("settings.json"), xdg_zed.join("settings.json")).unwrap();
+        let xdg_env = env_of(Some(h.join("xdg").display().to_string()));
+        assert_eq!(all(&read(None, &xdg_env).0).len(), 928);
         let _ = std::fs::remove_dir_all(&h);
     }
 
@@ -770,17 +835,33 @@ mod tests {
         ] {
             assert_eq!(s(context).as_deref(), Some(want), "{context}");
         }
-        for bad in ["Editor &&", "(Editor", "a == !b", "Editor ^ x", "a b"] {
+        // `!` binds tightest: `!a == b` compares a negation, which Zed refuses.
+        for bad in [
+            "Editor &&",
+            "(Editor",
+            "a == !b",
+            "!a == b",
+            "Editor ^ x",
+            "a b",
+        ] {
             assert_eq!(s(bad), None, "{bad}");
         }
         // A context that doesn't parse: listed untagged, counted.
         let broken = r#"[{"context": "Editor &&", "bindings": {"ctrl-b": "x::Y"}}]"#;
         let (s, _, bad, _) = sheet_of("None", false, &[broken]);
         assert_eq!((find(&s, "ctrl+b", ""), bad), (vec!["x::Y"], 1));
-        // A value that isn't a `Name` drops that scope: `vim_operator == "` is an operator character.
-        let quote = r#"[{"context": "Editor && vim_operator == \"", "bindings": {"q": "x::Y"}}]"#;
-        let (s, ..) = sheet_of("None", false, &[quote]);
-        assert_eq!(find(&s, "q", "Editor=true vim_operator=\""), ["x::Y"]);
+        // A value that isn't a `Name` (non-ASCII) drops that scope; `vim_operator == "` is a `Name` and kept.
+        let odd = r#"[{"context": "Editor && lang == é", "bindings": {"q": "x::Y"}},
+                      {"context": "Editor && vim_operator == \"", "bindings": {"w": "x::Y"}}]"#;
+        let (s, ..) = sheet_of("None", false, &[odd]);
+        assert_eq!(find(&s, "q", "Editor=true"), ["x::Y"]);
+        assert_eq!(find(&s, "w", "Editor=true vim_operator=\""), ["x::Y"]);
+        // An action without `::` is filed under `zed`.
+        let bare = r#"[{"bindings": {"q": "NoNamespace"}}]"#;
+        assert_eq!(
+            sheet_of("None", false, &[bare]).0.binds["zed"][0].action,
+            "NoNamespace"
+        );
     }
 
     #[test]
@@ -806,6 +887,8 @@ mod tests {
             ("secondary-s", "ctrl+s"),
             ("cmd-k cmd-s", "super+k super+s"),
             ("win-a", "super+a"),
+            ("super-a", "super+a"),
+            ("shift-G", "shift+g"),
             ("ctrl--", "ctrl+minus"),
             ("-", "minus"),
             ("shift-g", "shift+g"),
@@ -832,6 +915,7 @@ mod tests {
             "shift shift",
             "shift",
             "f25",
+            "f01",
             "copy",
             "ctrl-",
             "",
