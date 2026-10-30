@@ -136,10 +136,19 @@ fn socket_candidates(
         // emacsclient's own options (emacs has `-script`): `-s NAME`, and getopt's attached `-sNAME`.
         .or_else(|| {
             default?;
-            matches!(a.as_str(), "-s" | "--socket-name")
+            // getopt_long_only: `-socket-name` is the long option, and `-se…`/`-su…`/`-so…` start other long ones.
+            let a = a.strip_prefix("-socket-name").map_or(a.as_str(), |r| r);
+            if let Some(name) = a.strip_prefix('=') {
+                return Some(name);
+            }
+            matches!(a, "-s" | "--socket-name" | "")
                 .then(|| cmdline.get(i + 1).map(String::as_str))
                 .flatten()
-                .or_else(|| a.strip_prefix("-s").filter(|_| !a.starts_with("--")))
+                .or_else(|| {
+                    a.strip_prefix("-s").filter(|r| {
+                        !a.starts_with("--") && !["e", "u", "o"].iter().any(|p| r.starts_with(p))
+                    })
+                })
         })
         .filter(|n| !n.is_empty())
     });
@@ -264,9 +273,10 @@ macro_rules! walk {
                (cond ((null def))
                      ((and (eq (car-safe f) 'autoload) (eq (nth 4 f) 'keymap)) (puthash desc t prefixes))
                      ((keymapp def)
-                      (unless (or (gethash desc seen) (> depth 6) (memq (indirect-function def) path))
+                      (unless (gethash desc seen)
                         (puthash desc t prefixes)
-                        (setq stack (nconc stack (list (list key def (1+ depth) path))))))
+                        (unless (or (> depth 6) (memq (indirect-function def) path))
+                          (setq stack (nconc stack (list (list key def (1+ depth) path)))))))
                      ((or (gethash desc seen) (gethash desc prefixes)))
                      (t (puthash desc t seen)
                         (let ((cmd (or (and (symbolp def) (command-remapping def)) def)))
@@ -304,15 +314,17 @@ const BATCH_BODY: &str = concat!(
     r#"(let ((kbf-error nil) (dir user-emacs-directory))
   (advice-add 'server-start :override #'ignore)
   (when kbf-load
+    (condition-case err (load (expand-file-name "early-init" dir) t t)
+      (t (setq kbf-error (concat "early-init.el: " (error-message-string err)))))
     (condition-case err
-        (progn
-          (load (expand-file-name "early-init" dir) t t)
-          (when (and (fboundp 'package-activate-all) (or (not (boundp 'package-enable-at-startup)) package-enable-at-startup))
-            (package-activate-all))
-          (let ((init (or (locate-file "~/.emacs" nil (append (get-load-suffixes) '("")))
-                          (locate-file (expand-file-name "init" dir) nil (get-load-suffixes)))))
-            (when init (setq user-init-file init) (load init nil t t))))
-      (error (setq kbf-error (error-message-string err)))))
+        (when (and (fboundp 'package-activate-all) (or (not (boundp 'package-enable-at-startup)) package-enable-at-startup))
+          (package-activate-all))
+      (t (setq kbf-error (or kbf-error (concat "activating packages: " (error-message-string err))))))
+    (condition-case err
+        (let ((init (or (locate-file "~/.emacs" nil (append (get-load-suffixes) '("")))
+                        (locate-file (expand-file-name "init" dir) nil (get-load-suffixes)))))
+          (when init (setq user-init-file init) (load init nil t t)))
+      (t (setq kbf-error (or kbf-error (error-message-string err))))))
   (setq kill-emacs-hook nil)
   (require 'json)
   (princ (concat "\nKEYBIND-FIND-EMACS\n"
@@ -864,6 +876,9 @@ mod tests {
             &["emacsclient", "--socket-name=work", "-t"],
             &["emacsclient", "--socket-name", "work"],
             &["emacsclient", "-swork"],
+            &["emacsclient", "-socket-name", "work"],
+            &["emacsclient", "-socket-name=work"],
+            &["emacsclient", "-suppress-output", "-s", "work"],
             &["emacs", "--bg-daemon=work"],
         ] {
             assert_eq!(
