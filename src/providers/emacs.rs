@@ -80,8 +80,24 @@ fn target(pid: u32) -> (Vec<PathBuf>, Option<u32>) {
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty());
     let uid = std::fs::metadata("/proc/self").ok().map(|m| m.uid());
     let dir = server_dir(env("XDG_RUNTIME_DIR"), env("TMPDIR"), uid);
-    let want = (comm.trim_end() != "emacsclient").then_some(pid);
-    (socket_candidates(&cmdline, dir.as_deref()), want)
+    let client = comm.trim_end() == "emacsclient";
+    // emacsclient with no `-s` talks to `$EMACS_SOCKET_NAME`, else `server`.
+    let default = client.then(|| {
+        std::fs::read(format!("/proc/{pid}/environ"))
+            .ok()
+            .and_then(|e| {
+                e.split(|&b| b == 0)
+                    .find_map(|v| v.strip_prefix(b"EMACS_SOCKET_NAME="))
+                    .filter(|v| !v.is_empty())
+                    .map(|v| String::from_utf8_lossy(v).into_owned())
+            })
+            .unwrap_or_else(|| "server".into())
+    });
+    let want = (!client).then_some(pid);
+    (
+        socket_candidates(&cmdline, dir.as_deref(), default.as_deref()),
+        want,
+    )
 }
 
 /// Emacs's server directory (`server-socket-dir`): `$XDG_RUNTIME_DIR/emacs`, else `${TMPDIR:-/tmp}/emacs<uid>`.
@@ -97,21 +113,33 @@ fn server_dir(
     Some(tmp.join(format!("emacs{}", uid?)))
 }
 
-/// The sockets to try, in order: the one named in the command line (`--daemon=NAME`, `--fg-daemon=NAME`, or
-/// emacsclient's `-s NAME`, `--socket-name=NAME`; a NAME without `/` is a file in `dir`), then every socket in `dir`.
-fn socket_candidates(cmdline: &[String], dir: Option<&Path>) -> Vec<PathBuf> {
+/// The sockets to try, in order: the one named in the command line (`--daemon=NAME`, `--fg-daemon=NAME`,
+/// `--bg-daemon=NAME`, or emacsclient's `-s NAME`, `-sNAME`, `--socket-name=NAME`), else `default`; a NAME without `/`
+/// is a file in `dir`. Then every socket in `dir`.
+fn socket_candidates(
+    cmdline: &[String],
+    dir: Option<&Path>,
+    default: Option<&str>,
+) -> Vec<PathBuf> {
     let named = cmdline.iter().enumerate().find_map(|(i, a)| {
-        ["--daemon=", "--fg-daemon=", "--socket-name="]
-            .iter()
-            .find_map(|p| a.strip_prefix(p))
-            .or_else(|| {
-                matches!(a.as_str(), "-s" | "--socket-name")
-                    .then(|| cmdline.get(i + 1).map(String::as_str))
-                    .flatten()
-            })
-            .filter(|n| !n.is_empty())
+        [
+            "--daemon=",
+            "--fg-daemon=",
+            "--bg-daemon=",
+            "--socket-name=",
+        ]
+        .iter()
+        .find_map(|p| a.strip_prefix(p))
+        .or_else(|| {
+            matches!(a.as_str(), "-s" | "--socket-name")
+                .then(|| cmdline.get(i + 1).map(String::as_str))
+                .flatten()
+        })
+        // getopt's attached form.
+        .or_else(|| a.strip_prefix("-s").filter(|_| !a.starts_with("--")))
+        .filter(|n| !n.is_empty())
     });
-    let named = named.and_then(|n| match n.contains('/') {
+    let named = named.or(default).and_then(|n| match n.contains('/') {
         true => Some(PathBuf::from(n)),
         false => dir.map(|d| d.join(n)),
     });
@@ -150,7 +178,9 @@ fn ask(
         cmd.arg("-s").arg(socket).args(["--eval", LIVE_EXPR]);
         setup(&mut cmd);
         // With `ALTERNATE_EDITOR=""`, emacsclient starts `emacs --daemon` when no server answers.
+        // `EMACS_SERVER_FILE` would send it to a TCP server when the socket fails.
         cmd.env_remove("ALTERNATE_EDITOR")
+            .env_remove("EMACS_SERVER_FILE")
             .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
         let answer = crate::context::run_for(cmd, LIVE_TIMEOUT)
             .and_then(|out| unquote(&out))
@@ -204,21 +234,23 @@ fn one_line(s: &str) -> String {
 }
 
 /// Walks the keymaps in `kbf-maps` (`(keymap . source)`, in lookup order) into `[key-description command source]`
-/// vectors. A key's first binding wins, as Emacs's lookup does; a prefix in one map hides a key of the same name in a
+/// vectors, breadth first, so a keymap's own prefix comes before its parent's. A key's first binding wins, as Emacs's
+/// lookup does; a prefix in one map hides a key of the same name in a
 /// later one, and the reverse. Dropped: char ranges, mouse, menu/tool/tab-bar, `remap` and other non-key events,
 /// `undefined`, `ignore`, `self-insert-command` and bindings that aren't named commands (keyboard macros, lambdas).
+/// A command remapped (`[remap …]`) in the buffer's maps is listed as the command that runs.
 /// An autoloaded keymap isn't loaded. It runs the same under dynamic and lexical binding.
 macro_rules! walk {
     () => {
-        r#"(let ((seen (make-hash-table :test 'equal)) (prefixes (make-hash-table :test 'equal)) (out nil) (stack nil) (source nil) (prefix nil) (depth 0))
+        r#"(let ((seen (make-hash-table :test 'equal)) (prefixes (make-hash-table :test 'equal)) (out nil) (stack nil) (source nil) (prefix nil) (depth 0) (path nil) (case-fold-search nil))
   (dolist (m kbf-maps)
-    (setq source (cdr m) stack (list (list [] (car m) 0)))
+    (setq source (cdr m) stack (list (list [] (car m) 0 nil)))
     (while stack
       (let ((top (pop stack)))
-        (setq prefix (nth 0 top) depth (nth 2 top))
+        (setq prefix (nth 0 top) depth (nth 2 top) path (cons (indirect-function (nth 1 top)) (nth 3 top)))
         (map-keymap
          (lambda (ev def)
-           (unless (or (consp ev)
+           (unless (or (consp ev) (eq ev t)
                        (and (symbolp ev)
                             (string-match-p "mouse\\|wheel\\|-bar\\|-line\\|fringe\\|margin\\|remap\\|touch\\|pinch\\|drag\\|frame\\|focus\\|select-window\\|sigusr\\|dbus\\|notify\\|help-echo\\|language-change\\|paste\\|compose\\|conversion\\|config-changed\\|ns-"
                                            (symbol-name (event-basic-type ev)))))
@@ -226,15 +258,16 @@ macro_rules! walk {
                (setq def (if (eq (car def) 'menu-item) (nth 2 def) (cdr def))))
              (let* ((key (vconcat prefix (vector ev))) (desc (key-description key)) (f (and (symbolp def) (indirect-function def))))
                (cond ((null def))
-                     ((and (eq (car-safe f) 'autoload) (eq (nth 4 f) 'keymap)))
+                     ((and (eq (car-safe f) 'autoload) (eq (nth 4 f) 'keymap)) (puthash desc t prefixes))
                      ((keymapp def)
-                      (unless (or (gethash desc seen) (> depth 6))
+                      (unless (or (gethash desc seen) (> depth 6) (memq (indirect-function def) path))
                         (puthash desc t prefixes)
-                        (push (list key def (1+ depth)) stack)))
+                        (setq stack (nconc stack (list (list key def (1+ depth) path))))))
                      ((or (gethash desc seen) (gethash desc prefixes)))
                      (t (puthash desc t seen)
-                        (when (and (symbolp def) (commandp def) (not (memq def '(undefined ignore self-insert-command))))
-                          (push (vector desc (symbol-name def) source) out)))))))
+                        (let ((cmd (or (and (symbolp def) (command-remapping def)) def)))
+                          (when (and (symbolp cmd) (commandp cmd) (not (memq cmd '(undefined ignore self-insert-command))))
+                            (push (vector desc (symbol-name cmd) source) out))))))))
          (nth 1 top)))))
   (nreverse out))"#
     };
@@ -246,7 +279,7 @@ macro_rules! walk {
 const LIVE_EXPR: &str = concat!(
     r#"(with-current-buffer (window-buffer (selected-window))
   (require 'json)
-  (let ((kbf-maps (mapcar (lambda (m) (cons m (cond ((eq m (current-global-map)) "global") ((eq m (current-local-map)) "major") (t "other")))) (current-active-maps t))))
+  (let ((kbf-maps (mapcar (lambda (m) (cons m (cond ((eq m (current-global-map)) "global") ((eq m (current-local-map)) "major") (t "other")))) (current-active-maps t (window-point)))))
     (json-encode (list (cons 'pid (emacs-pid)) (cons 'major (symbol-name major-mode))
                        (cons 'evil (and (bound-and-true-p evil-local-mode) (boundp 'evil-state) (symbol-name evil-state)))
                        (cons 'binds (vconcat
@@ -259,7 +292,7 @@ const START: &str = "KEYBIND-FIND-EMACS";
 const END: &str = "KEYBIND-FIND-EMACS-END";
 
 /// Run by `emacs --batch -q`, after `(let ((kbf-load t|nil))`: with `kbf-load`, `early-init.el`, the installed packages
-/// and the init file (`~/.emacs`, `~/.emacs.el`, else `init.el` in `user-emacs-directory`), an error kept as `error`;
+/// and the init file (`~/.emacs`, as `load` finds it, else `init` in `user-emacs-directory`), an error kept as `error`;
 /// then the global map and, with evil loaded, its normal, insert, visual and motion state maps (source: the state),
 /// between `START` and `END`. `server-start` does nothing (an advice, which outlives the init loading `server.el`) and `kill-emacs-hook` is cleared, so the init can't touch a
 /// running Emacs or write its state files.
@@ -268,13 +301,15 @@ const BATCH_BODY: &str = concat!(
   (advice-add 'server-start :override #'ignore)
   (when kbf-load
     (condition-case err
-        (let ((early (expand-file-name "early-init.el" dir))
-              (init (cond ((file-exists-p "~/.emacs") "~/.emacs") ((file-exists-p "~/.emacs.el") "~/.emacs.el")
-                          (t (expand-file-name "init.el" dir)))))
-          (when (file-exists-p early) (load early nil t))
-          (when (fboundp 'package-activate-all) (package-activate-all))
-          (when (file-exists-p init) (load init nil t)))
+        (progn
+          (load (expand-file-name "early-init" dir) t t)
+          (when (and (fboundp 'package-activate-all) (or (not (boundp 'package-enable-at-startup)) package-enable-at-startup))
+            (package-activate-all))
+          (let ((init (or (locate-file "~/.emacs" nil (append (get-load-suffixes) '("")))
+                          (locate-file (expand-file-name "init" dir) nil (get-load-suffixes)))))
+            (when init (setq user-init-file init) (load init nil t t))))
       (error (setq kbf-error (error-message-string err)))))
+  (setq kill-emacs-hook nil)
   (require 'json)
   (princ (concat "\nKEYBIND-FIND-EMACS\n"
                  (json-encode (list (cons 'error kbf-error) (cons 'binds
@@ -288,7 +323,6 @@ const BATCH_BODY: &str = concat!(
                                   (mapcar (lambda (s) (cons (symbol-value (intern (format "evil-%s-state-map" s))) s))
                                           '("normal" "insert" "visual" "motion")))))))))
                  "\nKEYBIND-FIND-EMACS-END\n"))
-  (setq kill-emacs-hook nil)
   (kill-emacs 0))"#
 );
 
@@ -500,6 +534,8 @@ fn named(name: &str) -> Option<String> {
     let keysym = match name {
         "return" => "Return",
         "tab" => "Tab",
+        // shift+Tab, as X sends it.
+        "backtab" | "iso-lefttab" => "ISO_Left_Tab",
         "backspace" => "BackSpace",
         // `deletechar` is a terminal's Delete key.
         "delete" | "deletechar" => "Delete",
@@ -623,7 +659,7 @@ mod tests {
     #[test]
     fn live_answer_from_emacs_31() {
         let a = answer("live-31.1.txt");
-        assert_eq!(a.pid, Some(145));
+        assert_eq!(a.pid, Some(571));
         let (s, facts, left_out) = parse(a, true).unwrap();
         assert_eq!((s.title.as_str(), s.provider.as_str()), ("emacs", "emacs"));
         let fact = |k: &str| facts.get(k).map(|v| v.to_string());
@@ -649,6 +685,17 @@ mod tests {
         // Global binds have no scope. `ESC <left>` (backward-word) and `M-<left>` (left-word) are both alt+Left: the
         // first in the walk, `M-<left>`, as in Emacs.
         assert_eq!(get(&s, "global", "alt+Left").unwrap().desc, "left-word");
+        // A keymap's own prefix before its parent's: emacs-lisp-mode's `C-M-q`, not prog-mode's.
+        assert_eq!(
+            get(&s, "emacs-lisp-mode", "ctrl+alt+q").unwrap().desc,
+            "indent-pp-sexp"
+        );
+        // The fixture init remaps upcase-word: listed as the command that runs.
+        assert_eq!(get(&s, "global", "alt+u").unwrap().desc, "capitalize-word");
+        assert_eq!(
+            get(&s, "buffer", "ctrl+c m").unwrap().desc,
+            "capitalize-word"
+        );
         for (key, command) in [
             ("ctrl+x ctrl+f", "find-file"),
             ("alt+x", "execute-extended-command"),
@@ -782,31 +829,42 @@ mod tests {
         let (server, work) = (dir.join("server"), dir.join("work"));
         let (server, work) = (server.as_path(), work.as_path());
         assert_eq!(
-            socket_candidates(&args(&["emacs"]), Some(&dir)),
+            socket_candidates(&args(&["emacs"]), Some(&dir), None),
             [server, work]
         );
         assert_eq!(
-            socket_candidates(&args(&["emacs", "--daemon=work"]), Some(&dir)),
+            socket_candidates(&args(&["emacs", "--daemon=work"]), Some(&dir), None),
             [work, server]
         );
         assert_eq!(
-            socket_candidates(&args(&["emacs", "--fg-daemon=/abs/s"]), Some(&dir)),
+            socket_candidates(&args(&["emacs", "--fg-daemon=/abs/s"]), Some(&dir), None),
             [Path::new("/abs/s"), server, work]
         );
         for client in [
             &["emacsclient", "-t", "-s", "work"][..],
             &["emacsclient", "--socket-name=work", "-t"],
             &["emacsclient", "--socket-name", "work"],
+            &["emacsclient", "-swork"],
+            &["emacs", "--bg-daemon=work"],
         ] {
             assert_eq!(
-                socket_candidates(&args(client), Some(&dir)),
+                socket_candidates(&args(client), Some(&dir), Some("server")),
                 [work, server],
                 "{client:?}"
             );
         }
+        // emacsclient with no `-s`: its default (`server`, or `$EMACS_SOCKET_NAME`) before the rest; `-t` is no name.
+        assert_eq!(
+            socket_candidates(&args(&["emacsclient", "-t"]), Some(&dir), Some("work")),
+            [work, server]
+        );
+        assert_eq!(
+            socket_candidates(&args(&["emacsclient", "-t"]), Some(&dir), Some("server")),
+            [server, work]
+        );
         // No directory, no name: nothing.
-        assert!(socket_candidates(&args(&["emacs"]), None).is_empty());
-        assert!(socket_candidates(&args(&["emacs"]), Some(&dir.join("none"))).is_empty());
+        assert!(socket_candidates(&args(&["emacs"]), None, None).is_empty());
+        assert!(socket_candidates(&args(&["emacs"]), Some(&dir.join("none")), None).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

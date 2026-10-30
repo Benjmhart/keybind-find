@@ -221,17 +221,20 @@ Global keys carry no tag; the major mode's carry `major-mode=<mode>`, and those 
 `buffer=current`. The buffer's major mode (`major-mode`) and, with evil on in it, its state (`mode`: `normal`,
 `insert`, `visual`, …) are facts, so the keys of another major mode or evil state are hidden. The socket is found from
 the command line (`--daemon=NAME`, `--fg-daemon=NAME`, emacsclient's `-s NAME`) or among the sockets in Emacs's server
-directory (`$XDG_RUNTIME_DIR/emacs`, else `/tmp/emacs<uid>`); an Emacs with no server (no `(server-start)` in your
-init) is read as below without a note, and a server that doesn't answer is one line. A TCP server
-(`server-use-tcp`) isn't asked. `ALTERNATE_EDITOR` is removed for this, so no daemon is ever started.
+directory (`$XDG_RUNTIME_DIR/emacs`, else `/tmp/emacs<uid>`; for `emacsclient` without `-s`, its default `server`
+first); an Emacs with no server (no `(server-start)` in your init) is read as below without a note, and a socket that
+doesn't answer (also a stale one left by an Emacs that crashed) is one line. A remapped command (`[remap …]`, as
+counsel or consult set up) is listed as the command that runs. A TCP server (`server-use-tcp`) isn't asked.
+`ALTERNATE_EDITOR` is removed for this, so no daemon is ever started.
 
 With no server to ask (or `keybind-find dump emacs` from a shell), keybind-find runs `emacs --batch` with your init
 (`early-init.el`, your installed packages, then `~/.emacs`, `~/.emacs.el` or `init.el` in `~/.emacs.d` or
 `~/.config/emacs`) on every `Super+/`, and lists the global map and, when your init loads evil, evil's normal, insert,
 visual and motion state maps (tagged `mode=<state>`); buffer and mode keys need the running Emacs. Your init runs as at
-any start but with `server-start` turned off and `kill-emacs-hook` cleared, so it can't touch a running Emacs or write
-recentf, savehist or desktop files; it gets 10 seconds, and an error in it is one line, with the keys it set up before
-that listed. Doom Emacs and Spacemacs need their own startup: their init isn't loaded, and only Emacs's own global map
+any start (packages it installs, too) but with `server-start` turned off and `kill-emacs-hook` cleared, so it can't
+touch a running Emacs or write recentf, savehist or desktop files; `after-init-hook` and `emacs-startup-hook` don't
+run, so keys set up there (`:hook (after-init . evil-mode)`) are missing. It gets 10 seconds, and an error in it is one
+line, with the keys it set up before that listed. Doom Emacs and Spacemacs need their own startup: their init isn't loaded, and only Emacs's own global map
 is listed, with one line saying so. Mouse, menu and tool-bar entries, `remap`s, keyboard macros and lambdas aren't
 listed, and keys keybind-find can't send (hyper or `A-` modifiers, a key with no X keysym such as `<again>`) are left
 out with a count.
