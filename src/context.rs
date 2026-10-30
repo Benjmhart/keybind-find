@@ -132,6 +132,41 @@ fn found_nvim(pid: u32) {
     let _ = NVIM_PID.set(pid);
 }
 
+/// The pid of the editor found in the focused window, for an editor provider other than nvim to ask it: Emacs in the
+/// terminal's foreground, or an Emacs window's own pid (an `emacsclient -c` frame's is the daemon's).
+/// ponytail: beside `Context`, like `NVIM_PID`; first found wins.
+static EDITOR_PID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+
+pub(crate) fn editor_pid() -> Option<u32> {
+    EDITOR_PID.get().copied()
+}
+
+fn found_editor(pid: u32) {
+    let _ = EDITOR_PID.set(pid);
+}
+
+/// Emacs in a terminal, by comm: Debian's flavors run as `emacs` through an alternative, or by their own names.
+const EMACS_COMMS: &[&str] = &[
+    "emacs",
+    "emacs-nox",
+    "emacs-gtk",
+    "emacs-lucid",
+    "emacs-pgtk",
+    "emacsclient",
+];
+
+/// An Emacs window: X11's class `Emacs` (instance `emacs`), and pgtk's Wayland app id, GTK's program name `emacs`.
+fn is_emacs_window(class: &str) -> bool {
+    class.eq_ignore_ascii_case("emacs")
+}
+
+/// The pid of an Emacs window (an `emacsclient -c` frame's is the daemon's), for the emacs provider to ask.
+fn emacs_window_pid(props: &Props) -> Option<u32> {
+    props
+        .pid
+        .filter(|_| props.class.as_deref().is_some_and(is_emacs_window))
+}
+
 /// The window `detect` found, as a plugin's request and a JSON picker's request carry it.
 /// ponytail: beside `Context`, like `NVIM_PID`, so `Context`'s literals don't change.
 static WINDOW: std::sync::OnceLock<keybind_find_sheet::Context> = std::sync::OnceLock::new();
@@ -659,6 +694,7 @@ fn providers_for(
             // ponytail: mc's subshell (Ctrl-O) runs on its own pty, so the terminal still reports mc and mc's keys show
             // while the shell is in front; check whether the subshell leads its pty's foreground group to tell.
             Some("mc" | "mcedit" | "mcview" | "mcdiff") => providers.push("mc"),
+            Some(c) if EMACS_COMMS.contains(&c) => providers.push("emacs"),
             _ => {}
         }
         // `man`, `git log` and `systemctl status` lead the pipeline that less runs in.
@@ -697,6 +733,9 @@ fn providers_for(
             .any(|m| m.eq_ignore_ascii_case(c))
     }) {
         providers.push("obsidian");
+    }
+    if class.is_some_and(is_emacs_window) {
+        providers.push("emacs");
     }
     // Static sheets and custom parsers are matched by class inside the provider; with no class nothing can match,
     // and leaving it out keeps "every provider failed" reachable when the real providers all fail.
@@ -747,6 +786,9 @@ fn program_in(
     pid_source: &str,
     x_window: Option<&str>,
 ) -> anyhow::Result<Option<Foreground>> {
+    if let Some(pid) = emacs_window_pid(props) {
+        found_editor(pid);
+    }
     let Some(class) = props.class.as_deref().filter(|c| is_terminal(c)) else {
         return Ok(None);
     };
@@ -1166,6 +1208,9 @@ fn foreground_of(child: &str, proc: &std::path::Path) -> Option<Foreground> {
             if let (Ok(pid), "nvim") = (pid.parse(), comm.as_str()) {
                 found_nvim(pid);
             }
+            if let (Ok(pid), true) = (pid.parse(), EMACS_COMMS.contains(&comm.as_str())) {
+                found_editor(pid);
+            }
             return Some(Foreground { comm, group });
         }
     }
@@ -1398,6 +1443,29 @@ mod tests {
             x(Some("Alacritty"), Some("yazi")),
             ["xmonad", "espanso", "alacritty", "yazi", "sheets"]
         );
+        // Emacs in a terminal (Debian's flavors by their own names, `emacsclient -t`), after the terminal's own keys and
+        // before `sheets`; an Emacs window by class or app id, any case.
+        for child in [
+            "emacs",
+            "emacs-nox",
+            "emacs-gtk",
+            "emacs-lucid",
+            "emacs-pgtk",
+            "emacsclient",
+        ] {
+            assert_eq!(
+                x(Some("Alacritty"), Some(child)),
+                ["xmonad", "espanso", "alacritty", "emacs", "sheets"]
+            );
+        }
+        assert!(!x(Some("Alacritty"), Some("emacs-31.1")).contains(&"emacs"));
+        for class in ["Emacs", "emacs"] {
+            assert_eq!(
+                x(Some(class), None),
+                ["xmonad", "espanso", "emacs", "sheets"]
+            );
+        }
+        assert!(!x(Some("Emacs-gtk"), None).contains(&"emacs"));
         // An Xfce X11 session: xfwm4's keys from the `xfce` provider.
         assert_eq!(
             providers_for(
@@ -3209,6 +3277,42 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
 
     fn kill_pid(pid: u32) {
         let _ = Command::new("kill").arg(pid.to_string()).status();
+    }
+
+    #[test]
+    fn emacs_window_pid_by_class() {
+        let props = |class: &str, pid| Props {
+            class: Some(class.into()),
+            instance: None,
+            pid,
+            title: None,
+        };
+        assert_eq!(emacs_window_pid(&props("Emacs", Some(42))), Some(42));
+        assert_eq!(emacs_window_pid(&props("emacs", Some(42))), Some(42));
+        assert_eq!(emacs_window_pid(&props("emacs", None)), None);
+        assert_eq!(emacs_window_pid(&props("Alacritty", Some(42))), None);
+    }
+
+    /// Emacs leading the terminal's foreground group is recorded for the emacs provider (a stand-in `/proc`; no other
+    /// test finds an Emacs, so the first-found pid is this one).
+    #[test]
+    fn editor_pid_from_the_foreground_leader() {
+        let proc = std::env::temp_dir().join(format!("kbf-editor-proc-{}", std::process::id()));
+        let (child, leader) = (4_000_001u32, 4_000_002u32);
+        for (pid, comm, tpgid) in [(child, "zsh", leader), (leader, "emacs", leader)] {
+            let dir = proc.join(pid.to_string());
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("comm"), format!("{comm}\n")).unwrap();
+            std::fs::write(
+                dir.join("stat"),
+                format!("{pid} ({comm}) S 1 {pid} {pid} 34816 {tpgid} 0 0"),
+            )
+            .unwrap();
+        }
+        let fg = foreground_of(&child.to_string(), &proc);
+        let _ = std::fs::remove_dir_all(&proc);
+        assert_eq!(fg.map(|f| f.comm).as_deref(), Some("emacs"));
+        assert_eq!(editor_pid(), Some(leader));
     }
 
     #[test]

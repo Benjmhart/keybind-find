@@ -7,6 +7,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Added
 
+- Emacs: the keys active in the buffer you are in, asked of the running Emacs over its server (`emacsclient`), with its major mode and evil state as facts; with no server, the global map (and evil's state maps) of your init file from `emacs --batch`. In a terminal (`emacs`, `emacsclient -t`) or an Emacs window.
 - st, surf, tabbed and dwm: their stock keys from `config.def.h` (st 0.9.3, surf 2.1, tabbed 0.9, dwm 6.8) as built-in sheets, st's, surf's and tabbed's by window class and dwm's in a dwm session.
 - VS Code: a small companion extension (`editors/vscode/`) that tells keybind-find the focused window's language and file extension, in place of the window-title guess.
 - VS Code (and Insiders, VSCodium, Code - OSS): its default keys (1.143.1) with your installed extensions' and your `keybindings.json` on top, each `when` clause as scopes, and the file's language guessed from the window title.

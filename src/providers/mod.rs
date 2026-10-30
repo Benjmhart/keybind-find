@@ -5,6 +5,7 @@ use crate::sheet::Sheet;
 
 mod alacritty;
 mod alacritty_defaults;
+mod emacs;
 mod espanso;
 mod foot;
 mod ghostty;
@@ -75,6 +76,7 @@ pub const KNOWN: &[&str] = &[
     "gnome-terminal",
     "mc",
     "vscode",
+    "emacs",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -109,6 +111,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "mc" => mc::sheet(),
         "vscode" => vscode::sheet(ctx),
         "obsidian" => obsidian::sheet(ctx),
+        "emacs" => emacs::sheet(ctx),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
