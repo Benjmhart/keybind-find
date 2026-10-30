@@ -1,0 +1,33 @@
+{
+  "title": "tabbed 0.9 defaults (config.def.h at d6e4aaf)",
+  "provider": "tabbed",
+  "binds": {
+    "tabs": [
+      { "key": "ctrl+shift+Return", "desc": "Open a new tab" },
+      { "key": "ctrl+shift+l", "desc": "Next tab" },
+      { "key": "ctrl+shift+h", "desc": "Previous tab" },
+      { "key": "ctrl+shift+j", "desc": "Move the selected tab one to the left" },
+      { "key": "ctrl+shift+k", "desc": "Move the selected tab one to the right" },
+      { "key": "ctrl+Tab", "desc": "Toggle between the selected and the last selected tab" },
+      { "key": "ctrl+grave", "desc": "Open dmenu to pick a tab, or create one with what you type" },
+      { "key": "ctrl+1", "desc": "Go to tab 1" },
+      { "key": "ctrl+2", "desc": "Go to tab 2" },
+      { "key": "ctrl+3", "desc": "Go to tab 3" },
+      { "key": "ctrl+4", "desc": "Go to tab 4" },
+      { "key": "ctrl+5", "desc": "Go to tab 5" },
+      { "key": "ctrl+6", "desc": "Go to tab 6" },
+      { "key": "ctrl+7", "desc": "Go to tab 7" },
+      { "key": "ctrl+8", "desc": "Go to tab 8" },
+      { "key": "ctrl+9", "desc": "Go to tab 9" },
+      { "key": "ctrl+0", "desc": "Go to tab 10" },
+      { "key": "ctrl+q", "desc": "Close the tab" }
+    ],
+    "urgent": [
+      { "key": "ctrl+u", "desc": "Focus the next urgent tab" },
+      { "key": "ctrl+shift+u", "desc": "Toggle autofocus of urgent tabs" }
+    ],
+    "window": [
+      { "key": "F11", "desc": "Toggle fullscreen" }
+    ]
+  }
+}
