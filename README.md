@@ -125,13 +125,15 @@ In a VS Code window (Visual Studio Code, Insiders, VSCodium or Code - OSS, recog
 product name says which), keybind-find lists VS Code's default keybindings for Linux, pinned for 1.143.1 (one version,
 not checked against yours, since that would mean running VS Code's CLI on every press), then the keybindings your
 installed extensions contribute, then your `keybindings.json` (`~/.config/<Code|Code - Insiders|VSCodium|Code - OSS>/User/`,
-or under `$XDG_CONFIG_HOME`, or the Flatpak's). As in VS Code, a `-command` rule removes that command's default and
-extension binds (matching its key and its `when`, as written; never your own), wherever it stands in the file. A rule
+or under `$XDG_CONFIG_HOME`, or the Flatpak's). As in VS Code, a `-command` rule (yours, or one an extension
+contributes) removes that command's default and extension binds (those whose key is its key or starts with it, and whose `when` is its `when` as written, any when it
+gives none or `true`; never your own), wherever it stands in the file. A rule
 with the same key and `when` as an earlier one is listed in its place (VS Code would also let it shadow binds whose
 `when` it covers; those stay listed). Each bind's `when` clause becomes scopes: `editorTextFocus` shows as
 `[editorTextFocus=true]`, `!editorReadonly` as `[editorReadonly=false]`, `editorLangId == rust` as `[filetype=rust]`;
 parts that can't be a scope (`!=`, regexes, `in`, comparisons) are dropped, so a bind is shown in more places, never
-fewer, and binds whose `when` is `false` (VS Code never runs them) aren't listed. The file's extension and language
+fewer, and binds VS Code never runs on Linux (a `when` of `false`, or one that needs `isMac`, `isWindows` or `isWeb`)
+aren't listed. A key you bind to no command does nothing, so the default it replaces isn't listed either. The file's extension and language
 are guessed from the window title, which needs VS Code's default `window.title` (the file first, the product name
 last); with no editor open the folder name is taken for a file name. Only the default profile's `keybindings.json` is
 read. Extensions come from `~/.vscode/extensions` (Insiders `~/.vscode-insiders`, VSCodium and Code - OSS

@@ -39,7 +39,7 @@ struct Variant {
 
 /// Classes: Electron names a window after `app.setDesktopName(<linuxDesktopName>.desktop)` when that desktop file is
 /// installed (`src/mainImpl.ts`), after `<snap>_<applicationName>` under snap, else after the product (`Code`).
-const VARIANTS: [Variant; 5] = [
+const VARIANTS: [Variant; 4] = [
     Variant {
         name_long: "Visual Studio Code",
         name_short: "Code",
@@ -64,13 +64,6 @@ const VARIANTS: [Variant; 5] = [
         data_folder: ".vscode-oss",
         classes: &["vscodium", "codium", "codium_codium", "com.vscodium.codium"],
         flatpak: Some(("com.vscodium.codium", "codium/extensions")),
-    },
-    Variant {
-        name_long: "VSCodium - Insiders",
-        name_short: "VSCodium - Insiders",
-        data_folder: ".vscodium-insiders",
-        classes: &["codium-insiders", "vscodium - insiders"],
-        flatpak: None,
     },
     Variant {
         name_long: "Code - OSS",
@@ -100,7 +93,8 @@ struct Rule {
     key: Option<String>,
     #[serde(default)]
     linux: Option<String>,
-    #[serde(default)]
+    /// `null` or missing is the empty command: the key does nothing.
+    #[serde(default, deserialize_with = "string_or_empty")]
     command: String,
     /// A `when` that isn't a string is ignored, as VS Code ignores it.
     #[serde(default, deserialize_with = "string_or_none")]
@@ -111,6 +105,15 @@ struct Rule {
 
 fn string_or_none<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     Ok(Value::deserialize(d)?.as_str().map(str::to_string))
+}
+
+fn string_or_empty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Ok(string_or_none(d)?.unwrap_or_default())
+}
+
+/// JSON with comments, as VS Code reads its files (a leading BOM too).
+fn jsonc(text: &str) -> String {
+    strip_jsonc(text.trim_start_matches('\u{feff}'))
 }
 
 /// A rule placed in the list, with the category it shows under; `user` for the user's own (removals never apply to
@@ -156,9 +159,8 @@ fn sheet_with(
     let mut broken = 0;
     if let Some(v) = variant {
         entries.extend(extension_rules(v, env, &mut broken));
-        if let Some(user) = user_rules(v, env, &mut notes) {
-            apply_user(&mut entries, user);
-        }
+        let user = user_rules(v, env, &mut notes).unwrap_or_default();
+        apply_user(&mut entries, user);
     }
     let name = variant.map_or(VARIANTS[0].name_long, |v| v.name_long);
     let (sheet, keys_left, whens_left) = build(name, &entries);
@@ -212,8 +214,8 @@ fn facts(title: &str) -> Facts {
 }
 
 /// VS Code's language id for a file name, from the built-in extensions' `contributes.languages` at 1.143.1: a
-/// `filenames` entry first (`keybindings.json` is `jsonc`), then the longest `extensions` suffix that ends it, ignoring
-/// case (`.prompt.md` before `.md`).
+/// `filenames` entry first (`keybindings.json` is `jsonc`), then the longest `extensions` suffix that ends it (`.prompt.md`
+/// before `.md`), both ignoring case as VS Code does.
 // ponytail: the common languages and the names that would otherwise get the wrong one; add a row when one is missing.
 // `files.associations` isn't read.
 fn language(file: &str) -> Option<&'static str> {
@@ -231,7 +233,6 @@ fn language(file: &str) -> Option<&'static str> {
         ("keybindings.json", "jsonc"),
         ("launch.json", "jsonc"),
         ("Makefile", "makefile"),
-        ("makefile", "makefile"),
         ("mcp.json", "jsonc"),
         ("profiles.json", "jsonc"),
         ("settings.json", "jsonc"),
@@ -307,7 +308,7 @@ fn language(file: &str) -> Option<&'static str> {
         ("icon-theme.json", "jsonc"),
         ("language-configuration.json", "jsonc"),
     ];
-    if let Some((_, l)) = FILENAMES.iter().find(|(n, _)| *n == file) {
+    if let Some((_, l)) = FILENAMES.iter().find(|(n, _)| n.eq_ignore_ascii_case(file)) {
         return Some(l);
     }
     // `filenamePatterns` `tsconfig.*.json` and the like.
@@ -321,9 +322,7 @@ fn language(file: &str) -> Option<&'static str> {
     }
     SUFFIXES
         .iter()
-        .filter(|(suffix, _)| {
-            lower.ends_with(suffix) && (lower.len() > suffix.len() || !suffix.starts_with('.'))
-        })
+        .filter(|(suffix, _)| lower.ends_with(suffix))
         .max_by_key(|(suffix, _)| suffix.len())
         .map(|(_, l)| *l)
 }
@@ -357,7 +356,7 @@ fn user_rules(v: &Variant, env: Env, notes: &mut Vec<String>) -> Option<Vec<Rule
         }
         Ok(t) => t,
     };
-    let text = strip_jsonc(text.trim_start_matches('\u{feff}'));
+    let text = jsonc(&text);
     if text.trim().is_empty() {
         return None;
     }
@@ -394,7 +393,7 @@ fn extension_rules(v: &Variant, env: Env, broken: &mut usize) -> Vec<Entry> {
     };
     let listed: Option<Vec<String>> = std::fs::read_to_string(dir.join("extensions.json"))
         .ok()
-        .and_then(|t| serde_json::from_str::<Vec<Value>>(&strip_jsonc(&t)).ok())
+        .and_then(|t| serde_json::from_str::<Vec<Value>>(&jsonc(&t)).ok())
         .map(|list| list.iter().filter_map(folder).collect());
     let mut folders: Vec<String> = match listed {
         Some(listed) => listed,
@@ -412,19 +411,26 @@ fn extension_rules(v: &Variant, env: Env, broken: &mut usize) -> Vec<Entry> {
         let Ok(text) = std::fs::read_to_string(dir.join(&folder).join("package.json")) else {
             continue;
         };
-        let Ok(package) = serde_json::from_str::<Value>(&strip_jsonc(&text)) else {
+        let Ok(package) = serde_json::from_str::<Value>(&jsonc(&text)) else {
             *broken += 1;
             continue;
         };
         // A `%key%` display name is looked up in `package.nls.json`, as VS Code localises it (English).
         let nls = || {
             let text = std::fs::read_to_string(dir.join(&folder).join("package.nls.json")).ok()?;
-            serde_json::from_str::<Value>(&strip_jsonc(&text)).ok()
+            serde_json::from_str::<Value>(&jsonc(&text)).ok()
         };
         let display = package["displayName"].as_str().and_then(|d| {
             match d.strip_prefix('%').and_then(|d| d.strip_suffix('%')) {
                 None => Some(d.to_string()),
-                Some(key) => nls()?[key].as_str().map(str::to_string),
+                // A string, or `{"message": …, "comment": …}`.
+                Some(key) => {
+                    let nls = nls()?;
+                    nls[key]
+                        .as_str()
+                        .or(nls[key]["message"].as_str())
+                        .map(str::to_string)
+                }
             }
         });
         let category = display
@@ -478,10 +484,12 @@ fn extensions_dir(v: &Variant, env: Env) -> Option<PathBuf> {
         .find(|d| d.is_dir())
 }
 
-/// The user's rules laid over `entries`: a `-command` removes the defaults' and extensions' rules (never the user's)
+/// The user's rules laid over `entries`: a `-command` (the user's or an extension's) removes the defaults' and
+/// extensions' rules (never the user's)
 /// for that command whose key starts with the removal's chords (when it gives a key) and whose `when` text matches
-/// (when it gives one that isn't `true`), wherever it stands in the file, as VS Code's `handleRemovals` does. An empty
-/// command is skipped; a rule with the same key and `when` as earlier ones takes their place; the rest are appended.
+/// (when it gives one that isn't `true`), wherever it stands, as VS Code's `handleRemovals` does. A rule with the same
+/// key and `when` as earlier ones takes their place (with the empty command, it takes it and lists nothing, as the key
+/// then does nothing); the rest are appended.
 // ponytail: `when` compared as text (whitespace ignored), not by implication as VS Code's `whenIsEntirelyIncluded`
 // does: a removal whose `when` is broader than the default's leaves it listed. And a later rule hides an earlier one
 // only with the same `when` text; VS Code also shadows one whose `when` is implied.
@@ -491,10 +499,17 @@ fn apply_user(entries: &mut Vec<Entry>, user: Vec<Rule>) {
             .map(|w| w.split_whitespace().collect::<String>())
             .unwrap_or_default()
     };
-    let (removals, rules): (Vec<Rule>, Vec<Rule>) = user
+    // Removals: the user's, and those extensions contribute (keymap extensions remove core defaults).
+    let (mut removals, rules): (Vec<Rule>, Vec<Rule>) = user
         .into_iter()
-        .filter(|r| !r.command.is_empty())
+        .filter(|r| !r.command.is_empty() || r.key.as_deref().is_some_and(|k| !k.trim().is_empty()))
         .partition(|r| r.command.starts_with('-'));
+    removals.extend(
+        entries
+            .iter()
+            .filter(|e| !e.user && e.rule.command.starts_with('-'))
+            .map(|e| e.rule.clone()),
+    );
     for removal in &removals {
         let command = &removal.command[1..];
         let any_when = matches!(when(&removal.when).as_str(), "" | "true");
@@ -504,6 +519,7 @@ fn apply_user(entries: &mut Vec<Entry>, user: Vec<Rule>) {
                     && removal
                         .key
                         .as_deref()
+                        .filter(|k| !k.trim().is_empty())
                         .is_none_or(|k| key_starts(key_of(&e.rule), k))
                     && (any_when || when(&removal.when) == when(&e.rule.when)))
         });
@@ -520,6 +536,13 @@ fn apply_user(entries: &mut Vec<Entry>, user: Vec<Rule>) {
             i += 1;
             first.is_none_or(|f| i - 1 <= f) || !alike(e)
         });
+        // A key bound to the empty command does nothing: it only takes the earlier rule's place.
+        if rule.command.is_empty() {
+            if let Some(f) = first {
+                entries.remove(f);
+            }
+            continue;
+        }
         let entry = Entry {
             rule,
             category: None,
@@ -808,9 +831,12 @@ impl Parser<'_> {
                 When::Other
             });
         }
+        // VS Code's platform constants, substituted before binding, as on the Linux desktop.
         Some(match key.as_str() {
-            "true" => When::Const(true),
-            "false" => When::Const(false),
+            "true" | "isLinux" => When::Const(true),
+            "false" | "isMac" | "isMacNative" | "isWindows" | "isWeb" | "isIOS" | "isMobile" => {
+                When::Const(false)
+            }
             _ => When::Key(key),
         })
     }
@@ -1013,11 +1039,14 @@ mod tests {
         // `[IntlBackslash]` (6) and the browser back and forward keys (2 each).
         assert_eq!(keys_left, 10);
         assert_eq!(whens_left, 0, "every default `when` parses");
-        // The 40 `"when": "false"` binds VS Code never runs aren't listed (nor counted).
+        // Binds VS Code never runs on Linux aren't listed (nor counted): 40 `"when": "false"`, and 8 whose `when`
+        // needs another platform (`isWeb`, `isWindows`, `isMacNative`).
         assert_eq!(
             s.binds.values().map(Vec::len).sum::<usize>(),
-            1202 - 10 - 40
+            1202 - 10 - 40 - 8
         );
+        assert!(keys(&s, "workbench.action.files.openFileFolder").is_empty());
+        assert_eq!(keys(&s, "editor.action.revealDefinition"), ["F12"]);
         assert!(s
             .binds
             .values()
@@ -1096,11 +1125,21 @@ mod tests {
         assert!(keys(&s, "sample.hello").is_empty());
         assert!(keys(&s, "sample.run").is_empty());
         assert_eq!(keys(&s, "my.run"), ["ctrl+alt+r"]);
-        // A removal takes the default (ctrl+b) but never the user's own bind of that command, before or after it.
+        // A removal takes the default (ctrl+b) but never the user's own binds of that command, before or after it.
         assert_eq!(
             keys(&s, "workbench.action.toggleSidebarVisibility"),
-            ["ctrl+alt+k"]
+            ["ctrl+alt+k", "ctrl+alt+m"]
         );
+        // A removal key that starts a chord; a removal `when` of `true`.
+        assert!(keys(&s, "workbench.action.keybindingsReference").is_empty());
+        assert!(keys(&s, "editor.action.formatDocument").is_empty());
+        // A user rule replaces only the rule with its key and `when`: ctrl+alt+r with a `when` stays.
+        assert!(keys(&s, "revealFileInOS").contains(&"ctrl+alt+r".to_string()));
+        // A key with no command unbinds it; an empty removal key takes every default of the command; an extension's
+        // removal takes a core default.
+        assert!(keys(&s, "workbench.action.closeActiveEditor").is_empty());
+        assert!(keys(&s, "workbench.action.closeWindow").is_empty());
+        assert!(keys(&s, "workbench.action.files.newUntitledFile").is_empty());
         // An unreadable `when` is shown everywhere; a rule without a key isn't listed.
         let broken = &binds(&s, "my.broken")[0];
         assert!(broken.when.is_empty());
@@ -1134,6 +1173,15 @@ mod tests {
             assert!(notes[0].contains("not a JSON array"), "{what}: {notes:?}");
             assert_eq!(keys(&s, "workbench.action.quickOpen"), ["ctrl+e", "ctrl+p"]);
         }
+        // A `User` directory without the file, an empty file, a BOM and comments only: silent.
+        std::fs::remove_file(user.join("keybindings.json")).unwrap();
+        let (_, _, notes) = sheet_with(PINNED, Some("Visual Studio Code"), None, &env).unwrap();
+        assert_eq!(notes.len(), 1, "only the count: {notes:?}");
+        for text in ["", "\u{feff}// nothing yet\n"] {
+            std::fs::write(user.join("keybindings.json"), text).unwrap();
+            let (_, _, notes) = sheet_with(PINNED, Some("Visual Studio Code"), None, &env).unwrap();
+            assert_eq!(notes.len(), 1, "{text:?}: {notes:?}");
+        }
         std::fs::remove_dir_all(&home).unwrap();
     }
 
@@ -1145,6 +1193,9 @@ mod tests {
             ("!true", true),
             ("a && false", true),
             ("a || false", false),
+            ("isWindows", true),
+            ("isWeb && a", true),
+            ("isMac || isLinux", false),
             ("true", false),
         ] {
             assert_eq!(never(&parse_when(when).unwrap()), want, "{when}");
@@ -1172,6 +1223,7 @@ mod tests {
             ("a == x && a == y", Some("")),
             ("a == 'has space'", Some("")),
             ("true", Some("")),
+            ("isLinux && a", Some("a=true")),
             ("false", Some("")),
             ("a === b", Some("a=b")),
             ("a !== b && c", Some("c=true")),
@@ -1311,6 +1363,10 @@ mod tests {
                 "extension=json filetype=jsonc",
             ),
             (
+                "Settings.JSON - Visual Studio Code",
+                "extension=JSON filetype=jsonc",
+            ),
+            (
                 "package.json - p - Visual Studio Code",
                 "extension=json filetype=json",
             ),
@@ -1322,7 +1378,7 @@ mod tests {
                 "a.prompt.md - p - Visual Studio Code",
                 "extension=md filetype=prompt",
             ),
-            ("Makefile - p - VSCodium - Insiders", "filetype=makefile"),
+            ("Makefile - p - VSCodium", "filetype=makefile"),
         ] {
             assert_eq!(text(title), want, "{title}");
         }

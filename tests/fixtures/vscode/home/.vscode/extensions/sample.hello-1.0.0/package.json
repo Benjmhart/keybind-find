@@ -1,3 +1,4 @@
 {"name":"hello","displayName":"Sample Hello","contributes":{"keybindings":[
   {"key":"ctrl+alt+e","command":"sample.hello","when":"editorTextFocus"},
-  {"key":"ctrl+alt+r","command":"sample.run"}]}}
+  {"key":"ctrl+alt+r","command":"sample.run"},
+  {"key":"ctrl+n","command":"-workbench.action.files.newUntitledFile"}]}}

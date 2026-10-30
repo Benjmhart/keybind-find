@@ -26,11 +26,19 @@
   { "key": "ctrl+alt+e", "command": "-sample.hello" },
   // Replaces an installed extension's bind (same key, no `when`).
   { "key": "ctrl+alt+r", "command": "my.run" },
-  // A user bind, then a removal of the same command after it: removals never touch the user's own.
+  // User binds before and after a removal of the same command with no key: it takes the default (ctrl+b) only.
   { "key": "ctrl+alt+k", "command": "workbench.action.toggleSidebarVisibility", "when": "editorTextFocus" },
-  { "key": "ctrl+b", "command": "-workbench.action.toggleSidebarVisibility" },
+  { "command": "-workbench.action.toggleSidebarVisibility" },
+  { "key": "ctrl+alt+m", "command": "workbench.action.toggleSidebarVisibility" },
+  // A removal key that starts a chord removes it (ctrl+k ctrl+r); a removal `when` of "true" matches any.
+  { "key": "ctrl+k", "command": "-workbench.action.keybindingsReference" },
+  { "command": "-editor.action.formatDocument", "when": "true" },
   // A `when` keybind-find can't read: shown everywhere, counted.
   { "key": "ctrl+alt+w", "command": "my.broken", "when": "a && (b" },
+  // A key with no command (null): the key does nothing, so its default (closeActiveEditor) goes too.
+  { "key": "ctrl+w", "command": null },
+  // A removal with an empty key: every default of the command goes.
+  { "key": "", "command": "-workbench.action.closeWindow" },
   // No key: VS Code binds nothing, so nothing is listed or counted.
   { "command": "my.keyless" },
   "not a rule",
