@@ -695,6 +695,7 @@ fn providers_for(
             // while the shell is in front; check whether the subshell leads its pty's foreground group to tell.
             Some("mc" | "mcedit" | "mcview" | "mcdiff") => providers.push("mc"),
             Some(c) if EMACS_COMMS.contains(&c) => providers.push("emacs"),
+            Some("ncmpcpp") => providers.push("ncmpcpp"),
             _ => {}
         }
         // `man`, `git log` and `systemctl status` lead the pipeline that less runs in.
@@ -1840,6 +1841,7 @@ mod tests {
                 (Some("mcedit"), vec!["mc"]),
                 (Some("mcview"), vec!["mc"]),
                 (Some("mcdiff"), vec!["mc"]),
+                (Some("ncmpcpp"), vec!["ncmpcpp"]),
                 (Some("python3"), vec![]),
                 (None, vec![]),
             ] {

@@ -1,0 +1,5 @@
+# A synthetic ~/.ncmpcpp/bindings for keybind-find's tests.
+def_key "x"
+  stop
+def_key "Q"
+  quit

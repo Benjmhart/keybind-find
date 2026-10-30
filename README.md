@@ -34,6 +34,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | micro | its keys: micro's defaults for its version (2.0.11, 2.0.14 and 2.0.15 built in) with your `bindings.json` on top | none ([below](#micro)) |
 | Midnight Commander | its keys by section (file manager, panel, editor, viewer, …): mc's compiled-in defaults (4.8.33's built in) with the system and your keymap on top | none ([below](#midnight-commander)) |
 | yazi | its keys: yazi's default keymap for its version (25.4.8, 25.5.31 and 26.9.1 built in) with your `keymap.toml` merged in | none ([below](#yazi)) |
+| ncmpcpp | its keys: ncmpcpp's defaults (0.10.1's built in, the same since 0.9.2) with your `bindings` files on top | none ([below](#ncmpcpp)) |
 | herdr | herdr's defaults for its version, your `config.toml` and plugin commands | none |
 | tmux | the running server's `list-keys`, so your prefix and bindings, with each key's note | none |
 | GNU screen | its default command keys for its version (4.9 and 5.0 built in) with `/etc/screenrc` and your screenrc's `bind`, `bind -c` and `escape` on top | none ([below](#screen)) |
@@ -51,7 +52,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | espanso | `espanso match list`; picking a match types its trigger | none |
 | anything else | a sheet you write, or a script that prints one | [docs/sheets.md](docs/sheets.md) |
 
-nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
+nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
 sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
@@ -330,6 +331,17 @@ Not seen: a keymap given with `mc -K`, and `MC_KEYMAP` or `MC_DATADIR` set only 
 (keybind-find has its own environment, from your window manager). While mc's subshell is in front (Ctrl-O) the terminal
 still reports mc, so mc's keys are listed, not the shell's. MinIO's client is also called `mc`; in a terminal running
 it you get Midnight Commander's list.
+
+### ncmpcpp
+
+Over ncmpcpp in a terminal, keybind-find lists its keys without running it: ncmpcpp's defaults (from 0.10.1's source,
+unchanged since 0.9.2, built in) with your bindings on top, read as ncmpcpp reads them:
+`$XDG_CONFIG_HOME/ncmpcpp/bindings` (`~/.config/ncmpcpp/bindings`), then `~/.ncmpcpp/bindings`. A key you bind loses
+its defaults; several `def_key` blocks for one key are alternatives, shown in order (`play item / toggle output`), and a
+key bound only to `dummy` isn't listed. Where ncmpcpp would stop reading at an error (an invalid key, a line it doesn't
+know, a key with no actions), keybind-find stops too, with one line naming the file and line. Files given with
+`-b`/`--bindings` on ncmpcpp's command line aren't read. One list for every screen: in ncmpcpp a key runs the first of
+its actions that can run where you are, so an alternative may do nothing on the current screen. `mouse` isn't listed.
 
 ### yazi
 

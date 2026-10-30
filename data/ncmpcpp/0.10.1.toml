@@ -1,0 +1,390 @@
+# ncmpcpp's default keys, read by keybind-find's ncmpcpp provider (story 6.29).
+# Generated from BindingsConfiguration::generateDefaults() in src/bindings.cpp at ncmpcpp tag 0.10.1
+# (commit 3e6d992b938de9ba3019302027bd64dbcab6f8c6), GPL-2.0-or-later; src/bindings.cpp is identical at 0.9.2.
+# Action names from the BaseAction constructors in src/actions.h. Each key: its alternatives in order, each a chain of actions.
+# The EoF -> quit default (no key name) is left out.
+
+[[key]]
+name = "mouse"
+actions = [["mouse_event"]]
+
+[[key]]
+name = "up"
+actions = [["scroll_up"]]
+
+[[key]]
+name = "shift-up"
+actions = [["select_item", "scroll_up"]]
+
+[[key]]
+name = "down"
+actions = [["scroll_down"]]
+
+[[key]]
+name = "shift-down"
+actions = [["select_item", "scroll_down"]]
+
+[[key]]
+name = "["
+actions = [["scroll_up_album"]]
+
+[[key]]
+name = "]"
+actions = [["scroll_down_album"]]
+
+[[key]]
+name = "{"
+actions = [["scroll_up_artist"]]
+
+[[key]]
+name = "}"
+actions = [["scroll_down_artist"]]
+
+[[key]]
+name = "page_up"
+actions = [["page_up"]]
+
+[[key]]
+name = "page_down"
+actions = [["page_down"]]
+
+[[key]]
+name = "home"
+actions = [["move_home"]]
+
+[[key]]
+name = "end"
+actions = [["move_end"]]
+
+[[key]]
+name = "insert"
+actions = [["select_item"]]
+
+[[key]]
+name = "enter"
+actions = [["enter_directory"], ["toggle_output"], ["run_action"], ["play_item"]]
+
+[[key]]
+name = "space"
+actions = [["add_item_to_playlist"], ["toggle_lyrics_update_on_song_change"], ["toggle_visualization_type"]]
+
+[[key]]
+name = "delete"
+actions = [["delete_playlist_items"], ["delete_browser_items"], ["delete_stored_playlist"]]
+
+[[key]]
+name = "right"
+actions = [["next_column"], ["slave_screen"], ["volume_up"]]
+
+[[key]]
+name = "+"
+actions = [["volume_up"]]
+
+[[key]]
+name = "left"
+actions = [["previous_column"], ["master_screen"], ["volume_down"]]
+
+[[key]]
+name = "-"
+actions = [["volume_down"]]
+
+[[key]]
+name = ":"
+actions = [["execute_command"]]
+
+[[key]]
+name = "tab"
+actions = [["next_screen"]]
+
+[[key]]
+name = "shift-tab"
+actions = [["previous_screen"]]
+
+[[key]]
+name = "f1"
+actions = [["show_help"]]
+
+[[key]]
+name = "1"
+actions = [["show_playlist"]]
+
+[[key]]
+name = "2"
+actions = [["show_browser"], ["change_browse_mode"]]
+
+[[key]]
+name = "3"
+actions = [["show_search_engine"], ["reset_search_engine"]]
+
+[[key]]
+name = "4"
+actions = [["show_media_library"], ["toggle_media_library_columns_mode"]]
+
+[[key]]
+name = "5"
+actions = [["show_playlist_editor"]]
+
+[[key]]
+name = "6"
+actions = [["show_tag_editor"]]
+
+[[key]]
+name = "7"
+actions = [["show_outputs"]]
+
+[[key]]
+name = "8"
+actions = [["show_visualizer"]]
+
+[[key]]
+name = "="
+actions = [["show_clock"]]
+
+[[key]]
+name = "@"
+actions = [["show_server_info"]]
+
+[[key]]
+name = "s"
+actions = [["stop"]]
+
+[[key]]
+name = "p"
+actions = [["pause"]]
+
+[[key]]
+name = ">"
+actions = [["next"]]
+
+[[key]]
+name = "<"
+actions = [["previous"]]
+
+[[key]]
+name = "ctrl-h"
+actions = [["jump_to_parent_directory"], ["replay_song"]]
+
+[[key]]
+name = "backspace"
+actions = [["jump_to_parent_directory"], ["replay_song"], ["play"]]
+
+[[key]]
+name = "f"
+actions = [["seek_forward"]]
+
+[[key]]
+name = "b"
+actions = [["seek_backward"]]
+
+[[key]]
+name = "r"
+actions = [["toggle_repeat"]]
+
+[[key]]
+name = "z"
+actions = [["toggle_random"]]
+
+[[key]]
+name = "y"
+actions = [["save_tag_changes"], ["start_searching"], ["toggle_single"]]
+
+[[key]]
+name = "R"
+actions = [["toggle_consume"]]
+
+[[key]]
+name = "Y"
+actions = [["toggle_replay_gain_mode"]]
+
+[[key]]
+name = "T"
+actions = [["toggle_add_mode"]]
+
+[[key]]
+name = "|"
+actions = [["toggle_mouse"]]
+
+[[key]]
+name = "#"
+actions = [["toggle_bitrate_visibility"]]
+
+[[key]]
+name = "Z"
+actions = [["shuffle"]]
+
+[[key]]
+name = "x"
+actions = [["toggle_crossfade"]]
+
+[[key]]
+name = "X"
+actions = [["set_crossfade"]]
+
+[[key]]
+name = "u"
+actions = [["update_database"]]
+
+[[key]]
+name = "ctrl-s"
+actions = [["sort_playlist"], ["toggle_browser_sort_mode"], ["toggle_media_library_sort_mode"]]
+
+[[key]]
+name = "ctrl-r"
+actions = [["reverse_playlist"]]
+
+[[key]]
+name = "ctrl-f"
+actions = [["apply_filter"]]
+
+[[key]]
+name = "ctrl-_"
+actions = [["select_found_items"]]
+
+[[key]]
+name = "/"
+actions = [["find"], ["find_item_forward"]]
+
+[[key]]
+name = "?"
+actions = [["find"], ["find_item_backward"]]
+
+[[key]]
+name = "."
+actions = [["next_found_item"]]
+
+[[key]]
+name = ","
+actions = [["previous_found_item"]]
+
+[[key]]
+name = "w"
+actions = [["toggle_find_mode"]]
+
+[[key]]
+name = "e"
+actions = [["edit_song"], ["edit_library_tag"], ["edit_library_album"], ["edit_directory_name"], ["edit_playlist_name"], ["edit_lyrics"]]
+
+[[key]]
+name = "i"
+actions = [["show_song_info"]]
+
+[[key]]
+name = "I"
+actions = [["show_artist_info"]]
+
+[[key]]
+name = "g"
+actions = [["jump_to_position_in_song"]]
+
+[[key]]
+name = "l"
+actions = [["show_lyrics"]]
+
+[[key]]
+name = "ctrl-v"
+actions = [["select_range"]]
+
+[[key]]
+name = "v"
+actions = [["reverse_selection"]]
+
+[[key]]
+name = "V"
+actions = [["remove_selection"]]
+
+[[key]]
+name = "B"
+actions = [["select_album"]]
+
+[[key]]
+name = "a"
+actions = [["add_selected_items"]]
+
+[[key]]
+name = "c"
+actions = [["clear_playlist"], ["clear_main_playlist"]]
+
+[[key]]
+name = "C"
+actions = [["crop_playlist"], ["crop_main_playlist"]]
+
+[[key]]
+name = "m"
+actions = [["move_sort_order_up"], ["move_selected_items_up"]]
+
+[[key]]
+name = "n"
+actions = [["move_sort_order_down"], ["move_selected_items_down"]]
+
+[[key]]
+name = "M"
+actions = [["move_selected_items_to"]]
+
+[[key]]
+name = "A"
+actions = [["add"]]
+
+[[key]]
+name = "S"
+actions = [["save_playlist"]]
+
+[[key]]
+name = "o"
+actions = [["jump_to_playing_song"]]
+
+[[key]]
+name = "G"
+actions = [["jump_to_browser"], ["jump_to_playlist_editor"]]
+
+[[key]]
+name = "~"
+actions = [["jump_to_media_library"]]
+
+[[key]]
+name = "E"
+actions = [["jump_to_tag_editor"]]
+
+[[key]]
+name = "U"
+actions = [["toggle_playing_song_centering"]]
+
+[[key]]
+name = "P"
+actions = [["toggle_display_mode"]]
+
+[[key]]
+name = "\\"
+actions = [["toggle_interface"]]
+
+[[key]]
+name = "!"
+actions = [["toggle_separators_between_albums"]]
+
+[[key]]
+name = "L"
+actions = [["toggle_lyrics_fetcher"]]
+
+[[key]]
+name = "F"
+actions = [["fetch_lyrics_in_background"]]
+
+[[key]]
+name = "alt-l"
+actions = [["toggle_fetching_lyrics_in_background"]]
+
+[[key]]
+name = "ctrl-l"
+actions = [["toggle_screen_lock"]]
+
+[[key]]
+name = "`"
+actions = [["toggle_library_tag_type"], ["refetch_lyrics"], ["add_random_items"]]
+
+[[key]]
+name = "ctrl-p"
+actions = [["set_selected_items_priority"]]
+
+[[key]]
+name = "q"
+actions = [["quit"]]
+
