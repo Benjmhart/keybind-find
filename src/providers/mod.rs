@@ -38,6 +38,7 @@ mod vim;
 mod vimium;
 mod vscode;
 mod xfce;
+mod xfce4_terminal;
 mod xmonad;
 mod yazi;
 mod zathura;
@@ -84,6 +85,7 @@ pub const KNOWN: &[&str] = &[
     "zed",
     "ncmpcpp",
     "ranger",
+    "xfce4_terminal",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -122,6 +124,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "zed" => zed::sheet(ctx),
         "ncmpcpp" => ncmpcpp::sheet(),
         "ranger" => ranger::sheet(),
+        "xfce4_terminal" => xfce4_terminal::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",

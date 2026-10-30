@@ -1,0 +1,308 @@
+# xfce4-terminal's default menu accelerators, read by keybind-find's xfce4_terminal provider (story 6.31).
+# Generated from action_entries[] in terminal/terminal-window.c at tag xfce4-terminal-1.2.0
+# (commit bcc92696a1526b85875f03c21b265bd376bce00d), GPL-2.0-or-later: every entry with a label (accel "" = none).
+
+[[action]]
+path = "<Actions>/terminal-window/file-menu"
+accel = ""
+label = "_File"
+
+[[action]]
+path = "<Actions>/terminal-window/new-tab"
+accel = "<control><shift>t"
+label = "Open _Tab"
+
+[[action]]
+path = "<Actions>/terminal-window/new-window"
+accel = "<control><shift>n"
+label = "Open T_erminal"
+
+[[action]]
+path = "<Actions>/terminal-window/open-folder"
+accel = ""
+label = "_Open File Manager Here"
+
+[[action]]
+path = "<Actions>/terminal-window/undo-close-tab"
+accel = "<control><shift>d"
+label = "_Undo Close Tab"
+
+[[action]]
+path = "<Actions>/terminal-window/detach-tab"
+accel = ""
+label = "_Detach Tab"
+
+[[action]]
+path = "<Actions>/terminal-window/close-tab"
+accel = "<control><shift>w"
+label = "Close T_ab"
+
+[[action]]
+path = "<Actions>/terminal-window/close-other-tabs"
+accel = ""
+label = "Close Other Ta_bs"
+
+[[action]]
+path = "<Actions>/terminal-window/close-window"
+accel = "<control><shift>q"
+label = "Close _Window"
+
+[[action]]
+path = "<Actions>/terminal-window/edit-menu"
+accel = ""
+label = "_Edit"
+
+[[action]]
+path = "<Actions>/terminal-window/copy"
+accel = "<control><shift>c"
+label = "_Copy"
+
+[[action]]
+path = "<Actions>/terminal-window/copy-html"
+accel = ""
+label = "Copy as _HTML"
+
+[[action]]
+path = "<Actions>/terminal-window/paste"
+accel = "<control><shift>v"
+label = "_Paste"
+
+[[action]]
+path = "<Actions>/terminal-window/paste-alt"
+accel = "<control><shift>Insert"
+label = "_Paste Alt"
+
+[[action]]
+path = "<Actions>/terminal-window/paste-selection"
+accel = ""
+label = "Paste _Selection"
+
+[[action]]
+path = "<Actions>/terminal-window/paste-selection-alt"
+accel = ""
+label = "Paste _Selection Alt"
+
+[[action]]
+path = "<Actions>/terminal-window/select-all"
+accel = "<control><shift>a"
+label = "Select _All"
+
+[[action]]
+path = "<Actions>/terminal-window/copy-input"
+accel = ""
+label = "Copy _Input To All Tabs..."
+
+[[action]]
+path = "<Actions>/terminal-window/preferences"
+accel = ""
+label = "Pr_eferences..."
+
+[[action]]
+path = "<Actions>/terminal-window/view-menu"
+accel = ""
+label = "_View"
+
+[[action]]
+path = "<Actions>/terminal-window/zoom-in"
+accel = "<control>plus"
+label = "Zoom _In"
+
+[[action]]
+path = "<Actions>/terminal-window/zoom-in-alt"
+accel = "<control>KP_Add"
+label = "Zoom In Alt"
+
+[[action]]
+path = "<Actions>/terminal-window/zoom-out"
+accel = "<control>minus"
+label = "Zoom _Out"
+
+[[action]]
+path = "<Actions>/terminal-window/zoom-out-alt"
+accel = "<control>KP_Subtract"
+label = "Zoom Out Alt"
+
+[[action]]
+path = "<Actions>/terminal-window/zoom-reset"
+accel = "<control>0"
+label = "_Normal Size"
+
+[[action]]
+path = "<Actions>/terminal-window/zoom-reset-alt"
+accel = "<control>KP_0"
+label = "_Normal Size Alt"
+
+[[action]]
+path = "<Actions>/terminal-window/terminal-menu"
+accel = ""
+label = "_Terminal"
+
+[[action]]
+path = "<Actions>/terminal-window/set-title"
+accel = "<control><shift>s"
+label = "_Set Title..."
+
+[[action]]
+path = "<Actions>/terminal-window/set-title-color"
+accel = ""
+label = "Set Title Co_lor..."
+
+[[action]]
+path = "<Actions>/terminal-window/search"
+accel = "<control><shift>f"
+label = "_Find..."
+
+[[action]]
+path = "<Actions>/terminal-window/search-next"
+accel = ""
+label = "Find Ne_xt"
+
+[[action]]
+path = "<Actions>/terminal-window/search-prev"
+accel = ""
+label = "Find Pre_vious"
+
+[[action]]
+path = "<Actions>/terminal-window/save-contents"
+accel = ""
+label = "Sa_ve Contents..."
+
+[[action]]
+path = "<Actions>/terminal-window/reset"
+accel = ""
+label = "_Reset"
+
+[[action]]
+path = "<Actions>/terminal-window/reset-and-clear"
+accel = ""
+label = "_Clear Scrollback and Reset"
+
+[[action]]
+path = "<Actions>/terminal-window/tabs-menu"
+accel = ""
+label = "T_abs"
+
+[[action]]
+path = "<Actions>/terminal-window/prev-tab"
+accel = "<control>Page_Up"
+label = "_Previous Tab"
+
+[[action]]
+path = "<Actions>/terminal-window/next-tab"
+accel = "<control>Page_Down"
+label = "_Next Tab"
+
+[[action]]
+path = "<Actions>/terminal-window/last-active-tab"
+accel = ""
+label = "Last _Active Tab"
+
+[[action]]
+path = "<Actions>/terminal-window/move-tab-left"
+accel = "<control><shift>Page_Up"
+label = "Move Tab _Left"
+
+[[action]]
+path = "<Actions>/terminal-window/move-tab-right"
+accel = "<control><shift>Page_Down"
+label = "Move Tab _Right"
+
+[[action]]
+path = "<Actions>/terminal-window/help-menu"
+accel = ""
+label = "_Help"
+
+[[action]]
+path = "<Actions>/terminal-window/contents"
+accel = "F1"
+label = "_Contents"
+
+[[action]]
+path = "<Actions>/terminal-window/about"
+accel = ""
+label = "_About"
+
+[[action]]
+path = "<Actions>/terminal-window/zoom-menu"
+accel = ""
+label = "_Zoom"
+
+[[action]]
+path = "<Actions>/terminal-window/toggle-menubar"
+accel = "F10"
+label = "Show Menubar Temporarily"
+
+[[action]]
+path = "<Actions>/terminal-window/show-menubar"
+accel = ""
+label = "Show _Menubar"
+
+[[action]]
+path = "<Actions>/terminal-window/show-toolbar"
+accel = ""
+label = "Show _Toolbar"
+
+[[action]]
+path = "<Actions>/terminal-window/show-borders"
+accel = ""
+label = "Show Window _Borders"
+
+[[action]]
+path = "<Actions>/terminal-window/fullscreen"
+accel = "F11"
+label = "_Fullscreen"
+
+[[action]]
+path = "<Actions>/terminal-window/read-only"
+accel = ""
+label = "_Read-Only"
+
+[[action]]
+path = "<Actions>/terminal-window/scroll-on-output"
+accel = ""
+label = "Scroll on _Output"
+
+[[action]]
+path = "<Actions>/terminal-window/goto-tab-1"
+accel = "<Alt>1"
+label = "Go to Tab 1"
+
+[[action]]
+path = "<Actions>/terminal-window/goto-tab-2"
+accel = "<Alt>2"
+label = "Go to Tab 2"
+
+[[action]]
+path = "<Actions>/terminal-window/goto-tab-3"
+accel = "<Alt>3"
+label = "Go to Tab 3"
+
+[[action]]
+path = "<Actions>/terminal-window/goto-tab-4"
+accel = "<Alt>4"
+label = "Go to Tab 4"
+
+[[action]]
+path = "<Actions>/terminal-window/goto-tab-5"
+accel = "<Alt>5"
+label = "Go to Tab 5"
+
+[[action]]
+path = "<Actions>/terminal-window/goto-tab-6"
+accel = "<Alt>6"
+label = "Go to Tab 6"
+
+[[action]]
+path = "<Actions>/terminal-window/goto-tab-7"
+accel = "<Alt>7"
+label = "Go to Tab 7"
+
+[[action]]
+path = "<Actions>/terminal-window/goto-tab-8"
+accel = "<Alt>8"
+label = "Go to Tab 8"
+
+[[action]]
+path = "<Actions>/terminal-window/goto-tab-9"
+accel = "<Alt>9"
+label = "Go to Tab 9"
