@@ -100,7 +100,7 @@ fn choose(
         ),
         None if use_fzf(None, wayland, have_fzf()) => (Choice::Fzf(terminal), None),
         None if gnome_wayland && have_fzf() => (Choice::Fzf(terminal), None),
-        // A dmenu-style command of the user's is what they chose; only the default fuzzel gets the note.
+        // Without fzf, a dmenu-style command of the user's runs as given; only the default fuzzel gets the note.
         None if gnome_wayland && cfg.command.is_none() => (
             dmenu(),
             Some(format!(
@@ -1374,7 +1374,12 @@ mod tests {
             why.as_deref(),
             Some("GNOME on Wayland has no layer-shell for fuzzel: install fzf and alacritty, or set [picker]")
         );
-        // The user's dmenu-style command, an env picker or a kind still wins; X11 GNOME and other Wayland unchanged.
+        // A dmenu-style command without a kind is the fallback, as on X11: fzf when installed, else the command (no
+        // note). An env picker or a kind still wins; X11 GNOME and other Wayland unchanged.
+        assert_eq!(
+            choose(&plain, None, Some("w"), gnome, all),
+            fzf(default_terminal())
+        );
         assert_eq!(
             choose(&plain, None, Some("w"), gnome, none),
             (Choice::Dmenu(rofi.clone()), None)

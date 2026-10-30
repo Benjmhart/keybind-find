@@ -145,7 +145,7 @@ fn read(setup: impl Fn(&mut Command)) -> anyhow::Result<(Sheet, Vec<String>)> {
         binds: Default::default(),
     };
     let mut left_out = 0;
-    let (mut missing, mut failed) = (Vec::new(), Vec::new());
+    let (mut missing, mut failed) = (Vec::<String>::new(), Vec::new());
     let mut first_err = None;
     let mut read_any = false;
     let mut push = |category: &str, key, desc, action| {
@@ -156,19 +156,28 @@ fn read(setup: impl Fn(&mut Command)) -> anyhow::Result<(Sheet, Vec<String>)> {
             when: Default::default(),
         })
     };
-    let mut fail = |schema: &str, e: anyhow::Error, missing: &mut Vec<String>| {
-        if format!("{e:#}").contains("No such schema") {
-            missing.push(schema.to_string());
-        } else {
-            failed.push(format!("{e:#}"));
-            first_err.get_or_insert(e);
+    // Notes the failure; true when gsettings hung (a stuck dconf or D-Bus), which every later run would too.
+    let mut fail = |schema: &str, e: anyhow::Error| {
+        let why = format!("{e:#}");
+        if why.contains("No such schema") {
+            if !missing.iter().any(|m| m == schema) {
+                missing.push(schema.to_string());
+            }
+            return false;
         }
+        failed.push(why.clone());
+        first_err.get_or_insert(e);
+        why.contains("did not answer within")
     };
-    for (schema, category) in SCHEMAS {
+    let mut hung = false;
+    'schemas: for (schema, category) in SCHEMAS {
         let text = match list_recursively(schema, &setup) {
             Ok(t) => t,
             Err(e) => {
-                fail(schema, e, &mut missing);
+                hung = fail(schema, e);
+                if hung {
+                    break;
+                }
                 continue;
             }
         };
@@ -194,15 +203,25 @@ fn read(setup: impl Fn(&mut Command)) -> anyhow::Result<(Sheet, Vec<String>)> {
             .find(|(s, k, _)| s == MEDIA && k == "custom-keybindings")
             .and_then(|(_, _, v)| strings(&v))
             .unwrap_or_default();
-        for path in paths {
+        for (i, path) in paths.iter().enumerate() {
+            // A path listed twice is one shortcut.
+            if paths[..i].contains(path) {
+                continue;
+            }
             // gsettings' own rule for a path: `/`-delimited, no empty segment.
-            let valid = path.starts_with('/') && path.ends_with('/') && !path.contains("//");
-            let Some(text) = valid
-                .then(|| list_recursively(&format!("{CUSTOM}:{path}"), &setup).ok())
-                .flatten()
-            else {
+            if !path.starts_with('/') || !path.ends_with('/') || path.contains("//") {
                 left_out += 1;
                 continue;
+            }
+            let text = match list_recursively(&format!("{CUSTOM}:{path}"), &setup) {
+                Ok(t) => t,
+                Err(e) => {
+                    hung = fail(CUSTOM, e);
+                    if hung {
+                        break 'schemas;
+                    }
+                    continue;
+                }
             };
             let get = |key: &str| {
                 settings(&text)
@@ -215,41 +234,16 @@ fn read(setup: impl Fn(&mut Command)) -> anyhow::Result<(Sheet, Vec<String>)> {
             let (name, command) = (get("name"), get("command"));
             match accel_key(&get("binding")) {
                 Some(Some(k)) => {
-                    let desc = if name.is_empty() {
-                        command.clone()
-                    } else {
-                        name
-                    };
+                    let desc = [&name, &command]
+                        .into_iter()
+                        .find(|d| !d.is_empty())
+                        .map_or_else(|| "custom shortcut".into(), |d| d.clone());
                     push("custom", k, desc, command)
                 }
                 Some(None) => {}
                 None => left_out += 1,
             }
         }
-    }
-    match gsettings(&["get", "org.gnome.mutter", "overlay-key"], &setup) {
-        Ok(v) => {
-            let key = strings(&v)
-                .and_then(|v| v.into_iter().next())
-                .unwrap_or_default();
-            // mutter takes `Super` for either Super key.
-            let key = if key == "Super" {
-                "Super_L".into()
-            } else {
-                key
-            };
-            match accel_key(&key) {
-                Some(Some(k)) => push(
-                    "shell",
-                    k,
-                    "overlay key (activities)".into(),
-                    "overlay-key".into(),
-                ),
-                Some(None) => {}
-                None => left_out += 1,
-            }
-        }
-        Err(e) => fail("org.gnome.mutter", e, &mut missing),
     }
     if !read_any {
         return Err(first_err.unwrap_or_else(|| {
@@ -258,6 +252,34 @@ fn read(setup: impl Fn(&mut Command)) -> anyhow::Result<(Sheet, Vec<String>)> {
                 missing.join(", ")
             )
         }));
+    }
+    if !hung {
+        match gsettings(&["get", "org.gnome.mutter", "overlay-key"], &setup) {
+            Ok(v) => {
+                let key = strings(&v)
+                    .and_then(|v| v.into_iter().next())
+                    .unwrap_or_default();
+                // mutter takes `Super` for either Super key.
+                let key = if key == "Super" {
+                    "Super_L".into()
+                } else {
+                    key
+                };
+                match accel_key(&key) {
+                    Some(Some(k)) => push(
+                        "shell",
+                        k,
+                        "overlay key (activities)".into(),
+                        "overlay-key".into(),
+                    ),
+                    Some(None) => {}
+                    None => left_out += 1,
+                }
+            }
+            Err(e) => {
+                fail("org.gnome.mutter", e);
+            }
+        }
     }
     let mut notes = Vec::new();
     if !missing.is_empty() {
@@ -272,8 +294,8 @@ fn read(setup: impl Fn(&mut Command)) -> anyhow::Result<(Sheet, Vec<String>)> {
         };
         notes.push(format!(
             "leaving out {left_out} {shortcuts} keybind-find can't send (mutter's Above_Tab, a modifier other than \
-             ctrl, shift, alt and super, a key not shaped like a keysym name, or a custom shortcut whose path can't \
-             be read)"
+             ctrl, shift, alt and super, a key not shaped like a keysym name, or a custom shortcut path that isn't \
+             one)"
         ));
     }
     Ok((sheet, notes))
@@ -285,10 +307,9 @@ fn accel_key(accel: &str) -> Option<Option<String>> {
     if accel.is_empty() || accel == "disabled" {
         return Some(None);
     }
-    if accel.ends_with("Above_Tab") {
-        return None;
-    }
-    gtk_accel(accel).map(Some)
+    gtk_accel(accel)
+        .filter(|k| k.rsplit('+').next() != Some("Above_Tab"))
+        .map(Some)
 }
 
 #[cfg(test)]
@@ -412,7 +433,8 @@ mod tests {
     fn custom_shortcuts_and_the_overlay_key() {
         let p = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
         let media = format!(
-            "{MEDIA} custom-keybindings ['{p}/custom0/', '{p}/custom1/', 'bad', '{p}//x/', '{p}/gone/']\n\
+            "{MEDIA} custom-keybindings ['{p}/custom0/', '{p}/custom1/', 'bad', '{p}//x/', '{p}/gone/', \
+             '{p}/custom0/', '{p}/hyper/', '{p}/unset/', '{p}/blank/']\n\
              {MEDIA} volume-up ['XF86AudioRaiseVolume']"
         );
         let custom = |name: &str, binding: &str, command: &str| {
@@ -429,9 +451,15 @@ mod tests {
                  'list-recursively {CUSTOM}:{p}/custom0/') {}\n\
                  'list-recursively {CUSTOM}:{p}/custom1/') {}\n\
                  'list-recursively {CUSTOM}:{p}/gone/') echo 'Path must end with a slash' >&2; exit 1;;\n\
+                 'list-recursively {CUSTOM}:{p}/hyper/') {}\n\
+                 'list-recursively {CUSTOM}:{p}/unset/') {}\n\
+                 'list-recursively {CUSTOM}:{p}/blank/') {}\n\
                  'get org.gnome.mutter overlay-key') echo \"'Super'\";;",
                 custom("Terminal", "<Super>Return", "kgx"),
                 custom("", "<Primary><Alt>b", "firefox --new-window"),
+                custom("Hyper", "<Hyper>x", "x"),
+                custom("Unset", "", "y"),
+                custom("", "<Super>F9", ""),
             ),
         );
         let (s, notes) = read(path(&bin)).unwrap();
@@ -440,7 +468,8 @@ mod tests {
             rows(&s, "custom"),
             [
                 ("super+Return", "Terminal"),
-                ("ctrl+alt+b", "firefox --new-window")
+                ("ctrl+alt+b", "firefox --new-window"),
+                ("super+F9", "custom shortcut"),
             ]
         );
         assert_eq!(s.binds["custom"][0].action, "kgx");
@@ -449,11 +478,11 @@ mod tests {
             [("XF86AudioRaiseVolume", "volume up")]
         );
         assert_eq!(rows(&s, "shell"), [("Super_L", "overlay key (activities)")]);
-        // Above_Tab ×4, then `bad`, `//` and the path gsettings refused.
-        assert!(
-            notes.last().unwrap().starts_with("leaving out 7 shortcuts"),
-            "{notes:?}"
-        );
+        // The path gsettings refused is a note with its reason; Above_Tab ×4, `bad`, `//` and `<Hyper>` are counted;
+        // the repeated path is listed once, and an empty binding lists nothing.
+        assert_eq!(notes.len(), 3, "{notes:?}");
+        assert!(notes[1].contains("Path must end with a slash"), "{notes:?}");
+        assert!(notes[2].starts_with("leaving out 7 shortcuts"), "{notes:?}");
         // The overlay key set to nothing lists nothing; another key is listed as itself.
         for (overlay, want) in [
             ("''", vec![]),
@@ -499,6 +528,20 @@ mod tests {
                 .any(|n| n.contains("org.gnome.shell.keybindings") && n.contains("boom")),
             "{notes:?}"
         );
+        // A gsettings that hangs stops the reading: no later run waits its 2 s too.
+        let bin = answers(
+            "hang",
+            "list-wm.txt",
+            "'list-recursively org.gnome.shell.keybindings') exec /bin/sleep 10;;\n\
+             'list-recursively org.gnome.mutter.keybindings') exec /bin/sleep 10;;",
+        );
+        let start = std::time::Instant::now();
+        let (s, notes) = read(path(&bin)).unwrap();
+        let _ = std::fs::remove_dir_all(&bin);
+        assert!(start.elapsed() >= TIMEOUT && start.elapsed() < TIMEOUT * 2);
+        assert!(!rows(&s, "window manager").is_empty());
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert!(notes[0].contains("did not answer within"), "{notes:?}");
     }
 
     #[test]
@@ -574,16 +617,18 @@ mod tests {
             .status()
             .unwrap();
         assert!(ok.success());
-        let (s, notes) = read(|c: &mut Command| {
-            c.env("GSETTINGS_SCHEMA_DIR", &schemas)
-                .env("GSETTINGS_BACKEND", "memory")
-                .env("HOME", tmp.join("home"))
-                .env("XDG_CONFIG_HOME", tmp.join("config"))
-                .env("XDG_DATA_HOME", tmp.join("data"))
-                .env("XDG_DATA_DIRS", tmp.join("dirs"));
-        })
-        .unwrap();
-        let _ = std::fs::remove_dir_all(&tmp);
+        let env = |backend: &'static str| {
+            let (schemas, tmp) = (schemas.clone(), tmp.clone());
+            move |c: &mut Command| {
+                c.env("GSETTINGS_SCHEMA_DIR", &schemas)
+                    .env("GSETTINGS_BACKEND", backend)
+                    .env("HOME", tmp.join("home"))
+                    .env("XDG_CONFIG_HOME", tmp.join("config"))
+                    .env("XDG_DATA_HOME", tmp.join("data"))
+                    .env("XDG_DATA_DIRS", tmp.join("dirs"));
+            }
+        };
+        let (s, notes) = read(env("memory")).unwrap();
         assert!(
             rows(&s, "window manager").contains(&("alt+F4", "close")),
             "{s:?}"
@@ -600,5 +645,32 @@ mod tests {
         // Only the Above_Tab defaults are left out.
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(notes[0].starts_with("leaving out 2 shortcuts"), "{notes:?}");
+        // A custom shortcut, set through the keyfile backend (the memory one forgets between runs), read back.
+        let p = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/";
+        for args in [
+            vec!["set", MEDIA, "custom-keybindings", &format!("['{p}']")],
+            vec!["set", &format!("{CUSTOM}:{p}"), "binding", "<Super>Return"],
+            vec!["set", &format!("{CUSTOM}:{p}"), "name", "it's"],
+        ] {
+            let mut cmd = Command::new("gsettings");
+            cmd.args(&args);
+            env("keyfile")(&mut cmd);
+            assert!(cmd.status().unwrap().success(), "{args:?}");
+        }
+        let (s, _) = read(env("keyfile")).unwrap();
+        assert_eq!(rows(&s, "custom"), [("super+Return", "it's")]);
+        // A schema that isn't installed, as the real gsettings says it.
+        std::fs::remove_file(schemas.join("org.gnome.shell.gschema.xml")).unwrap();
+        let ok = Command::new("glib-compile-schemas")
+            .arg(&schemas)
+            .status()
+            .unwrap();
+        assert!(ok.success());
+        let (_, notes) = read(env("memory")).unwrap();
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert_eq!(
+            notes[0],
+            "schema not installed: org.gnome.shell.keybindings"
+        );
     }
 }

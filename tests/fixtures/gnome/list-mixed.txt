@@ -7,7 +7,7 @@ org.gnome.settings-daemon.plugins.media-keys home '<Super>e'
 org.gnome.settings-daemon.plugins.media-keys hyper ['<Hyper>h']
 org.gnome.settings-daemon.plugins.media-keys logout "<Primary><Shift>q"
 org.gnome.settings-daemon.plugins.media-keys next ['<Super>Above_Tab']
-org.gnome.settings-daemon.plugins.media-keys screensaver "<Super>\'"
+org.gnome.settings-daemon.plugins.media-keys screensaver "<Super>'"
 org.gnome.settings-daemon.plugins.media-keys volume-mute ['XF86AudioMute']
 org.gnome.settings-daemon.plugins.media-keys volume-step uint32 6
 org.gnome.settings-daemon.plugins.media-keys.child other ['<Super>z']
