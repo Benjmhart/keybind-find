@@ -98,16 +98,20 @@ fn read(title: Option<&str>, env: Env) -> (Sheet, Facts, Vec<String>) {
         keymaps.push(("keymap.json", k));
     }
     let (sheet, left_out, bad_contexts) = build(&keymaps, &mut notes);
-    if left_out + bad_contexts > 0 {
-        let mut note = format!(
+    let mut counted = Vec::new();
+    if left_out > 0 {
+        counted.push(format!(
             "leaving out {left_out} key(s) keybind-find can't send (fn-, a lone modifier, shift- with a non-letter, \
              or a key with no keysym)"
-        );
-        if bad_contexts > 0 {
-            note +=
-                &format!("; {bad_contexts} bind(s) whose context didn't parse are shown untagged");
-        }
-        notes.push(note);
+        ));
+    }
+    if bad_contexts > 0 {
+        counted.push(format!(
+            "{bad_contexts} bind(s) whose context didn't parse are shown untagged"
+        ));
+    }
+    if !counted.is_empty() {
+        notes.push(counted.join("; "));
     }
     (sheet, facts(title), notes)
 }
@@ -192,16 +196,41 @@ fn build(keymaps: &[(&str, Value)], notes: &mut Vec<String>) -> (Sheet, usize, u
             ));
             continue;
         };
+        // As Zed's partial load: a binding whose action isn't Zed's shape is left out, the rest kept.
+        let invalid = sections
+            .iter()
+            .map(|(_, u, b)| {
+                u.iter().filter(|(_, a)| !valid(a, false)).count()
+                    + b.iter().filter(|(_, a)| !valid(a, true)).count()
+            })
+            .sum::<usize>();
+        if invalid > 0 {
+            notes.push(format!(
+                "{name}: leaving out {invalid} binding(s) whose action isn't a name, [name, args] or null"
+            ));
+        }
         for (context, unbind, bindings) in sections {
-            let context_text: String = context.chars().filter(|c| !c.is_whitespace()).collect();
+            let unbind: Vec<_> = unbind
+                .into_iter()
+                .filter(|(_, a)| valid(a, false))
+                .collect();
+            let bindings: Vec<_> = bindings
+                .into_iter()
+                .filter(|(_, a)| valid(a, true))
+                .collect();
+            let mut context_text: String = context.chars().filter(|c| !c.is_whitespace()).collect();
+            // Spaces alone are a context (that doesn't parse), not none.
+            if context_text.is_empty() {
+                context_text = context.to_string();
+            }
             // As Zed: only an empty context is none; one of spaces doesn't parse.
             let scopes = if context.is_empty() {
                 Some(Scopes::new())
             } else {
                 parse(context).map(|p| scopes(&p))
             };
-            // An unbind (in `unbind`, or bound to `zed::Unbind`) removes the earlier binds of that key to that action,
-            // in that context (any, with none); it lists nothing.
+            // An unbind (in `unbind`, or bound to `zed::Unbind`) removes the earlier binds of that key to that action
+            // (by name, as Zed's `binding_is_unbound`), in that context (any, with none); it lists nothing.
             let unbinds = unbind
                 .iter()
                 .map(|(k, a)| (*k, action_of(a).map(|(n, _)| n)));
@@ -216,7 +245,7 @@ fn build(keymaps: &[(&str, Value)], notes: &mut Vec<String>) -> (Sheet, usize, u
                 entries.retain(|e| {
                     e.key != key
                         || Some(e.action.as_str()) != target
-                        || !(context_text.is_empty() || e.context == context_text)
+                        || !(context.is_empty() || e.context == context_text)
                 });
             }
             for (key, action) in bindings {
@@ -277,10 +306,23 @@ fn build(keymaps: &[(&str, Value)], notes: &mut Vec<String>) -> (Sheet, usize, u
 /// An action's name and args; `None` for `null` (and the old `"zed::NoAction"`, its alias).
 fn action_of(action: &Value) -> Option<(&str, Option<&Value>)> {
     match action {
-        Value::String(a) if a == "zed::NoAction" => None,
-        Value::String(a) => Some((a, None)),
+        Value::String(a) => Some((a.as_str(), None)),
         Value::Array(a) => Some((a.first()?.as_str()?, a.get(1))),
         _ => None,
+    }
+    .filter(|(name, _)| *name != "zed::NoAction")
+}
+
+/// Whether an action is Zed's shape: a name or `[name, args]` (`zed::Unbind`'s argument a name); `null` only where
+/// `nullable` (a binding, not an unbind target).
+fn valid(action: &Value, nullable: bool) -> bool {
+    match action {
+        Value::Null => nullable,
+        Value::String(n) => n != "zed::Unbind",
+        Value::Array(a) => {
+            a.len() == 2 && a[0].is_string() && (a[0] != "zed::Unbind" || a[1].is_string())
+        }
+        _ => false,
     }
 }
 
@@ -291,12 +333,14 @@ type Section<'a> = (
     Vec<(&'a String, &'a Value)>,
 );
 
-/// A keymap's sections; `None` when it isn't Zed's shape (in any section or action).
+/// A keymap's sections; `None` when it isn't Zed's shape (a list of objects with a string `context` and object
+/// `bindings` and `unbind`). Actions are checked one by one (`valid`).
 fn sections(keymap: &Value) -> Option<Vec<Section<'_>>> {
     keymap
         .as_array()?
         .iter()
         .map(|s| {
+            s.as_object()?;
             let context = match &s["context"] {
                 Value::Null => "",
                 c => c.as_str()?,
@@ -308,16 +352,7 @@ fn sections(keymap: &Value) -> Option<Vec<Section<'_>>> {
                     b => Some(b.as_object()?.iter().collect()),
                 }
             };
-            let (unbind, bindings) = (map("unbind")?, map("bindings")?);
-            // An action is a name, `[name, args]` or `null`; an unbind target, a name or `[name, args]`.
-            let action = |a: &Value| match a {
-                Value::String(_) => true,
-                Value::Array(a) => a.len() == 2 && a[0].is_string(),
-                _ => false,
-            };
-            let ok = bindings.iter().all(|(_, a)| a.is_null() || action(a))
-                && unbind.iter().all(|(_, a)| action(a));
-            ok.then_some((context, unbind, bindings))
+            Some((context, map("unbind")?, map("bindings")?))
         })
         .collect()
 }
@@ -837,7 +872,7 @@ mod tests {
             assert_eq!((all(&s).len(), notes.len()), (917, 1), "{text}: {notes:?}");
             assert!(notes[0].contains(note), "{text}: {notes:?}");
         }
-        // An action of the wrong shape: the whole keymap.json left out (nothing removed), one note.
+        // An action of the wrong shape: that binding left out (nothing removed), one note.
         std::fs::write(flatpak.join("settings.json"), "{}").unwrap();
         std::fs::write(
             flatpak.join("keymap.json"),
@@ -846,7 +881,26 @@ mod tests {
         .unwrap();
         let (s, _, notes) = read(None, &env_of(None));
         assert!(!find(&s, "ctrl+w", "Workspace=true").is_empty());
-        assert!(others(notes)[0].starts_with("keymap.json isn't a list"));
+        assert!(others(notes)[0].starts_with("keymap.json: leaving out 1 binding(s)"));
+        // Only bad contexts, nothing left out: the line names only them.
+        std::fs::write(flatpak.join("settings.json"), r#"{"base_keymap": "None"}"#).unwrap();
+        std::fs::write(
+            flatpak.join("keymap.json"),
+            r#"[{"context": "Editor &&", "bindings": {"q": "x::Y"}}]"#,
+        )
+        .unwrap();
+        let (_, _, notes) = read(None, &env_of(None));
+        assert_eq!(
+            notes,
+            ["1 bind(s) whose context didn't parse are shown untagged"]
+        );
+        std::fs::write(flatpak.join("settings.json"), "{}").unwrap();
+        let (_, _, notes) = read(None, &env_of(None));
+        assert!(
+            notes[0].starts_with("leaving out 45 key(s)")
+                && notes[0].ends_with("; 1 bind(s) whose context didn't parse are shown untagged"),
+            "{notes:?}"
+        );
         // A keymap.json that can't be read (a directory): one note.
         std::fs::remove_file(flatpak.join("keymap.json")).unwrap();
         std::fs::create_dir(flatpak.join("keymap.json")).unwrap();
@@ -933,26 +987,50 @@ mod tests {
         assert_eq!(find(&s, "w", "Editor=true vim_operator=\""), ["x::Y"]);
         // Unbinds: by key and action name, in that context or (with none) any; `zed::NoAction` is `null`; a
         // one-element action array isn't Zed's shape.
-        let base = r#"[{"context": "Editor", "bindings": {"q": "a::A", "w": "b::B", "e": "c::C"}},
-                       {"context": "Pane", "bindings": {"q": "a::A"}}]"#;
-        let user = r#"[{"context": "Editor", "unbind": {"q": "a::A", "w": "other::X"}},
+        let base = r#"[{"context": "Editor", "bindings": {"ctrl-q": "a::A", "w": "b::B", "e": "c::C"}},
+                       {"context": "Pane", "bindings": {"ctrl-q": "a::A", "r": "d::D", "t": "f::F"}},
+                       {"bindings": {"y": "g::G"}}]"#;
+        let user = r#"[{"context": "Editor", "unbind": {"CTRL-q": "a::A", "w": "other::X"}},
                        {"bindings": {"e": ["zed::Unbind", "c::C"]}},
-                       {"context": "Pane", "bindings": {"q": "zed::NoAction"}}]"#;
-        let (s, _, _, notes) = sheet_of("None", false, &[base, user]);
+                       {"context": "Pane", "bindings": {"r": "zed::NoAction", "t": ["zed::NoAction", {}]}},
+                       {"context": "  ", "bindings": {"y": null}}]"#;
+        let (s, _, bad, notes) = sheet_of("None", false, &[base, user]);
         assert!(notes.is_empty(), "{notes:?}");
-        assert!(find(&s, "q", "Editor=true").is_empty());
+        // The unbind in `Editor` leaves `Pane`'s `ctrl-q` (and `CTRL-q` is the same key).
+        assert!(find(&s, "ctrl+q", "Editor=true").is_empty());
+        assert_eq!(find(&s, "ctrl+q", "Pane=true"), ["a::A"]);
+        // By action name: `w` is bound to another action, kept.
         assert_eq!(find(&s, "w", "Editor=true"), ["b::B"]);
-        assert!(find(&s, "e", "Editor=true").is_empty() && find(&s, "e", "").is_empty());
-        assert!(find(&s, "q", "Pane=true").is_empty());
-        let mut notes = Vec::new();
-        build(
-            &[(
-                "keymap.json",
-                serde_json::from_str(r#"[{"bindings": {"q": ["a::A"]}}]"#).unwrap(),
-            )],
-            &mut notes,
-        );
+        // With no context, any context.
+        assert!(find(&s, "e", "Editor=true").is_empty());
+        // `zed::NoAction`, as a string or an array, is `null`.
+        assert!(find(&s, "r", "Pane=true").is_empty() && find(&s, "t", "Pane=true").is_empty());
+        // A context of spaces doesn't parse (counted) and isn't the no-context `y`.
+        assert_eq!((find(&s, "y", ""), bad), (vec!["g::G"], 0));
+        // An action not of Zed's shape: that binding left out (nothing removed), the rest kept, one note.
+        for bad in [
+            r#"["a::A"]"#,
+            r#"["a::A", 1, 2]"#,
+            r#"[5, {}]"#,
+            r#"["zed::Unbind", ["b::B", {}]]"#,
+            r#""zed::Unbind""#,
+            "true",
+        ] {
+            let plain = r#"[{"bindings": {"w": "b::B", "q": "c::C"}}]"#;
+            let user = format!(r#"[{{"bindings": {{"w": {bad}, "q": null, "e": "d::D"}}}}]"#);
+            let (s, _, _, notes) = sheet_of("None", false, &[plain, &user]);
+            assert_eq!(notes, ["keymap.json: leaving out 1 binding(s) whose action isn't a name, [name, args] or null"], "{bad}");
+            assert_eq!(find(&s, "w", ""), ["b::B"], "{bad}");
+            assert!(find(&s, "q", "").is_empty(), "{bad}");
+            assert_eq!(find(&s, "e", ""), ["d::D"], "{bad}");
+        }
+        let (_, _, _, notes) = sheet_of("None", false, &[r#"[{"unbind": {"q": null}}]"#]);
         assert_eq!(notes.len(), 1);
+        // Not Zed's shape at all: the whole file refused.
+        for bad in [r#"[{"bindings": []}]"#, "[1]", r#"[{"context": 5}]"#] {
+            let (_, _, _, notes) = sheet_of("None", false, &[bad]);
+            assert!(notes[0].starts_with("keymap.json isn't a list"), "{bad}");
+        }
         // An action without `::` is filed under `zed`.
         let bare = r#"[{"bindings": {"q": "NoNamespace"}}]"#;
         assert_eq!(

@@ -170,7 +170,8 @@ lists Zed's keys without running Zed: the Linux keymaps of Zed 1.25.3 built in
 default keymap, then your `base_keymap`'s (VS Code, JetBrains, Sublime Text, Atom, Emacs or Cursor; `Zed` and
 `TextMate` add none, `None` loads no defaults at all), then Zed's vim keymap when `vim_mode` or `helix_mode` is on,
 then Zed's specific overrides, then your `keymap.json` on top. A bind of yours replaces the one before it with the same key and the same context, and
-`null` removes it; an `unbind` (or `zed::Unbind`) removes the binds of that key to that action. Both files are read from `~/.config/zed/` (`$XDG_CONFIG_HOME/zed/`), or the Flatpak's
+`null` removes it; an `unbind` (or `zed::Unbind`) removes the binds of that key to that action, in its context (in
+any, with none). A binding whose action isn't Zed's shape is left out with a line, as Zed does. Both files are read from `~/.config/zed/` (`$XDG_CONFIG_HOME/zed/`), or the Flatpak's
 `~/.var/app/dev.zed.Zed/config/zed/` when the first doesn't exist; a file that doesn't parse is one line and is left
 out. Only one Zed version is built in, and Zed updates itself weekly: keys a newer Zed added or moved are missing
 until keybind-find's copy is updated. AI bindings that `disable_ai` would hide are listed.
