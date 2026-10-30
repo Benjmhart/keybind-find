@@ -7,6 +7,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Added
 
+- VS Code (and Insiders, VSCodium, Code - OSS): its default keys (1.143.1) with your installed extensions' and your `keybindings.json` on top, each `when` clause as scopes, and the file's language guessed from the window title.
 - Midnight Commander: its keys by keymap section, from mc's compiled-in defaults (4.8.33) with the system and your keymap on top, when mc, mcedit, mcview or mcdiff is in the focused terminal.
 - GNOME Terminal: its keyboard shortcuts from `gsettings`, as its preferences set them, when a GNOME Terminal window has focus (on X11, sway and Hyprland).
 - Obsidian: its command hotkeys from defaults pinned for 1.14.5 with the focused vault's `hotkeys.json` on top (the vault picked by window title), when an Obsidian window has focus.

@@ -1,0 +1,45 @@
+// Synthetic: a user's keybindings.json over VS Code's defaults.
+[
+  // Removal with a key and a `when`: commentLine's ctrl+/ goes.
+  { "key": "ctrl+/", "command": "-editor.action.commentLine", "when": "editorTextFocus&&!editorReadonly" },
+  /* Removal with a key only: showCommands' f1 goes, its ctrl+shift+p stays. */
+  { "key": "f1", "command": "-workbench.action.showCommands" },
+  // Removal with neither: every quickOpen default goes.
+  { "command": "-workbench.action.quickOpen" },
+  // A `when` other than the default's: rename's f2 stays.
+  { "key": "f2", "command": "-editor.action.rename", "when": "editorTextFocus" },
+  // An empty command: not listed.
+  { "key": "ctrl+alt+0", "command": "" },
+  // The same key and `when` as the default save (none): replaces it.
+  { "key": "ctrl+s", "command": "workbench.action.files.saveAll" },
+  // `args` in the description, and a "// not a comment" inside a string.
+  {
+    "key": "ctrl+alt+t",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "echo // hi\n" },
+    "when": "editorLangId == rust",
+  },
+  // A later rule with the same key and `when` as an earlier user rule replaces it.
+  { "key": "ctrl+alt+y", "command": "first.command" },
+  { "key": "ctrl+alt+y", "command": "second.command" },
+  // Removes an installed extension's bind.
+  { "key": "ctrl+alt+e", "command": "-sample.hello" },
+  // Replaces an installed extension's bind (same key, no `when`).
+  { "key": "ctrl+alt+r", "command": "my.run" },
+  // User binds before and after a removal of the same command with no key: it takes the default (ctrl+b) only.
+  { "key": "ctrl+alt+k", "command": "workbench.action.toggleSidebarVisibility", "when": "editorTextFocus" },
+  { "command": "-workbench.action.toggleSidebarVisibility" },
+  { "key": "ctrl+alt+m", "command": "workbench.action.toggleSidebarVisibility" },
+  // A removal key that starts a chord removes it (ctrl+k ctrl+r); a removal `when` of "true" matches any.
+  { "key": "ctrl+k", "command": "-workbench.action.keybindingsReference" },
+  { "command": "-editor.action.formatDocument", "when": "true" },
+  // A `when` keybind-find can't read: shown everywhere, counted.
+  { "key": "ctrl+alt+w", "command": "my.broken", "when": "a && (b" },
+  // A key with no command (null): the key does nothing, so its default (closeActiveEditor) goes too.
+  { "key": "ctrl+w", "command": null },
+  // A removal with an empty key: every default of the command goes.
+  { "key": "", "command": "-workbench.action.closeWindow" },
+  // No key: VS Code binds nothing, so nothing is listed or counted.
+  { "command": "my.keyless" },
+  "not a rule",
+]

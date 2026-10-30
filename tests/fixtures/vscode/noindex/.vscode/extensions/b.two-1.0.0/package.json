@@ -1,0 +1,1 @@
+{"name":"two","displayName":"Two","contributes":{"keybindings":[{"key":"ctrl+alt+2","command":"two.go"}]}}
