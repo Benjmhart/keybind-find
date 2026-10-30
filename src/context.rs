@@ -1406,10 +1406,12 @@ mod tests {
         }
         // foot's own keys, standalone and in server mode, then the program inside it.
         for class in ["foot", "footclient"] {
-            assert_eq!(
-                providers_for(Some("sway"), Some(class), Some("zsh"), &[]),
-                ["sway", "espanso", "foot", "zsh", "sheets"]
-            );
+            for wm in ["sway", "hyprland"] {
+                assert_eq!(
+                    providers_for(Some(wm), Some(class), Some("zsh"), &[]),
+                    [wm, "espanso", "foot", "zsh", "sheets"]
+                );
+            }
         }
         // kitty's own keys, in any case of its class, then the program inside it.
         for class in ["kitty", "KITTY", "Kitty"] {
@@ -1643,7 +1645,7 @@ mod tests {
                 }
             }
         }
-        // alacritty's own provider stays alacritty's; an unknown class gets nothing from inside it.
+        // alacritty's own provider stays alacritty's; a terminal with no keys of its own gets only the program inside.
         assert_eq!(
             providers_for(Some("xmonad"), Some("XTerm"), Some("nvim"), &[]),
             ["xmonad", "espanso", "nvim", "sheets"]

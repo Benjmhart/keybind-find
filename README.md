@@ -282,7 +282,9 @@ key of that action, and `action=none` removes it; a `pipe-*` command or `regex-*
 you give to an action while another still has it stays with the other, as in foot, which says so when it starts;
 keybind-find says so in one line too. Left out and counted in one line: a modifier other than `Control`, `Shift`,
 `Mod1`/`Alt` and `Mod4`/`Super`, a key name that isn't shaped like an X keysym (names aren't looked up), and a line foot
-would refuse. An include cycle, or includes nested deeper than 8, stops with a note.
+would refuse. An include cycle, or includes nested deeper than 8, stops with a note, as does a section name foot
+doesn't know. Not seen: a config given with `foot -c` (or to `foot --server`), `-o` overrides, and a foot started
+with another `--app-id` or `app-id=`, which isn't recognised as foot.
 
 foot is Wayland-only, so its window is read under sway and Hyprland. A standalone foot runs one shell per window and
 the program inside is found as in any terminal; `foot --server` serves every `footclient` window from one process, and

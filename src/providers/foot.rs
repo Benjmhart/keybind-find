@@ -21,7 +21,31 @@ const REGISTRY: &[(&str, &str)] = &[(
 
 const VERSION_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// How deep `include=` may nest before reading stops.
+/// Every section foot knows (`config.c` `section_info`); only `regex` takes a `:name` suffix.
+const FOOT_SECTIONS: [&str; 20] = [
+    "main",
+    "security",
+    "bell",
+    "desktop-notifications",
+    "scrollback",
+    "url",
+    "regex",
+    "colors-dark",
+    "colors-light",
+    "cursor",
+    "mouse",
+    "csd",
+    "key-bindings",
+    "search-bindings",
+    "url-bindings",
+    "mouse-bindings",
+    "text-bindings",
+    "environment",
+    "tweak",
+    "touch",
+];
+
+/// How deep `include=` may nest before reading stops (foot itself has no limit).
 const MAX_DEPTH: usize = 8;
 
 /// The binding sections read, the section their bindings live in (foot keeps `[text-bindings]` with the key
@@ -121,11 +145,12 @@ fn candidates(env: Env) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The first `foot.ini` foot would open. Only that one is read (with its includes).
+/// The first `foot.ini` that opens, as foot takes it (a directory too: its read then fails, with a note). Only that one
+/// is read (with its includes).
 fn config_file(env: Env) -> Option<PathBuf> {
     candidates(env)
         .into_iter()
-        .find(|p| std::fs::File::open(p).is_ok_and(|f| f.metadata().is_ok_and(|m| m.is_file())))
+        .find(|p| std::fs::File::open(p).is_ok())
 }
 
 /// The sheet from `defaults` with `root` (and what it includes) applied, and the notes for stderr. `home` expands an
@@ -214,7 +239,9 @@ fn parse(defaults: &Pinned, root: Option<&Path>, home: Option<&Path>) -> (Sheet,
 /// foot's own rule after reading the config (`resolve_key_binding_collisions`): a combo already bound to another
 /// action (or another command or text) earlier in the list keeps that binding, and the later one is dropped with an
 /// error. The user's lines come after the defaults they don't replace, so a default wins over them.
-// ponytail: keys compared by name, as written; foot compares keysyms, so aliases (`Prior`/`Page_Up`) aren't seen as one.
+// ponytail: keys, modifiers, commands and texts compared as written; foot compares keysyms, modifier names,
+// tokenized commands and decoded bytes, so aliases (`Prior`/`Page_Up`, `Mod1`/`Alt`), `\x1B`/`\x1b` and `C` against
+// `Shift+c` (which foot doesn't see as one either, yet both are listed as `shift+c`) aren't seen as one.
 fn resolve_collisions(section: &str, list: &mut Vec<Binding>) -> Vec<String> {
     let mut notes = Vec::new();
     let mut i = 1;
@@ -260,7 +287,8 @@ fn combo_text(b: &Binding) -> String {
 // ponytail: no keysym table; a single letter or digit, or a letter then letters, digits and `_`, passes as a keysym.
 fn combo(action: &str, aux: Option<&str>, combo: &str, text: bool) -> Option<Binding> {
     let (mods, key) = combo.rsplit_once('+').unwrap_or(("", combo));
-    let mut mods: Vec<String> = if mods == "none" {
+    // foot's `parse_modifiers` takes any prefix of `none` (`strncmp(text, "none", len)`) as no modifiers.
+    let mut mods: Vec<String> = if !mods.is_empty() && "none".starts_with(mods) {
         Vec::new()
     } else {
         mods.split('+')
@@ -332,7 +360,7 @@ impl Reader<'_> {
         }
         if self.open.len() > MAX_DEPTH {
             self.notes.push(format!(
-                "{}: includes nest deeper than {MAX_DEPTH}; not read",
+                "{}: includes nest deeper than keybind-find reads ({MAX_DEPTH}); not read",
                 path.display()
             ));
             return;
@@ -360,15 +388,25 @@ impl Reader<'_> {
                 .map_or(line.len(), |(i, _)| i);
             let line = line[..cut].trim_end();
             if let Some(name) = line.strip_prefix('[') {
-                section = name
-                    .strip_suffix(']')
-                    .filter(|n| !n.contains(']'))
-                    .and_then(|n| {
-                        ["main"]
-                            .into_iter()
-                            .chain(SECTIONS.iter().map(|(s, _, _)| *s))
-                            .find(|s| *s == n)
-                    });
+                let name = name.strip_suffix(']').filter(|n| !n.contains(']'));
+                section = name.and_then(|n| {
+                    ["main"]
+                        .into_iter()
+                        .chain(SECTIONS.iter().map(|(s, _, _)| *s))
+                        .find(|s| *s == n)
+                });
+                // Another of foot's sections isn't read; a name foot doesn't know (a typo) is noted.
+                let foot_section = name.is_some_and(|n| {
+                    FOOT_SECTIONS.contains(&n)
+                        || n.strip_prefix("regex:").is_some_and(|s| !s.is_empty())
+                });
+                if !foot_section {
+                    self.notes.push(format!(
+                        "{}: [{}] isn't a foot section; its lines aren't read",
+                        path.display(),
+                        name.unwrap_or(line)
+                    ));
+                }
                 continue;
             }
             let Some(section) = section else {
@@ -631,9 +669,67 @@ mod tests {
         );
         // Mod3+x replaced unicode-input's default: listed nowhere.
         assert!(keys(&s, "foot", "unicode-input").is_empty());
-        // The refused line left prompt-prev's default as it was.
+        // The refused line (its first combo valid) left prompt-prev's default as it was.
         assert_eq!(keys(&s, "foot", "prompt-prev"), ["ctrl+shift+z"]);
         assert_eq!(notes.len(), 3, "{notes:?}");
+    }
+
+    /// A foot.ini of `text`, parsed over the defaults.
+    fn parse_text(name: &str, text: &str) -> (Sheet, Vec<String>) {
+        let dir = std::env::temp_dir().join(format!("kbf-foot-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("foot.ini"), text).unwrap();
+        let got = parse(&pinned(), Some(&dir.join("foot.ini")), None);
+        let _ = std::fs::remove_dir_all(&dir);
+        got
+    }
+
+    #[test]
+    fn collisions_as_foot_resolves_them() {
+        let (s, notes) = parse_text(
+            "collide",
+            "[key-bindings]\n\
+             minimize=Control+Shift+F2\n\
+             maximize=Shift+Control+F2\n\
+             quit=n+x\n\
+             [text-bindings]\n\
+             abc=Control+Shift+c\n\
+             [url-bindings]\n\
+             cancel=None\n\
+             [key-binding]\n\
+             fullscreen=F11\n",
+        );
+        // Two of the user's lines: the earlier keeps the combo, modifier order aside.
+        assert_eq!(keys(&s, "foot", "minimize"), ["ctrl+shift+F2"]);
+        assert!(keys(&s, "foot", "maximize").is_empty());
+        // A text binding shares the key bindings' list: the default keeps its combo.
+        assert!(rows(&s, "text").is_empty());
+        assert_eq!(
+            keys(&s, "foot", "clipboard-copy"),
+            ["ctrl+shift+c", "XF86Copy"]
+        );
+        // Any prefix of `none` is no modifiers; `None` in any case removes.
+        assert_eq!(keys(&s, "foot", "quit"), ["x"]);
+        assert!(keys(&s, "url", "cancel").is_empty());
+        // A section name foot doesn't know is noted, and not read.
+        assert!(keys(&s, "foot", "fullscreen").is_empty());
+        assert_eq!(notes.len(), 3, "{notes:?}");
+        assert!(notes[0]
+            .ends_with("foot.ini: [key-binding] isn't a foot section; its lines aren't read"));
+        assert_eq!(
+            notes[1],
+            "[key-bindings] maximize: Control+Shift+F2 is already mapped to minimize; foot keeps that"
+        );
+        assert_eq!(
+            notes[2],
+            "[key-bindings] text abc: Control+Shift+c is already mapped to clipboard-copy; foot keeps that"
+        );
+        // foot's other sections and `[regex:name]` aren't noted.
+        let (_, notes) = parse_text(
+            "sections",
+            "[colors-dark]\nx=y\n[regex:hashes]\nregex=x\n[mouse-bindings]\n",
+        );
+        assert!(notes.is_empty(), "{notes:?}");
     }
 
     #[test]
@@ -645,9 +741,14 @@ mod tests {
             std::fs::write(
                 tmp.join(format!("{i}.ini")),
                 format!(
-                    "include={}\n[key-bindings]\nquit=Control+F{}\n",
+                    "include={}\n[key-bindings]\nquit=Control+F{}\n{}",
                     tmp.join(format!("{}.ini", i + 1)).display(),
-                    i + 1
+                    i + 1,
+                    match i {
+                        8 => "maximize=Control+F28\n",
+                        9 => "minimize=Control+F29\n",
+                        _ => "",
+                    }
                 ),
             )
             .unwrap();
@@ -656,8 +757,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
         // Files 0-8 are read (each sets quit; the outermost, read last, wins); 9 is too deep.
         assert_eq!(keys(&s, "foot", "quit"), ["ctrl+F1"]);
+        assert_eq!(keys(&s, "foot", "maximize"), ["ctrl+F28"]);
+        assert!(keys(&s, "foot", "minimize").is_empty());
+        assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(
-            notes[0].ends_with("9.ini: includes nest deeper than 8; not read"),
+            notes[0].ends_with("9.ini: includes nest deeper than keybind-find reads (8); not read"),
             "{notes:?}"
         );
         // A relative include, a missing one and `~/` without HOME: notes.
@@ -723,9 +827,31 @@ mod tests {
             _ => None,
         };
         assert_eq!(config_file(&e), Some(dirs.join("foot/foot.ini")));
-        let h = home.join(".config").display().to_string();
-        let e = move |k: &str| (k == "XDG_CONFIG_HOME").then(|| h.clone());
+        // Both exist: XDG_CONFIG_HOME's.
+        let (h, d) = (
+            home.join(".config").display().to_string(),
+            dirs.display().to_string(),
+        );
+        let e = move |k: &str| match k {
+            "XDG_CONFIG_HOME" => Some(h.clone()),
+            "XDG_CONFIG_DIRS" => Some(d.clone()),
+            _ => None,
+        };
         assert_eq!(config_file(&e), Some(home.join(".config/foot/foot.ini")));
+        // A directory named foot.ini opens, as foot takes it: the search stops there and the read fails, with a note.
+        let tmp = std::env::temp_dir().join(format!("kbf-foot-dirini-{}", std::process::id()));
+        std::fs::create_dir_all(tmp.join("foot/foot.ini")).unwrap();
+        let (t, d) = (tmp.display().to_string(), dirs.display().to_string());
+        let e = move |k: &str| match k {
+            "XDG_CONFIG_HOME" => Some(t.clone()),
+            "XDG_CONFIG_DIRS" => Some(d.clone()),
+            _ => None,
+        };
+        let found = config_file(&e);
+        let (_, notes) = parse(&pinned(), found.as_deref(), None);
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert_eq!(found, Some(tmp.join("foot/foot.ini")));
+        assert_eq!(notes.len(), 1, "{notes:?}");
     }
 
     #[test]
@@ -809,5 +935,9 @@ mod tests {
         };
         let text = String::from_utf8_lossy(&out.stdout);
         assert!(version_of(&text).is_some(), "{text}");
+        // The provider's own run of it, with no foot.ini.
+        let none = |_: &str| None;
+        let (s, _) = sheet_with(REGISTRY, |_| {}, &none).unwrap();
+        assert!(!s.binds["foot"].is_empty());
     }
 }
