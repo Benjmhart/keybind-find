@@ -124,9 +124,10 @@ Obsidian isn't run, so its version isn't checked and every version gets these), 
 `.obsidian/hotkeys.json` on top, as Obsidian uses it: a command you gave hotkeys has only yours, and one you cleared has
 none. Your vaults are listed in `obsidian.json`, the first found of `$XDG_CONFIG_HOME/obsidian` (else
 `~/.config/obsidian`, as for the AppImage), the Flatpak's `~/.var/app/md.obsidian.Obsidian/config/obsidian` and the
-Snap's `~/snap/obsidian/current/.config/obsidian`. The window title (`<note> - <vault> - Obsidian <version>`) names
+Snap's `~/snap/obsidian/current/.config/obsidian` (the first found is used, even when it is an older install's). The window title (`<note> - <vault> - Obsidian <version>`) names
 the vault; with one vault it is that one, and with several and a title that names none (a pop-out window) you get the
-defaults and a one-line note. A plugin's hotkey is listed under the plugin's id, described by its command id.
+defaults and a one-line note, as you do when two vaults share that folder name. A plugin's hotkey is listed under the
+plugin's id; it, and a command with no default hotkey that you gave one, are described by their command id.
 Only the `.obsidian` config folder is read (a vault set to another config folder keeps that inside Obsidian), and the
 editor's own keys (CodeMirror's, not commands) aren't listed.
 

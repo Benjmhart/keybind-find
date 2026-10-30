@@ -130,25 +130,42 @@ fn vault(title: Option<&str>, env: Env, notes: &mut Vec<String>) -> Option<PathB
 }
 
 /// The vault a window title names: `<vault> - Obsidian <version>`, or `<note> - <vault> - Obsidian <version>`, by
-/// the vault folder's name. The longest name wins when two match (vaults `Notes` and `My Notes`).
+/// the vault folder's name. The longest name wins when two match (vaults `Work` and `a - Work`, title
+/// `a - Work - Obsidian …`); two vaults with that same name are no answer.
 fn by_title<'a>(title: &str, paths: &'a [PathBuf]) -> Option<&'a PathBuf> {
     let (head, version) = title.rsplit_once(" - Obsidian ")?;
     if !version.starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }
-    paths
+    let named: Vec<(&PathBuf, &str)> = paths
         .iter()
         .filter_map(|p| Some((p, p.file_name()?.to_str()?)))
         .filter(|(_, name)| {
             head == *name || head.strip_suffix(name).is_some_and(|h| h.ends_with(" - "))
         })
-        .max_by_key(|(_, name)| name.len())
-        .map(|(p, _)| p)
+        .collect();
+    let longest = named.iter().map(|(_, name)| name.len()).max()?;
+    match named
+        .iter()
+        .filter(|(_, n)| n.len() == longest)
+        .collect::<Vec<_>>()[..]
+    {
+        [(p, _)] => Some(p),
+        _ => None,
+    }
 }
 
 /// `<vault>/.obsidian/hotkeys.json`: command id → its custom hotkeys. None there is none; a vault that is gone, or a
 /// file that can't be read or parsed, is a note and none.
 fn custom_hotkeys(vault: &Path, notes: &mut Vec<String>) -> BTreeMap<String, Vec<Hotkey>> {
+    // Obsidian writes absolute paths; a relative one would be read from keybind-find's own directory.
+    if !vault.is_absolute() {
+        notes.push(format!(
+            "vault {}: not an absolute path; listing the defaults",
+            vault.display()
+        ));
+        return BTreeMap::new();
+    }
     if let Err(e) = std::fs::read_dir(vault) {
         notes.push(format!(
             "vault {}: {e}; listing the defaults",
@@ -172,6 +189,7 @@ fn custom_hotkeys(vault: &Path, notes: &mut Vec<String>) -> BTreeMap<String, Vec
 /// The sheet: each pinned command with its default hotkeys, or its `custom` ones when it has an entry there (even
 /// an empty one, as in Obsidian); ids only in `custom` (a plugin's) are described by their id. Category is the id's
 /// prefix. Also the number of hotkeys left out because a key or modifier has no name here.
+// ponytail: core commands with no default hotkey aren't pinned, so one bound in `custom` is described by its id too.
 fn parse(pinned: &Pinned, custom: &BTreeMap<String, Vec<Hotkey>>) -> (Sheet, usize) {
     let mut sheet = Sheet {
         // The defaults' release: the installed one may differ (there's no version probe).
@@ -352,6 +370,16 @@ mod tests {
             (&[], " ", Some("space")),
             (&[], "PageUp", Some("Prior")),
             (&[], "Backspace", Some("BackSpace")),
+            (&[], "ArrowRight", Some("Right")),
+            (&[], "ArrowUp", Some("Up")),
+            (&[], "ArrowDown", Some("Down")),
+            (&[], "PageDown", Some("Next")),
+            (&["Ctrl"], "Tab", Some("ctrl+Tab")),
+            (&[], "Escape", Some("Escape")),
+            (&[], "Delete", Some("Delete")),
+            (&[], "Home", Some("Home")),
+            (&[], "End", Some("End")),
+            (&["Mod"], "7", Some("ctrl+7")),
             (&[], "F25", None),
             (&[], "F02", None),
             (&[], "MediaPlayPause", None),
@@ -386,6 +414,15 @@ mod tests {
         assert_eq!(pick("Work - Obsidian 1.14.4", &work), at_work);
         // A note named `a - Work` in vault `Work`.
         assert_eq!(pick("a - Work - Work - Obsidian 1.14.4", &work), at_work);
+        // Vaults `Work` and `a - Work` both match: the longest name wins.
+        let both_work = [PathBuf::from("/v/Work"), PathBuf::from("/v/a - Work")];
+        assert_eq!(
+            pick("a - Work - Obsidian 1.14.4", &both_work),
+            Some(both_work[1].clone())
+        );
+        // Two vaults with the same name: no answer.
+        let twins = [PathBuf::from("/a/Work"), PathBuf::from("/b/Work")];
+        assert_eq!(pick("Note - Work - Obsidian 1.14.4", &twins), None);
         // Not a vault name: a suffix inside a word, a pop-out's `Obsidian`, no version.
         for title in [
             "Homework - Obsidian 1.14.4",
@@ -426,8 +463,12 @@ mod tests {
         );
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(vault(Some("Obsidian"), &env, &mut notes), None);
-        assert_eq!(notes.len(), 1);
-        assert!(notes[0].contains("no vault"), "{notes:?}");
+        assert_eq!(vault(None, &env, &mut notes), None);
+        assert_eq!(notes.len(), 2);
+        assert!(
+            notes.iter().all(|n| n.starts_with("no vault in ")),
+            "{notes:?}"
+        );
         // No list, or an empty one: none, no note.
         notes.clear();
         assert_eq!(vault(None, &env_for(dir.join("none")), &mut notes), None);
@@ -440,6 +481,10 @@ mod tests {
         std::fs::write(dir.join("bad/obsidian/obsidian.json"), "{").unwrap();
         assert_eq!(vault(None, &env_for(dir.join("bad")), &mut notes), None);
         assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].contains("bad/obsidian/obsidian.json: "),
+            "{notes:?}"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -505,10 +550,13 @@ mod tests {
         );
         // A core command without a default: also its id; a key with no name is counted.
         assert_eq!(keys(&sheet, "editor:toggle-strikethrough"), ["alt+Up"]);
+        let strike = &sheet.binds["editor"];
+        let strike = strike.iter().find(|b| b.key == "alt+Up").unwrap();
+        assert_eq!(strike.desc, "editor:toggle-strikethrough");
         assert_eq!(left_out, 1);
         // The rest are the defaults.
         assert_eq!(keys(&sheet, "command-palette:open"), ["ctrl+p"]);
-        // 43 defaults, less `workspace:close`, plus the plugin's and strikethrough's.
+        // The 43 default hotkeys (41 commands), less `workspace:close`'s, plus the plugin's and strikethrough's.
         let total: usize = sheet.binds.values().map(Vec::len).sum();
         assert_eq!(total, 44);
     }
@@ -520,14 +568,30 @@ mod tests {
         // No `.obsidian/hotkeys.json`: no custom hotkeys, no note.
         assert!(custom_hotkeys(&fixtures().join("vaults/Plain"), &mut notes).is_empty());
         assert!(notes.is_empty(), "{notes:?}");
-        // Malformed, or the vault is gone: a note each, and the defaults.
-        assert!(custom_hotkeys(&fixtures().join("vaults/Broken"), &mut notes).is_empty());
-        assert!(custom_hotkeys(&fixtures().join("vaults/Gone"), &mut notes).is_empty());
-        assert_eq!(notes.len(), 2, "{notes:?}");
+        // Malformed, the vault gone, a relative path, a `hotkeys.json` that can't be read (a dir): a note each, and
+        // the defaults.
+        let unreadable = scratch("unreadable");
+        std::fs::create_dir_all(unreadable.join(".obsidian/hotkeys.json")).unwrap();
+        for vault in [
+            fixtures().join("vaults/Broken"),
+            fixtures().join("vaults/Gone"),
+            PathBuf::from("tests/fixtures/obsidian/vaults/Work"),
+            unreadable.clone(),
+        ] {
+            assert!(custom_hotkeys(&vault, &mut notes).is_empty(), "{vault:?}");
+        }
+        std::fs::remove_dir_all(&unreadable).unwrap();
+        assert_eq!(notes.len(), 4, "{notes:?}");
         assert!(
-            notes[0].contains("hotkeys.json") && notes[1].contains("vault "),
+            notes[0].contains("Broken/.obsidian/hotkeys.json: "),
             "{notes:?}"
         );
+        assert!(
+            notes[1].starts_with("vault ") && notes[1].contains("Gone: "),
+            "{notes:?}"
+        );
+        assert!(notes[2].contains("not an absolute path"), "{notes:?}");
+        assert!(notes[3].contains("unreadable"), "{notes:?}");
         // End to end: the title picks the vault, its file is laid over; a malformed pinned file is an error.
         let dir = scratch("e2e");
         let work = fixtures().join("vaults/Work");
@@ -540,10 +604,23 @@ mod tests {
         let (sheet, notes) =
             sheet_with(PINNED, Some("Note - Work - Obsidian 1.14.5"), &env).unwrap();
         assert_eq!(keys(&sheet, "editor:toggle-bold"), ["ctrl+shift+b"]);
-        assert_eq!(notes.len(), 1, "the left-out count: {notes:?}");
+        assert_eq!(
+            notes,
+            ["1 hotkey(s) left out: a key or modifier keybind-find can't name"]
+        );
+        // The title picks the malformed vault: its note, and the defaults.
+        let (sheet, notes) = sheet_with(PINNED, Some("Broken - Obsidian 1.14.5"), &env).unwrap();
+        assert_eq!(sheet.binds, defaults.binds);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].contains("Broken/.obsidian/hotkeys.json: "),
+            "{notes:?}"
+        );
+        // No vault named: the no-match note, and the defaults.
         let (sheet, notes) = sheet_with(PINNED, Some("Obsidian"), &env).unwrap();
         assert_eq!(sheet.binds, defaults.binds);
         assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].starts_with("no vault in "), "{notes:?}");
         assert!(sheet_with("command = 1", None, &env).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
