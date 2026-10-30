@@ -59,10 +59,12 @@ binding with its scope, and never filter by guessing where the user is: keybind-
 its *facts* (such as nvim's `mode`). It hides a binding only when one of its scopes is a fact whose value isn't among
 the scope's values. Every other scope stays visible as a tag after the description, `[mode=insert]` or
 `[filetype=rust,toml]`, and a scope that matches a fact isn't tagged. A scope keybind-find has no fact for never hides
-anything. Today the facts come from nvim and VS Code. When Super+/ is pressed over a running nvim, keybind-find asks
+anything. Today the facts come from nvim, Emacs and VS Code. When Super+/ is pressed over a running nvim, keybind-find asks
 it for its `mode` (`normal`, `visual`, `insert`, `o` for operator-pending, `c` for the command line, `t` for the
 terminal) and the buffer's `filetype`. The current buffer's own maps carry `buffer=current`, which stays a tag. With
-no running nvim (`keybind-find dump nvim` from a shell), there are no facts and every scope shows as a tag. In a VS
+no running nvim (`keybind-find dump nvim` from a shell), there are no facts and every scope shows as a tag. Over a
+running Emacs with a server, the facts are the buffer's `major-mode` (`emacs-lisp-mode`) and, with evil, its state as
+`mode` (`normal`, `insert`, `visual`, …); with no server there are none. In a VS
 Code window the facts are the file's `extension` (`rs`) and its VS Code language as `filetype` (`rust`), so binds
 whose `when` names another `editorLangId` are hidden. With keybind-find's VS Code extension installed (README, VS
 Code) they are VS Code's own, for the focused window's active editor, and with no editor open there are none;

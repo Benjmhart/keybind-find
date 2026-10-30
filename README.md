@@ -28,6 +28,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | foot | its default key, search and URL bindings for its version (1.28.0 built in) with your `foot.ini` on top, and its text bindings | none ([below](#foot)) |
 | GNOME Terminal | its keyboard shortcuts as its preferences set them, from `gsettings` (not on GNOME under Wayland, where the window isn't read) | `gsettings` ([below](#gnome-terminal)) |
 | nvim | your maps from a headless nvim with your config, with each map's `desc` | none |
+| Emacs | the keys active in the buffer you are in, from the running Emacs over its server, with its major mode and evil state; with no server, the global map (and evil's) of your init file from `emacs --batch` | `server-start` in your init, or `emacs --daemon`, for the live read ([below](#emacs)) |
 | vim | your maps (`:map`, `:map!`, `:tmap`, `:lmap`) from a headless vim with your vimrc; not vim's built-in keys | none; it runs your vimrc ([below](#vim)) |
 | nano | its main-menu keys: nano's defaults for its version (7.2, 8.4 and 9.2 built in) with your nanorc's `bind`/`unbind` on top | none ([below](#nano)) |
 | micro | its keys: micro's defaults for its version (2.0.11, 2.0.14 and 2.0.15 built in) with your `bindings.json` on top | none ([below](#micro)) |
@@ -49,7 +50,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | espanso | `espanso match list`; picking a match types its trigger | none |
 | anything else | a sheet you write, or a script that prints one | [docs/sheets.md](docs/sheets.md) |
 
-nvim, vim, nano, micro, mc (and mcedit, mcview, mcdiff), yazi, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
+nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
 sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
@@ -209,6 +210,31 @@ replace that with an empty one.
 
 There is no dmenu sheet: dmenu grabs the keyboard and is never the focused window, so `Super+/` can't open over it
 and a picked key couldn't reach it.
+
+### Emacs
+
+Over Emacs in a terminal (`emacs`, `emacs-nox`, `emacs-gtk`, `emacs-lucid`, `emacs-pgtk`, or `emacsclient -t`), or an
+Emacs window (class or Wayland app id `emacs`), keybind-find asks the running Emacs over its server socket
+(`emacsclient --eval`, 2 seconds) for the keys active in the selected window's buffer: every keymap Emacs would look a
+key up in, in its order (minor modes, the major mode's map, the global map), each key once, as the one that runs.
+Global keys carry no tag; the major mode's carry `major-mode=<mode>`, and those of minor modes and other maps
+`buffer=current`. The buffer's major mode (`major-mode`) and, with evil on in it, its state (`mode`: `normal`,
+`insert`, `visual`, …) are facts, so the keys of another major mode or evil state are hidden. The socket is found from
+the command line (`--daemon=NAME`, `--fg-daemon=NAME`, emacsclient's `-s NAME`) or among the sockets in Emacs's server
+directory (`$XDG_RUNTIME_DIR/emacs`, else `/tmp/emacs<uid>`); an Emacs with no server (no `(server-start)` in your
+init) is read as below without a note, and a server that doesn't answer is one line. A TCP server
+(`server-use-tcp`) isn't asked. `ALTERNATE_EDITOR` is removed for this, so no daemon is ever started.
+
+With no server to ask (or `keybind-find dump emacs` from a shell), keybind-find runs `emacs --batch` with your init
+(`early-init.el`, your installed packages, then `~/.emacs`, `~/.emacs.el` or `init.el` in `~/.emacs.d` or
+`~/.config/emacs`) on every `Super+/`, and lists the global map and, when your init loads evil, evil's normal, insert,
+visual and motion state maps (tagged `mode=<state>`); buffer and mode keys need the running Emacs. Your init runs as at
+any start but with `server-start` turned off and `kill-emacs-hook` cleared, so it can't touch a running Emacs or write
+recentf, savehist or desktop files; it gets 10 seconds, and an error in it is one line, with the keys it set up before
+that listed. Doom Emacs and Spacemacs need their own startup: their init isn't loaded, and only Emacs's own global map
+is listed, with one line saying so. Mouse, menu and tool-bar entries, `remap`s, keyboard macros and lambdas aren't
+listed, and keys keybind-find can't send (hyper or `A-` modifiers, a key with no X keysym such as `<again>`) are left
+out with a count.
 
 ### vim
 
