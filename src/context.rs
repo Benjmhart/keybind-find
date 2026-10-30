@@ -3203,9 +3203,8 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
 
     #[test]
     fn gnome_terminal_cannot_name_its_focused_tab() {
-        // A stand-in `/proc`: one gnome-terminal-server whose thread has two shells. Neither class can name the
-        // focused one (no arm in `focused_child`, unlike kitty), so `foreground` reports several children, with no
-        // hint, and `settle` warns and keeps gnome-terminal's own keys.
+        // A stand-in `/proc`: one gnome-terminal-server whose thread has two shells. `foreground` reports several
+        // children with no hint (kitty's arm would add one), and `settle` warns and keeps gnome-terminal's own keys.
         let proc =
             std::env::temp_dir().join(format!("kbf-gnome-terminal-proc-{}", std::process::id()));
         std::fs::create_dir_all(proc.join("100/task/100")).unwrap();

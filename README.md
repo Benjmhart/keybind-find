@@ -314,8 +314,8 @@ the program inside.
 In a GNOME Terminal window (class `Gnome-terminal` on X11, app id `org.gnome.Terminal` under sway and Hyprland),
 keybind-find lists its keyboard shortcuts, read with `gsettings list-recursively org.gnome.Terminal.Legacy.Settings`:
 your changes from Preferences → Shortcuts over the installed defaults. Shortcuts set to disabled aren't listed, and
-when shortcuts are turned off altogether the list has none of them and a one-line note says so. Not listed: keys that
-aren't settings (the terminal widget's own, such as `shift+Page_Up` scrolling, and F10 for the menu). On GNOME under
+when shortcuts are turned off altogether the list has none of them and a one-line note says so. Not listed: the
+terminal widget's own keys (such as `shift+Page_Up` scrolling), and F10 for the menu (an on/off setting, not a key). On GNOME under
 Wayland the focused window can't be read, so GNOME Terminal's keys aren't shown there. One `gnome-terminal-server` runs
 every window and tab and can't say which is focused, so with more than one tab or window open you get the one-line
 warning and GNOME Terminal's own keys, without the program inside; with a single tab the program inside is found as

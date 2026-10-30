@@ -1,4 +1,5 @@
 org.gnome.Terminal.Legacy.Settings shortcuts-enabled true
+org.gnome.Terminal.Legacy.Settings menu-accelerator-enabled true
 org.gnome.Terminal.Legacy.Keybindings close-tab '<Control><Shift>w'
 org.gnome.Terminal.Legacy.Keybindings close-window '<Control><Shift>q'
 org.gnome.Terminal.Legacy.Keybindings copy ''

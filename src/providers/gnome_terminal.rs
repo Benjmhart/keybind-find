@@ -131,6 +131,7 @@ mod tests {
         let text = std::fs::read_to_string(fixture("list-default.txt")).unwrap();
         let (s, notes) = parse(&text);
         assert_eq!(s.title, "gnome-terminal");
+        assert_eq!(s.provider, "gnome-terminal");
         assert!(notes.is_empty(), "{notes:?}");
         let rows = rows(&s);
         for want in [
