@@ -21,6 +21,7 @@ mod mc;
 mod micro;
 mod mpv;
 mod nano;
+mod ncmpcpp;
 mod nvim;
 mod obsidian;
 mod pinned;
@@ -80,6 +81,7 @@ pub const KNOWN: &[&str] = &[
     "vscode",
     "emacs",
     "zed",
+    "ncmpcpp",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -116,6 +118,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "obsidian" => obsidian::sheet(ctx),
         "emacs" => emacs::sheet(ctx),
         "zed" => zed::sheet(ctx),
+        "ncmpcpp" => ncmpcpp::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",

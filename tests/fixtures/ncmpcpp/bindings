@@ -1,0 +1,33 @@
+# A synthetic ncmpcpp bindings file for keybind-find's tests.
+
+# Replaces the default `p` (pause).
+def_key "p"
+  play
+
+# A chain: one alternative of two actions.
+def_key "ctrl-r"
+  select_item
+  scroll_down
+
+# Two blocks for one key: alternatives, in order.
+def_key "x"
+  toggle_output
+def_key "x"
+  run_external_command "echo hi"
+
+# Disabled: left out.
+def_key "s"
+  dummy
+
+# A command, not a key: skipped.
+def_command "save" [deferred]
+  save_playlist
+
+def_key "alt-l"
+  show_lyrics
+
+# ncmpcpp stops here: an invalid key.
+def_key "bogus"
+  quit
+def_key "z"
+  quit
