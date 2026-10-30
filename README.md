@@ -27,6 +27,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | nvim | your maps from a headless nvim with your config, with each map's `desc` | none |
 | vim | your maps (`:map`, `:map!`, `:tmap`, `:lmap`) from a headless vim with your vimrc; not vim's built-in keys | none; it runs your vimrc ([below](#vim)) |
 | nano | its main-menu keys: nano's defaults for its version (7.2, 8.4 and 9.2 built in) with your nanorc's `bind`/`unbind` on top | none ([below](#nano)) |
+| micro | its keys: micro's defaults for its version (2.0.11, 2.0.14 and 2.0.15 built in) with your `bindings.json` on top | none ([below](#micro)) |
 | yazi | its keys: yazi's default keymap for its version (25.4.8, 25.5.31 and 26.9.1 built in) with your `keymap.toml` merged in | none ([below](#yazi)) |
 | herdr | herdr's defaults for its version, your `config.toml` and plugin commands | none |
 | tmux | the running server's `list-keys`, so your prefix and bindings, with each key's note | none |
@@ -41,7 +42,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | espanso | `espanso match list`; picking a match types its trigger | none |
 | anything else | a sheet you write, or a script that prints one | [docs/sheets.md](docs/sheets.md) |
 
-nvim, vim, nano, yazi, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
+nvim, vim, nano, micro, yazi, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
 sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
@@ -158,6 +159,21 @@ other menus are not listed. `include` lines are checked (a missing file is a one
 syntax definitions from included files, so they change no key. The defaults are a normal build's with no options:
 `--modernbindings`, `--rcfile` and the like aren't read, rnano is shown with nano's keys, and a nano built with
 another system nanorc than `/etc/nanorc` has that file's binds missed.
+
+### micro
+
+Over micro in a terminal, keybind-find lists micro's keys by pane type (`buffer`, `command`, `terminal`): the Linux
+defaults of your micro's version (from `micro -version`; 2.0.11, 2.0.14 and 2.0.15 are built in, generated from micro's
+source at each tag; another version uses the nearest older one of the same major version (else a newer one of it), else
+the nearest older, else the oldest, and says so) with your `bindings.json` on top, as micro reads it: from
+`$MICRO_CONFIG_HOME`, else `$XDG_CONFIG_HOME/micro`, else `~/.config/micro`; comments and trailing commas allowed (other
+JSON5, such as single quotes, isn't); a top-level `"key": "action"` binds in `buffer`, an object named after a pane
+binds there, and `"None"` unbinds. Two spellings of one key replace each other as in micro (`CtrlS` and `Ctrl-s`); keys
+micro tells apart stay apart, even where the terminal sends the same thing (`Ctrl-m` and `Enter`). Each key shows its
+action as written (`Copy|CopyLine`, `command:pwd`). A `bindings.json` that doesn't parse is one line, and micro's
+defaults are shown; mouse keys, raw escapes, keys micro or keybind-find can't read and values that aren't strings are
+left out, counted in one line. Not read: keys bound by Lua plugins (unless written to `bindings.json`), and a config dir
+given with `-config-dir`.
 
 ### yazi
 

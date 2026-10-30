@@ -1,0 +1,20 @@
+// Synthetic: bindings.json as micro reads it (JSON5: comments, trailing commas).
+{
+    "Ctrl-z": "Undo|Redo", // a top-level binding replaces a buffer default
+    "CtrlS": "SaveAll", /* "Ctrl-s" spelled another way */
+    "Ctrl-a": "None",
+    "Ctrl-m": "command:pwd",
+    "Alt-G": "lua:foo.bar",
+    "<Ctrl-x><Ctrl-c>": "Save,Quit",
+    "MouseLeft": "MousePress",
+    "\u001bctrlback": "DeleteWordLeft",
+    "Nonsense": "Quit",
+    "F40": "Quit",
+    "Ctrl-q": 5,
+    "command": {
+        "Ctrl-w": "WordLeft", // in command only
+        "http://x": "Quit",
+        "Ctrl-e": true,
+    },
+    "bogus": {"Ctrl-b": "Quit"},
+}
