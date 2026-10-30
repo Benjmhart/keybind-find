@@ -21,18 +21,24 @@ function state({ pid, focused, time, appName, document }) {
 
 let file;
 
-function write(vscode) {
+/**
+ * Writes the window's state file. `opened` is a document just (re)opened: a language change reopens the document, and
+ * the event comes before the active editor holds the new one, so that one is taken when it is the active editor's.
+ */
+function write(vscode, opened) {
   const run = process.env.XDG_RUNTIME_DIR;
   if (!run) return;
   const dir = path.join(run, 'keybind-find', 'vscode');
   file = path.join(dir, `${process.pid}.json`);
   const editor = vscode.window.activeTextEditor;
+  let document = editor && editor.document;
+  if (document && opened && opened.uri.toString() === document.uri.toString()) document = opened;
   const s = state({
     pid: process.pid,
     focused: vscode.window.state.focused,
     time: Date.now(),
     appName: vscode.env.appName,
-    document: editor && editor.document,
+    document,
   });
   try {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -50,7 +56,7 @@ function activate(context) {
     vscode.window.onDidChangeWindowState(update),
     vscode.window.onDidChangeActiveTextEditor(update),
     // A language change closes and reopens the document.
-    vscode.workspace.onDidOpenTextDocument(update),
+    vscode.workspace.onDidOpenTextDocument((d) => write(vscode, d)),
   );
   update();
 }
@@ -63,4 +69,4 @@ function deactivate() {
   }
 }
 
-module.exports = { activate, deactivate, state };
+module.exports = { activate, deactivate, state, write };

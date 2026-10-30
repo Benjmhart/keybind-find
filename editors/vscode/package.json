@@ -8,6 +8,7 @@
   "repository": "https://github.com/Benjmhart/keybind-find",
   "engines": { "vscode": "^1.47.0" },
   "extensionKind": ["ui"],
+  "capabilities": { "untrustedWorkspaces": { "supported": true }, "virtualWorkspaces": true },
   "activationEvents": ["onStartupFinished"],
   "main": "./extension.js"
 }

@@ -188,6 +188,8 @@ fn live_facts(v: &Variant, env: Env) -> Option<Facts> {
     let newest = std::fs::read_dir(dir)
         .ok()?
         .flatten()
+        // Regular files only: a FIFO would block the read.
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "json"))
         .filter_map(|p| serde_json::from_str::<Value>(&std::fs::read_to_string(p).ok()?).ok())
@@ -1459,6 +1461,23 @@ mod tests {
             sheet_with(PINNED, Some("main.rs - p - Visual Studio Code"), None, &env).unwrap();
         assert_eq!(text(Some(f)).as_deref(), Some("extension=rs filetype=rust"));
         assert_eq!(notes.len(), 1, "{notes:?}");
+        // A custom `window.title`: the variant from the window class, and still the live facts.
+        let (_, f, _) = sheet_with(PINNED, Some("main.rs"), Some("VSCodium"), &env).unwrap();
+        assert_eq!(text(Some(f)).as_deref(), Some("filetype=python"));
+        // No variant at all (no title, class or config directory): no live facts.
+        let (_, f, _) = sheet_with(PINNED, None, None, &env).unwrap();
+        assert!(f.is_empty(), "{f:?}");
+        // A FIFO named `.json` is skipped, not read (the read would block).
+        let fifo = dir.join("fifo.json");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        assert_eq!(
+            text(live_facts(&VARIANTS[2], &env)).as_deref(),
+            Some("filetype=python")
+        );
         // It is VSCodium's own.
         assert_eq!(
             text(live_facts(&VARIANTS[2], &env)).as_deref(),
@@ -1474,15 +1493,23 @@ mod tests {
         assert_eq!(live_facts(code, &env_at(&tmp, &[])), None);
     }
 
-    /// The extension's state builder under `node --test`; skipped, with a message, without `node`.
+    /// The extension's tests under `node --test`; skipped, with a message, without node 18+ (`node:test`) or outside
+    /// the repository (`editors/` isn't packaged).
     #[test]
     fn extension_state_builder() {
-        let ok = std::process::Command::new("node").arg("--version").output();
-        if !ok.is_ok_and(|o| o.status.success()) {
-            eprintln!("skipping: node is not installed");
+        let test = Path::new(env!("CARGO_MANIFEST_DIR")).join("editors/vscode/extension.test.js");
+        let major = std::process::Command::new("node")
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|o| {
+                let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                v.strip_prefix('v')?.split('.').next()?.parse::<u32>().ok()
+            });
+        if !major.is_some_and(|m| m >= 18) || !test.exists() {
+            eprintln!("skipping: needs node 18 or later and editors/vscode/");
             return;
         }
-        let test = Path::new(env!("CARGO_MANIFEST_DIR")).join("editors/vscode/extension.test.js");
         let out = std::process::Command::new("node")
             .arg("--test")
             .arg(test)
