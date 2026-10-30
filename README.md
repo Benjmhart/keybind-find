@@ -130,7 +130,7 @@ contributes) removes that command's default and extension binds (those whose key
 gives none or `true`; never your own), wherever it stands in the file. A rule
 with the same key and `when` as an earlier one is listed in its place (VS Code would also let it shadow binds whose
 `when` it covers; those stay listed). Each bind's `when` clause becomes scopes: `editorTextFocus` shows as
-`[editorTextFocus=true]`, `!editorReadonly` as `[editorReadonly=false]`, `editorLangId == rust` as `[filetype=rust]`;
+`[editorTextFocus=true]`, `!editorReadonly` as `[editorReadonly=false]`, `editorLangId == rust` as `[filetype=rust]` (`resourceLangId` and `resourceExtname` name what the explorer has selected, so they stay tags);
 parts that can't be a scope (`!=`, regexes, `in`, comparisons) are dropped, so a bind is shown in more places, never
 fewer, and binds VS Code never runs on Linux (a `when` of `false`, or one that needs `isMac`, `isWindows` or `isWeb`)
 aren't listed. A key you bind to no command does nothing, so the default it replaces isn't listed either. The file's extension and language

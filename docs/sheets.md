@@ -59,7 +59,7 @@ it for its `mode` (`normal`, `visual`, `insert`, `o` for operator-pending, `c` f
 terminal) and the buffer's `filetype`. The current buffer's own maps carry `buffer=current`, which stays a tag. With
 no running nvim (`keybind-find dump nvim` from a shell), there are no facts and every scope shows as a tag. In a VS
 Code window the facts are guessed from the window title: the file's `extension` (`rs` for `main.rs - project - Visual
-Studio Code`) and its VS Code language as `filetype` (`rust`), so binds whose `when` names another language are
+Studio Code`) and its VS Code language as `filetype` (`rust`), so binds whose `when` names another `editorLangId` are
 hidden; with a `window.title` that leaves out the product name there are none.
 
 ```json

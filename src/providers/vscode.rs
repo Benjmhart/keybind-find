@@ -909,8 +909,8 @@ fn scopes(when: &When) -> Scopes {
             _ => Scopes::new(),
         },
         When::Eq(k, v) => match k.as_str() {
-            "editorLangId" | "resourceLangId" => one("filetype", v),
-            "resourceExtname" => one("extension", v.strip_prefix('.').unwrap_or(v)),
+            // `resourceLangId`/`resourceExtname` name the explorer's selection, not the editor: plain tags.
+            "editorLangId" => one("filetype", v),
             _ => one(k, v),
         },
         When::Other => Scopes::new(),
@@ -1205,8 +1205,8 @@ mod tests {
             ("!editorReadonly", Some("editorReadonly=false")),
             ("a && b", Some("a=true b=true")),
             ("editorLangId == rust", Some("filetype=rust")),
-            ("resourceLangId == 'prompt'", Some("filetype=prompt")),
-            ("resourceExtname == .md", Some("extension=md")),
+            ("resourceLangId == 'prompt'", Some("resourceLangId=prompt")),
+            ("resourceExtname == .md", Some("resourceExtname=.md")),
             ("editorLangId == a || editorLangId == b", Some("filetype=a,b")),
             (
                 "inReferenceSearchEditor && !config.editor.stablePeek || referenceSearchVisible && !config.editor.stablePeek",
