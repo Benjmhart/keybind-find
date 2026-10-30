@@ -11,10 +11,11 @@
 //!   execute bit. All parsers share one time limit.
 //!
 //! All matching sheets merge into one, in file name order, then the built-in web-app sheets (`BUILTIN`, which apply
-//! with no folder at all), then the browser's own keys (`BROWSER_SHEETS`, Firefox's or Chromium's by `family`) when no
+//! with no folder at all), then dwm's keys (`WM_SHEETS`) in a dwm session, then st's, surf's and tabbed's
+//! (`APP_SHEETS`) by class, then the browser's own keys (`BROWSER_SHEETS`, Firefox's or Chromium's by `family`) when no
 //! web-app sheet (a `.json` sheet with a `window_title`, built in or the user's) applied, and not in a Chromium app
-//! window. A file in the folder with a built-in sheet's name replaces it,
-//! even when it fails. A file that fails is one stderr line; only an unreadable directory fails the provider.
+//! window. A file in the folder with a built-in sheet's name replaces it (a suckless one's applies where the built-in
+//! would, whatever its `provider`), even when it fails. A file that fails is one stderr line; only an unreadable directory fails the provider.
 
 use crate::context::{run_for, Context};
 use crate::sheet::Sheet;
@@ -104,6 +105,40 @@ const BROWSER_SHEETS: &[(&str, &str, &str)] = &[
         )),
     ),
 ];
+
+/// suckless programs' stock keys, built in (each their `config.def.h` at a release): the window classes or instances
+/// (ignoring case),
+/// the file name a user sheet replaces it with, and the text. A patched `config.h` isn't read.
+const APP_SHEETS: &[(&[&str], &str, &str)] = &[
+    (
+        &["st-256color", "St"],
+        "st.json",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/data/sheets/st.json")),
+    ),
+    (
+        &["Surf"],
+        "surf.json",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/data/sheets/surf.json"
+        )),
+    ),
+    (
+        &["tabbed"],
+        "tabbed.json",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/data/sheets/tabbed.json"
+        )),
+    ),
+];
+
+/// Window managers' stock keys, built in, by session (`context::window().wm`), whatever window has focus.
+const WM_SHEETS: &[(&str, &str, &str)] = &[(
+    "dwm",
+    "dwm.json",
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/data/sheets/dwm.json")),
+)];
 
 /// The Firefox family, by `BROWSERS`' prefix rule: Firefox and its builds, LibreWolf, Zen, and their Flatpak ids.
 const FIREFOX: &[&str] = &[
@@ -196,7 +231,7 @@ pub fn sheet(ctx: &Context) -> anyhow::Result<Sheet> {
     let env = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
     // No folder (no $HOME): "" reads as missing, so only the built-in sheets apply.
     let dir = sheets_dir(&env).unwrap_or_default();
-    parse(&dir, ctx)
+    parse(&dir, ctx, crate::context::window().wm.as_deref())
 }
 
 /// `$XDG_CONFIG_HOME/keybind-find/sheets` (absolute only, as the XDG spec says), else under `$HOME/.config`.
@@ -220,12 +255,14 @@ fn empty() -> Sheet {
 }
 
 /// The merged sheet for the window in `ctx` (its class, instance and title); each file that failed is one stderr line.
-fn parse(dir: &Path, ctx: &Context) -> anyhow::Result<Sheet> {
+/// `wm` is the session (`context::window().wm`), for `WM_SHEETS`.
+fn parse(dir: &Path, ctx: &Context, wm: Option<&str>) -> anyhow::Result<Sheet> {
     let (sheet, notes) = parse_reporting(
         dir,
         ctx.class.as_deref(),
         ctx.instance.as_deref(),
         ctx.title.as_deref(),
+        wm,
         PARSER_TIMEOUT,
     )?;
     for note in notes {
@@ -240,6 +277,7 @@ fn parse_reporting(
     class: Option<&str>,
     instance: Option<&str>,
     title: Option<&str>,
+    wm: Option<&str>,
     timeout: Duration,
 ) -> anyhow::Result<(Sheet, Vec<String>)> {
     let mut sheet = empty();
@@ -262,6 +300,27 @@ fn parse_reporting(
     // Whether a web-app sheet (one with a `window_title`) applied: then the browser's own keys are left out.
     let mut web_app = false;
     let deadline = std::time::Instant::now() + timeout;
+    let built_in = |text: &str| {
+        serde_json::from_str(text)
+            .context("not a DMS cheatsheet")
+            .map(|s| Some((s, false)))
+    };
+    // A suckless sheet by file name (`WM_SHEETS`, `APP_SHEETS`): whether it applies here, by session or by class
+    // (or instance, for `st -c`).
+    let in_session = |session: &str| wm.is_some_and(|w| w.eq_ignore_ascii_case(session));
+    let of_window = |classes: &[&str]| {
+        [class, instance]
+            .into_iter()
+            .flatten()
+            .any(|c| classes.iter().any(|k| k.eq_ignore_ascii_case(c)))
+    };
+    let suckless = |file: &str| {
+        let wms = WM_SHEETS.iter().map(|(s, n, _)| (*n, in_session(s)));
+        let apps = APP_SHEETS.iter().map(|(c, n, _)| (*n, of_window(c)));
+        wms.chain(apps)
+            .find(|(n, _)| n.eq_ignore_ascii_case(file))
+            .map(|(_, here)| here)
+    };
     for path in paths {
         let json = path
             .extension()
@@ -282,8 +341,24 @@ fn parse_reporting(
         if json {
             user_sheets.extend(path.file_name().map(|n| n.to_string_lossy().into_owned()));
         }
+        let file_name = path.file_name().map(|n| n.to_string_lossy().into_owned());
         let found = if json {
-            static_sheet(&path, class, title)
+            match file_name.as_deref().and_then(suckless) {
+                // A replacement for a suckless sheet applies where the built-in would, whatever its `provider`.
+                Some(here) => std::fs::read_to_string(&path)
+                    .context("can't read it")
+                    .and_then(|t| {
+                        let value: serde_json::Value =
+                            serde_json::from_str(&t).context("not a DMS cheatsheet")?;
+                        anyhow::ensure!(
+                            value.get("window_title").is_none(),
+                            "a window_title doesn't apply to it (it replaces a built-in suckless sheet)"
+                        );
+                        built_in(&t)
+                    })
+                    .map(|s| s.filter(|_| here)),
+                None => static_sheet(&path, class, title),
+            }
         } else if meta.permissions().mode() & 0o111 != 0 && parser_matches(&path, class) {
             match &parsers_allowed {
                 Ok(()) => run_parser(&path, &meta, deadline).map(|o| o.map(|s| (s, false))),
@@ -308,13 +383,35 @@ fn parse_reporting(
             merge(&mut sheet, &mut notes, &format!("built-in {name}"), found);
         }
     }
+    for (session, name, text) in WM_SHEETS {
+        if in_session(session) && !replaced(name) {
+            merge(
+                &mut sheet,
+                &mut notes,
+                &format!("built-in {name}"),
+                built_in(text),
+            );
+        }
+    }
+    for (classes, name, text) in APP_SHEETS {
+        if of_window(classes) && !replaced(name) {
+            merge(
+                &mut sheet,
+                &mut notes,
+                &format!("built-in {name}"),
+                built_in(text),
+            );
+        }
+    }
     let browser = class.and_then(|c| family(c, instance));
     for (fam, name, text) in BROWSER_SHEETS {
         if browser == Some(*fam) && !web_app && !replaced(name) {
-            let found = serde_json::from_str(text)
-                .context("not a DMS cheatsheet")
-                .map(|s| Some((s, false)));
-            merge(&mut sheet, &mut notes, &format!("built-in {name}"), found);
+            merge(
+                &mut sheet,
+                &mut notes,
+                &format!("built-in {name}"),
+                built_in(text),
+            );
         }
     }
     Ok((sheet, notes))
@@ -492,8 +589,15 @@ mod tests {
 
     #[test]
     fn class_picks_its_sheets_and_merges_them_in_file_order() {
-        let (sheet, notes) =
-            parse_reporting(&fixtures(), Some("Vivaldi"), None, None, PARSER_TIMEOUT).unwrap();
+        let (sheet, notes) = parse_reporting(
+            &fixtures(),
+            Some("Vivaldi"),
+            None,
+            None,
+            None,
+            PARSER_TIMEOUT,
+        )
+        .unwrap();
         assert_eq!(sheet.provider, "sheets");
         assert_eq!(sheet.title, "static sheets");
         // File name order: vivaldi-extra.json ('-' sorts before '.'), then vivaldi.json.
@@ -504,8 +608,15 @@ mod tests {
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(notes[0].contains("broken.json"), "{}", notes[0]);
         // Case doesn't matter.
-        let (upper, _) =
-            parse_reporting(&fixtures(), Some("VIVALDI"), None, None, PARSER_TIMEOUT).unwrap();
+        let (upper, _) = parse_reporting(
+            &fixtures(),
+            Some("VIVALDI"),
+            None,
+            None,
+            None,
+            PARSER_TIMEOUT,
+        )
+        .unwrap();
         assert_eq!(upper, sheet);
     }
 
@@ -513,12 +624,12 @@ mod tests {
     fn no_class_or_no_match_is_empty() {
         for class in [None, Some("xterm")] {
             let (sheet, notes) =
-                parse_reporting(&fixtures(), class, None, None, PARSER_TIMEOUT).unwrap();
+                parse_reporting(&fixtures(), class, None, None, None, PARSER_TIMEOUT).unwrap();
             assert!(sheet.binds.is_empty(), "{class:?}");
             // Only the broken JSON: the failing parser isn't run for these classes.
             assert_eq!(notes.len(), 1, "{notes:?}");
         }
-        let gimp = parse(&fixtures(), &window(Some("gimp"), None)).unwrap();
+        let gimp = parse(&fixtures(), &window(Some("gimp"), None), None).unwrap();
         assert_eq!(keys(&gimp, "tools"), ["m", "r"]);
     }
 
@@ -527,6 +638,7 @@ mod tests {
         let (sheet, notes) = parse_reporting(
             Path::new("/nonexistent-kbf/sheets"),
             Some("Vivaldi"),
+            None,
             None,
             None,
             PARSER_TIMEOUT,
@@ -538,18 +650,41 @@ mod tests {
     #[test]
     fn a_custom_parser_runs_for_its_class() {
         // Class case doesn't matter for parsers either.
-        let (sheet, notes) =
-            parse_reporting(&fixtures(), Some("ST-256Color"), None, None, PARSER_TIMEOUT).unwrap();
-        // st-256color.json, then the parser's output (file name order); the .bak copy isn't run.
+        let (sheet, notes) = parse_reporting(
+            &fixtures(),
+            Some("ST-256Color"),
+            None,
+            None,
+            None,
+            PARSER_TIMEOUT,
+        )
+        .unwrap();
+        // st-256color.json, then the parser's output (file name order); the .bak copy isn't run. The built-in
+        // st.json follows.
         assert_eq!(
             keys(&sheet, "clipboard"),
-            ["shift+Insert", "ctrl+shift+c", "ctrl+shift+v"]
+            [
+                "shift+Insert",
+                "ctrl+shift+c",
+                "ctrl+shift+v",
+                "ctrl+shift+c",
+                "ctrl+shift+v",
+                "ctrl+shift+y",
+                "shift+Insert"
+            ]
         );
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(notes[0].contains("broken.json"), "{}", notes[0]);
         // A parser that exits non-zero: one note naming it, with its stderr.
-        let (sheet, notes) =
-            parse_reporting(&fixtures(), Some("failing-app"), None, None, PARSER_TIMEOUT).unwrap();
+        let (sheet, notes) = parse_reporting(
+            &fixtures(),
+            Some("failing-app"),
+            None,
+            None,
+            None,
+            PARSER_TIMEOUT,
+        )
+        .unwrap();
         assert!(sheet.binds.is_empty());
         let failed: Vec<_> = notes
             .iter()
@@ -560,7 +695,8 @@ mod tests {
     }
 
     fn parser_notes(class: &str, timeout: Duration) -> Vec<String> {
-        let (_, notes) = parse_reporting(&fixtures(), Some(class), None, None, timeout).unwrap();
+        let (_, notes) =
+            parse_reporting(&fixtures(), Some(class), None, None, None, timeout).unwrap();
         assert!(notes.iter().all(|n| !n.contains('\n')), "{notes:?}");
         notes
             .into_iter()
@@ -617,7 +753,7 @@ mod tests {
         assert!(!running("sleep 4.71") && !running("sleep 4.73"));
         // stdin is closed: a parser reading it gets EOF at once.
         let (sheet, _) =
-            parse_reporting(&fixtures(), Some("reads-stdin"), None, None, short).unwrap();
+            parse_reporting(&fixtures(), Some("reads-stdin"), None, None, None, short).unwrap();
         assert_eq!(keys(&sheet, "misc"), ["F1"]);
         // Not executable: never run, though its name matches.
         assert_eq!(parser_notes("plain", short), Vec::<String>::new());
@@ -630,7 +766,8 @@ mod tests {
         // Would fail if run; it's never executed, so no exec-while-writing race.
         std::fs::write(&p, "#!/bin/sh\nexit 1\n").unwrap();
         std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o775)).unwrap();
-        let (_, notes) = parse_reporting(&dir, Some("shared"), None, None, PARSER_TIMEOUT).unwrap();
+        let (_, notes) =
+            parse_reporting(&dir, Some("shared"), None, None, None, PARSER_TIMEOUT).unwrap();
         assert!(
             notes.len() == 1 && notes[0].contains("writable by group or others"),
             "{notes:?}"
@@ -644,7 +781,7 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777)).unwrap();
         let (sheet, notes) =
-            parse_reporting(&dir, Some("shared"), None, None, PARSER_TIMEOUT).unwrap();
+            parse_reporting(&dir, Some("shared"), None, None, None, PARSER_TIMEOUT).unwrap();
         assert!(
             notes.len() == 1 && notes[0].contains("parsers not run: writable by group or others"),
             "{notes:?}"
@@ -658,14 +795,14 @@ mod tests {
         let dir = temp("ln");
         std::os::unix::fs::symlink(fixtures().join("gimp.json"), dir.join("gimp.json")).unwrap();
         let (sheet, notes) =
-            parse_reporting(&dir, Some("Gimp"), None, None, PARSER_TIMEOUT).unwrap();
+            parse_reporting(&dir, Some("Gimp"), None, None, None, PARSER_TIMEOUT).unwrap();
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(keys(&sheet, "tools"), ["m", "r"]);
         // A parser named after a dotted class, no extension, symlinked into the folder.
         std::os::unix::fs::symlink(fixtures().join("st-256color.sh"), dir.join("org.app.Name"))
             .unwrap();
         let (sheet, notes) =
-            parse_reporting(&dir, Some("org.app.name"), None, None, PARSER_TIMEOUT).unwrap();
+            parse_reporting(&dir, Some("org.app.name"), None, None, None, PARSER_TIMEOUT).unwrap();
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(keys(&sheet, "clipboard"), ["ctrl+shift+c", "ctrl+shift+v"]);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -687,7 +824,8 @@ mod tests {
         )
         .unwrap();
         let run = |class, title| {
-            let (sheet, notes) = parse_reporting(&dir, class, None, title, PARSER_TIMEOUT).unwrap();
+            let (sheet, notes) =
+                parse_reporting(&dir, class, None, title, None, PARSER_TIMEOUT).unwrap();
             assert!(notes.is_empty(), "{notes:?}");
             sheet
         };
@@ -726,7 +864,7 @@ mod tests {
         )
         .unwrap();
         let (_, notes) =
-            parse_reporting(&dir, Some("firefox"), None, None, PARSER_TIMEOUT).unwrap();
+            parse_reporting(&dir, Some("firefox"), None, None, None, PARSER_TIMEOUT).unwrap();
         assert!(
             notes.len() == 1 && notes[0].contains("window_title"),
             "{notes:?}"
@@ -845,9 +983,16 @@ mod tests {
         let app = "abcdefghijklmnopabcdefghijklmnop";
         let none = Path::new("/nonexistent-kbf/sheets");
         let run = |class: &str, instance: Option<&str>, title: &str| {
-            parse_reporting(none, Some(class), instance, Some(title), PARSER_TIMEOUT)
-                .unwrap()
-                .0
+            parse_reporting(
+                none,
+                Some(class),
+                instance,
+                Some(title),
+                None,
+                PARSER_TIMEOUT,
+            )
+            .unwrap()
+            .0
         };
         let crx = format!("crx_{app}");
         for class in [
@@ -894,7 +1039,8 @@ mod tests {
         assert!(gmail.binds.contains_key("go to"), "Gmail's");
         assert_eq!(browser_sheet(&gmail), None);
         // The window's instance reaches the lookup.
-        let chrome = |instance| parse(none, &window(Some("Google-chrome"), instance)).unwrap();
+        let chrome =
+            |instance| parse(none, &window(Some("Google-chrome"), instance), None).unwrap();
         assert_eq!(browser_sheet(&chrome(Some(&crx))), None);
         assert_eq!(browser_sheet(&chrome(None)), Some("chromium"));
     }
@@ -912,7 +1058,7 @@ mod tests {
     #[test]
     fn browser_sheets_merge_unless_a_web_app_applies() {
         let run = |dir: &Path, class: Option<&str>, title: Option<&str>| {
-            parse_reporting(dir, class, None, title, PARSER_TIMEOUT).unwrap()
+            parse_reporting(dir, class, None, title, None, PARSER_TIMEOUT).unwrap()
         };
         let none = Path::new("/nonexistent-kbf/sheets");
         let (s, notes) = run(none, Some("firefox"), Some("Mozilla Firefox"));
@@ -993,8 +1139,9 @@ mod tests {
     #[test]
     fn a_user_file_replaces_a_browser_sheet() {
         let dir = temp("browser-replace");
-        let run =
-            || parse_reporting(&dir, Some("firefox"), None, Some("x"), PARSER_TIMEOUT).unwrap();
+        let run = || {
+            parse_reporting(&dir, Some("firefox"), None, Some("x"), None, PARSER_TIMEOUT).unwrap()
+        };
         // Any case; the user's applies by its own `provider`.
         std::fs::write(
             dir.join("Firefox.json"),
@@ -1013,8 +1160,15 @@ mod tests {
             "{notes:?}"
         );
         // Chromium's is untouched by it.
-        let (s, _) =
-            parse_reporting(&dir, Some("chromium"), None, Some("x"), PARSER_TIMEOUT).unwrap();
+        let (s, _) = parse_reporting(
+            &dir,
+            Some("chromium"),
+            None,
+            Some("x"),
+            None,
+            PARSER_TIMEOUT,
+        )
+        .unwrap();
         assert_eq!(browser_sheet(&s), Some("chromium"));
         // It replaces the built-in sheet for the whole family, but applies only by its own `provider` (README): a
         // LibreWolf window gets neither.
@@ -1023,14 +1177,21 @@ mod tests {
             r#"{"title":"F","provider":"firefox","binds":{"mine":[{"key":"F9","desc":"Mine"}]}}"#,
         )
         .unwrap();
-        let (s, notes) =
-            parse_reporting(&dir, Some("librewolf"), None, Some("x"), PARSER_TIMEOUT).unwrap();
+        let (s, notes) = parse_reporting(
+            &dir,
+            Some("librewolf"),
+            None,
+            Some("x"),
+            None,
+            PARSER_TIMEOUT,
+        )
+        .unwrap();
         assert!(notes.is_empty() && s.binds.is_empty(), "{notes:?} {s:?}");
         // The same for Chromium's, broken: one note, no fallback, on Brave too.
         std::fs::write(dir.join("chromium.json"), "{").unwrap();
         for class in ["chromium", "brave-browser"] {
             let (s, notes) =
-                parse_reporting(&dir, Some(class), None, Some("x"), PARSER_TIMEOUT).unwrap();
+                parse_reporting(&dir, Some(class), None, Some("x"), None, PARSER_TIMEOUT).unwrap();
             assert!(s.binds.is_empty(), "{class}");
             assert!(
                 notes.len() == 1 && notes[0].contains("chromium.json"),
@@ -1133,13 +1294,208 @@ mod tests {
             Some("st-256color"),
             None,
             Some("anything"),
+            None,
             PARSER_TIMEOUT,
         )
         .unwrap();
         assert_eq!(
             keys(&sheet, "clipboard"),
-            ["shift+Insert", "ctrl+shift+c", "ctrl+shift+v"]
+            [
+                "shift+Insert",
+                "ctrl+shift+c",
+                "ctrl+shift+v",
+                "ctrl+shift+c",
+                "ctrl+shift+v",
+                "ctrl+shift+y",
+                "shift+Insert"
+            ]
         );
+    }
+
+    #[test]
+    fn app_sheets_are_valid() {
+        let f_keys: Vec<String> = (1..=12).map(|n| format!("F{n}")).collect();
+        let names: Vec<&str> = typed_keys()
+            .into_iter()
+            .chain([
+                "Break", "Print", "Prior", "Next", "Insert", "Num_Lock", "Tab", "Return", "Escape",
+                "space",
+            ])
+            .chain(f_keys.iter().map(String::as_str))
+            .collect();
+        let sheets = APP_SHEETS
+            .iter()
+            .map(|(_, name, text)| (*name, *text))
+            .chain(WM_SHEETS.iter().map(|(_, name, text)| (*name, *text)));
+        for (name, text) in sheets {
+            let value: serde_json::Value = serde_json::from_str(text).expect(name);
+            assert!(value.get("window_title").is_none(), "{name}");
+            let s: Sheet = serde_json::from_value(value).expect(name);
+            // The title names the program, its release, the tag's commit and `config.def.h`.
+            let program = name.trim_end_matches(".json");
+            assert_eq!(s.provider, program, "{name}");
+            let words: Vec<&str> = s.title.split(' ').collect();
+            let commit = words
+                .last()
+                .and_then(|w| w.strip_suffix(')'))
+                .unwrap_or_default();
+            assert!(
+                words.len() == 6
+                    && words[0] == program
+                    && words[1].split('.').all(|n| n.parse::<u32>().is_ok())
+                    && words[2..5] == ["defaults", "(config.def.h", "at"]
+                    && commit.len() == 7
+                    && commit.chars().all(|c| c.is_ascii_hexdigit()),
+                "{name}: {}",
+                s.title
+            );
+            // Every row of `config.def.h`'s key table (tabbed's two actions on one key as one), no mouse bindings.
+            let want = match program {
+                "st" => 12,
+                "surf" => 37,
+                "tabbed" => 21,
+                _ => 60,
+            };
+            assert_eq!(s.binds.values().flatten().count(), want, "{name}");
+            assert_valid_keys(name, &s, &names);
+        }
+        // dwm: `TAGKEYS` for 1-9 under its four modifiers, and the two all-tags keys.
+        let (_, _, dwm) = WM_SHEETS[0];
+        let s: Sheet = serde_json::from_str(dwm).unwrap();
+        let keys: Vec<&str> = s.binds.values().flatten().map(|b| b.key.as_str()).collect();
+        for n in 1..=9 {
+            for m in ["alt", "ctrl+alt", "alt+shift", "ctrl+alt+shift"] {
+                assert!(keys.contains(&format!("{m}+{n}").as_str()), "{m}+{n}");
+            }
+        }
+        assert!(keys.contains(&"alt+0") && keys.contains(&"alt+shift+0"));
+        // st's `XK_ANY_MOD` keys are the bare key.
+        let (_, _, st) = APP_SHEETS[0];
+        let st: Sheet = serde_json::from_str(st).unwrap();
+        let st: Vec<&str> = st
+            .binds
+            .values()
+            .flatten()
+            .map(|b| b.key.as_str())
+            .collect();
+        assert!(st.contains(&"Break") && st.contains(&"Print"));
+    }
+
+    #[test]
+    fn suckless_sheets_by_class_and_session() {
+        let none = Path::new("/nonexistent/keybind-find-sheets");
+        let get = |class: &str, wm: Option<&str>| {
+            let (sheet, notes) =
+                parse_reporting(none, Some(class), None, None, wm, PARSER_TIMEOUT).unwrap();
+            assert!(notes.is_empty(), "{notes:?}");
+            sheet
+                .binds
+                .values()
+                .flatten()
+                .map(|b| b.key.clone())
+                .collect::<Vec<_>>()
+        };
+        for class in ["st-256color", "St", "ST-256COLOR"] {
+            assert!(
+                get(class, None).contains(&"ctrl+shift+c".to_string()),
+                "{class}"
+            );
+        }
+        assert!(get("Surf", None).contains(&"ctrl+g".to_string()));
+        assert!(get("tabbed", None).contains(&"ctrl+shift+Return".to_string()));
+        let firefox = get("firefox", None);
+        assert!(!firefox.contains(&"ctrl+shift+Return".to_string()));
+        assert!(!firefox.contains(&"alt+p".to_string()));
+        // dwm by session, whatever the class, with the class's own sheet; no dwm keys in another session.
+        let dwm = get("firefox", Some("dwm"));
+        assert!(dwm.contains(&"alt+p".to_string()) && dwm.contains(&"ctrl+t".to_string()));
+        assert!(!get("firefox", Some("i3")).contains(&"alt+p".to_string()));
+        // `parse`, which `sheet` calls with `context::window().wm`, passes it through.
+        let ctx = window(Some("St"), None);
+        let all = |s: Sheet| {
+            s.binds
+                .into_values()
+                .flatten()
+                .map(|b| b.key)
+                .collect::<Vec<_>>()
+        };
+        assert!(all(parse(none, &ctx, Some("dwm")).unwrap()).contains(&"alt+p".to_string()));
+        assert!(!all(parse(none, &ctx, None).unwrap()).contains(&"alt+p".to_string()));
+    }
+
+    #[test]
+    fn a_user_file_replaces_a_suckless_sheet() {
+        let dir = temp("suckless");
+        let keys = |class: &str, instance: Option<&str>, wm: Option<&str>| {
+            let (sheet, notes) =
+                parse_reporting(&dir, Some(class), instance, None, wm, PARSER_TIMEOUT).unwrap();
+            let keys: Vec<String> = sheet.binds.into_values().flatten().map(|b| b.key).collect();
+            (keys, notes)
+        };
+        // An edited copy of the built-in (its `provider` no window's class) applies where the built-in would.
+        let mine = |provider: &str| {
+            format!(
+                r#"{{"title": "mine", "provider": "{provider}", "binds": {{"x": [{{"key": "ctrl+x", "desc": "x"}}]}}}}"#
+            )
+        };
+        std::fs::write(dir.join("st.json"), mine("nope")).unwrap();
+        std::fs::write(
+            dir.join("DWM.json"),
+            mine("dwm").replace("ctrl+x", "ctrl+alt+shift+F12"),
+        )
+        .unwrap();
+        let (k, notes) = keys("st-256color", None, None);
+        assert_eq!((k, notes.len()), (vec!["ctrl+x".to_string()], 0));
+        // By instance too, as the built-in.
+        let (k, _) = keys("scratchpad", Some("st-256color"), None);
+        assert_eq!(k, ["ctrl+x"]);
+        let (k, _) = keys("firefox", None, Some("dwm"));
+        assert!(
+            k.contains(&"ctrl+alt+shift+F12".to_string()) && !k.contains(&"alt+p".to_string()),
+            "{k:?}"
+        );
+        // Not elsewhere: no st or dwm window, no keys of theirs.
+        let (k, _) = keys("firefox", None, Some("i3"));
+        assert!(!k.contains(&"ctrl+alt+shift+F12".to_string()), "{k:?}");
+        // A `window_title` would be ignored there: it is refused, with a note.
+        std::fs::write(
+            dir.join("st.json"),
+            mine("nope").replace(r#""title""#, r#""window_title": "vim", "title""#),
+        )
+        .unwrap();
+        let (k, notes) = keys("st-256color", None, None);
+        assert!(k.is_empty(), "{k:?}");
+        assert!(
+            notes.len() == 1 && notes[0].contains("window_title"),
+            "{notes:?}"
+        );
+        // A broken one replaces it too: one note naming it, and no keys of either.
+        std::fs::write(dir.join("st.json"), "{").unwrap();
+        std::fs::write(dir.join("DWM.json"), "{").unwrap();
+        let (k, notes) = keys("st-256color", None, Some("dwm"));
+        assert!(k.is_empty(), "{k:?}");
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert!(
+            notes[0].contains("DWM.json") && notes[1].contains("st.json"),
+            "{notes:?}"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+        // st started with `-c scratchpad` keeps its instance: still st's keys.
+        let none = Path::new("/nonexistent/keybind-find-sheets");
+        let (sheet, _) = parse_reporting(
+            none,
+            Some("scratchpad"),
+            Some("st-256color"),
+            None,
+            None,
+            PARSER_TIMEOUT,
+        )
+        .unwrap();
+        assert!(sheet
+            .binds
+            .values()
+            .flatten()
+            .any(|b| b.key == "ctrl+shift+c"));
     }
 
     #[test]
@@ -1183,8 +1539,15 @@ mod tests {
         std::fs::write(dir.join("notes.txt"), "not a sheet").unwrap();
         std::fs::write(dir.join("B.JSON"), "not json").unwrap();
         std::os::unix::fs::symlink(dir.join("gone"), dir.join("dangling.json")).unwrap();
-        let (sheet, notes) =
-            parse_reporting(&dir, Some("vivaldi-stable"), None, None, PARSER_TIMEOUT).unwrap();
+        let (sheet, notes) = parse_reporting(
+            &dir,
+            Some("vivaldi-stable"),
+            None,
+            None,
+            None,
+            PARSER_TIMEOUT,
+        )
+        .unwrap();
         // Empty binds, a directory named *.json and a non-JSON file: nothing. `B.JSON` is a sheet (any case) and
         // broken; a dangling `dangling.json` is reported too (B.JSON sorts first).
         // `VIVALDI-stable` matches class `vivaldi-stable`; a.json's empty binds add nothing.
@@ -1297,6 +1660,7 @@ mod tests {
                 Some("firefox"),
                 None,
                 Some(github),
+                None,
                 PARSER_TIMEOUT,
             )
             .unwrap();
@@ -1312,6 +1676,7 @@ mod tests {
             Some("firefox"),
             None,
             Some("Benjmhart/keybind-find — Mozilla Firefox"),
+            None,
             PARSER_TIMEOUT,
         )
         .unwrap();
@@ -1323,6 +1688,7 @@ mod tests {
                 Some("Vivaldi-stable"),
                 None,
                 Some(title),
+                None,
                 PARSER_TIMEOUT,
             )
             .unwrap();
@@ -1358,8 +1724,17 @@ mod tests {
         let dir = temp("builtin");
         let github = Some("Issues - https://github.com/Benjmhart/keybind-find/issues");
         // Vivaldi: a browser with no built-in keys of its own, so only the web-app sheets are in play.
-        let run =
-            || parse_reporting(&dir, Some("Vivaldi-stable"), None, github, PARSER_TIMEOUT).unwrap();
+        let run = || {
+            parse_reporting(
+                &dir,
+                Some("Vivaldi-stable"),
+                None,
+                github,
+                None,
+                PARSER_TIMEOUT,
+            )
+            .unwrap()
+        };
         // A sheet for another app leaves the built-in one alone; theirs merges first.
         std::fs::write(
             dir.join("gitlab.json"),
@@ -1392,7 +1767,7 @@ mod tests {
             );
             // In Firefox, with GitHub's sheet turned off, the tab gets Firefox's own keys instead.
             let (sheet, _) =
-                parse_reporting(&dir, Some("firefox"), None, github, PARSER_TIMEOUT).unwrap();
+                parse_reporting(&dir, Some("firefox"), None, github, None, PARSER_TIMEOUT).unwrap();
             assert_eq!(browser_sheet(&sheet), Some("firefox"), "{user}");
         }
         // A broken one is reported, and the built-in one isn't used instead.

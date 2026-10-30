@@ -1,0 +1,26 @@
+{
+  "title": "st 0.9.3 defaults (config.def.h at 6e97047)",
+  "provider": "st",
+  "binds": {
+    "printing": [
+      { "key": "Break", "desc": "Send a break in the serial line" },
+      { "key": "ctrl+Print", "desc": "Toggle printing to the iofile" },
+      { "key": "shift+Print", "desc": "Print the full screen to the iofile" },
+      { "key": "Print", "desc": "Print the selection to the iofile" }
+    ],
+    "font size": [
+      { "key": "ctrl+shift+Prior", "desc": "Increase font size" },
+      { "key": "ctrl+shift+Next", "desc": "Decrease font size" },
+      { "key": "ctrl+shift+Home", "desc": "Reset to default font size" }
+    ],
+    "clipboard": [
+      { "key": "ctrl+shift+c", "desc": "Copy the selected text to the clipboard selection" },
+      { "key": "ctrl+shift+v", "desc": "Paste from the clipboard selection" },
+      { "key": "ctrl+shift+y", "desc": "Paste from primary selection (middle mouse button)" },
+      { "key": "shift+Insert", "desc": "Paste from primary selection" }
+    ],
+    "keypad": [
+      { "key": "ctrl+shift+Num_Lock", "desc": "Toggle the keypad's numlock mode (numlock)" }
+    ]
+  }
+}

@@ -33,6 +33,11 @@ add-on store for "URL in title"): GitHub's tab titles don't reliably name it (si
 - a Google Workspace inbox whose title names your organisation instead of Gmail gets none: copy `gmail.json` into
   your sheets folder with your inbox's title part as `window_title`.
 
+keybind-find also ships the stock keys of st (`st.json`, for windows of class or instance `st-256color` or `St`), surf
+(`surf.json`, `Surf`), tabbed (`tabbed.json`, `tabbed`) and dwm (`dwm.json`, in a dwm session whatever window has
+focus), from their `config.def.h` (README, suckless). A replacement for one of these applies where the built-in did,
+whatever its `provider`.
+
 To replace one, put a file with the same name in your sheets
 folder (start from the built-in copy). It replaces the built-in sheet even if it fails to load, so an empty sheet
 (`{"title": "GitHub", "provider": "browser", "binds": {}}`) turns that one off. A sheet you wrote for one of these

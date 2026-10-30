@@ -1,0 +1,55 @@
+{
+  "title": "surf 2.1 defaults (config.def.h at d75c3de)",
+  "provider": "surf",
+  "binds": {
+    "navigation": [
+      { "key": "ctrl+g", "desc": "Open the URL bar (needs dmenu)" },
+      { "key": "Escape", "desc": "Stop loading the page or the download" },
+      { "key": "ctrl+c", "desc": "Stop loading the page or the download (stop)" },
+      { "key": "ctrl+shift+r", "desc": "Reload the page without the cache" },
+      { "key": "ctrl+r", "desc": "Reload the page" },
+      { "key": "ctrl+l", "desc": "Forward in history" },
+      { "key": "ctrl+h", "desc": "Back in history" },
+      { "key": "ctrl+p", "desc": "Load the URI in the primary selection" },
+      { "key": "ctrl+y", "desc": "Copy the current URI to the primary selection" }
+    ],
+    "find": [
+      { "key": "ctrl+f", "desc": "Open the search bar" },
+      { "key": "ctrl+slash", "desc": "Open the search bar" },
+      { "key": "ctrl+n", "desc": "Next search result" },
+      { "key": "ctrl+shift+n", "desc": "Previous search result" }
+    ],
+    "scrolling": [
+      { "key": "ctrl+j", "desc": "Scroll down" },
+      { "key": "ctrl+k", "desc": "Scroll up" },
+      { "key": "ctrl+space", "desc": "Scroll down one whole page view" },
+      { "key": "ctrl+b", "desc": "Scroll up one whole page view" },
+      { "key": "ctrl+i", "desc": "Scroll right" },
+      { "key": "ctrl+u", "desc": "Scroll left" }
+    ],
+    "zoom": [
+      { "key": "ctrl+shift+j", "desc": "Zoom out" },
+      { "key": "ctrl+shift+k", "desc": "Zoom in" },
+      { "key": "ctrl+shift+q", "desc": "Reset zoom" },
+      { "key": "ctrl+minus", "desc": "Zoom out" },
+      { "key": "ctrl+plus", "desc": "Zoom in" }
+    ],
+    "page": [
+      { "key": "ctrl+shift+p", "desc": "Print the page" },
+      { "key": "ctrl+t", "desc": "Show the current TLS certificate" },
+      { "key": "F11", "desc": "Toggle fullscreen" },
+      { "key": "ctrl+shift+o", "desc": "Open the Web Inspector" }
+    ],
+    "toggles": [
+      { "key": "ctrl+shift+a", "desc": "Cycle the cookie policies (no reload)" },
+      { "key": "ctrl+shift+c", "desc": "Toggle caret browsing (reloads)" },
+      { "key": "ctrl+shift+f", "desc": "Toggle frame flattening (reloads)" },
+      { "key": "ctrl+shift+g", "desc": "Toggle geolocation (reloads)" },
+      { "key": "ctrl+shift+s", "desc": "Toggle scripts (reloads)" },
+      { "key": "ctrl+shift+i", "desc": "Toggle loading images (reloads)" },
+      { "key": "ctrl+shift+b", "desc": "Toggle scrollbars (reloads)" },
+      { "key": "ctrl+shift+t", "desc": "Toggle the strict TLS check (reloads)" },
+      { "key": "ctrl+shift+m", "desc": "Toggle the style file (reloads)" }
+    ]
+  }
+}
