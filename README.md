@@ -235,7 +235,7 @@ any start (packages it installs, too) but with `server-start` turned off and `ki
 touch a running Emacs or write recentf, savehist or desktop files; `after-init-hook` and `emacs-startup-hook` don't
 run, so keys set up there (`:hook (after-init . evil-mode)`) are missing. It gets 10 seconds, and an error in it is one
 line, with the keys it set up before that listed. Doom Emacs and Spacemacs need their own startup: their init isn't loaded, and only Emacs's own global map
-is listed, with one line saying so. Mouse, menu and tool-bar entries, `remap`s, keyboard macros and lambdas aren't
+is listed, with one line saying so. Mouse, menu and tool-bar entries, the `[remap …]` entries themselves, keyboard macros and lambdas aren't
 listed, and keys keybind-find can't send (hyper or `A-` modifiers, a key with no X keysym such as `<again>`) are left
 out with a count.
 

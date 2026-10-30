@@ -52,7 +52,11 @@ fn read(
             )),
         }
     }
-    let (sheet, more) = batch(framework, &setup)?;
+    // A failed live read stays in the error when the batch read fails too.
+    let (sheet, more) = match batch(framework, &setup) {
+        Err(e) if !notes.is_empty() => return Err(e.context(notes.join("; "))),
+        other => other?,
+    };
     notes.extend(more);
     Ok((sheet, None, notes))
 }
@@ -152,10 +156,16 @@ fn socket_candidates(
         })
         .filter(|n| !n.is_empty())
     });
-    let named = named.or(default).and_then(|n| match n.contains('/') {
+    let at = |n: &str| match n.contains('/') {
         true => Some(PathBuf::from(n)),
         false => dir.map(|d| d.join(n)),
-    });
+    };
+    // The default only when it is there: a client of a TCP server isn't asked about a socket it doesn't use.
+    let is_socket = |p: &PathBuf| std::fs::metadata(p).is_ok_and(|m| m.file_type().is_socket());
+    let named = match named {
+        Some(n) => at(n),
+        None => default.and_then(at).filter(is_socket),
+    };
     let mut in_dir: Vec<PathBuf> = dir
         .and_then(|d| std::fs::read_dir(d).ok())
         .into_iter()
@@ -280,7 +290,7 @@ macro_rules! walk {
                      ((or (gethash desc seen) (gethash desc prefixes)))
                      (t (puthash desc t seen)
                         (let ((cmd (or (and (symbolp def) (command-remapping def)) def)))
-                          (when (and (symbolp cmd) (commandp cmd) (not (memq cmd '(undefined ignore self-insert-command))))
+                          (when (and (symbolp cmd) (commandp cmd) (not (memq def '(undefined ignore self-insert-command))) (not (memq cmd '(undefined ignore self-insert-command))))
                             (push (vector desc (symbol-name cmd) source) out))))))))
          (nth 1 top)))))
   (nreverse out))"#
@@ -313,6 +323,7 @@ const END: &str = "KEYBIND-FIND-EMACS-END";
 const BATCH_BODY: &str = concat!(
     r#"(let ((kbf-error nil) (dir user-emacs-directory))
   (advice-add 'server-start :override #'ignore)
+  (advice-add 'server-force-delete :override #'ignore)
   (when kbf-load
     (condition-case err (load (expand-file-name "early-init" dir) t t)
       (t (setq kbf-error (concat "early-init.el: " (error-message-string err)))))
@@ -321,7 +332,7 @@ const BATCH_BODY: &str = concat!(
           (package-activate-all))
       (t (setq kbf-error (or kbf-error (concat "activating packages: " (error-message-string err))))))
     (condition-case err
-        (let ((init (or (locate-file "~/.emacs" nil (append (get-load-suffixes) '("")))
+        (let ((init (or (and (string= (expand-file-name dir) (expand-file-name "~/.emacs.d/")) (locate-file "~/.emacs" nil (append (get-load-suffixes) '(""))))
                         (locate-file (expand-file-name "init" dir) nil (get-load-suffixes)))))
           (when init (setq user-init-file init) (load init nil t t)))
       (t (setq kbf-error (or kbf-error (error-message-string err))))))
@@ -348,18 +359,19 @@ const BATCH_TIMEOUT: Duration = Duration::from_secs(10);
 /// A framework whose init needs its own startup, found in `user-emacs-directory` (`~/.emacs.d` if it exists, else
 /// `<config>/emacs`) when there is no `~/.emacs`: its name and that directory.
 fn framework(home: &Path, config: &Path) -> Option<(&'static str, PathBuf)> {
-    // Emacs loads `~/.emacs` (or `.el`) instead, never reaching the framework's init.
-    if [".emacs", ".emacs.el"]
-        .iter()
-        .any(|f| home.join(f).is_file())
-    {
-        return None;
-    }
-    let dot = home.join(".emacs.d");
-    let dir = if dot.is_dir() {
+    // As `startup--xdg-or-homedot`: `~/.emacs.d` when it or a `~/.emacs` exists, else the XDG one if it exists.
+    let (dot, xdg) = (home.join(".emacs.d"), config.join("emacs"));
+    let dir = if dot.exists() || home.join(".emacs").exists() || !xdg.exists() {
+        // With `~/.emacs.d`, a `~/.emacs` (or `.el`) is loaded instead, never reaching the framework's init.
+        if [".emacs", ".emacs.el"]
+            .iter()
+            .any(|f| home.join(f).is_file())
+        {
+            return None;
+        }
         dot
     } else {
-        config.join("emacs")
+        xdg
     };
     [
         ("Doom Emacs", "lisp/doom.el"),
@@ -892,6 +904,11 @@ mod tests {
             socket_candidates(&args(&["emacs", "-script", "x.el"]), Some(&dir), None),
             [server, work]
         );
+        // A default that isn't there isn't tried.
+        assert_eq!(
+            socket_candidates(&args(&["emacsclient", "-t"]), Some(&dir), Some("gone")),
+            [server, work]
+        );
         // emacsclient with no `-s`: its default (`server`, or `$EMACS_SOCKET_NAME`) before the rest; `-t` is no name.
         assert_eq!(
             socket_candidates(&args(&["emacsclient", "-t"]), Some(&dir), Some("work")),
@@ -1043,6 +1060,17 @@ mod tests {
                 "{notes:?}"
             );
         }
+        // Both failing: one error carrying why the running Emacs wasn't read.
+        fake(&bin, "emacs", "echo 'Cannot open load file' >&2; exit 255");
+        let e = format!(
+            "{:#}",
+            read(Some((s(&["refuses"]), Some(7))), None, path(&bin)).unwrap_err()
+        );
+        assert!(
+            e.starts_with("the running Emacs: asking ")
+                && e.contains("printed no keymap: Cannot open load file"),
+            "{e}"
+        );
         let _ = std::fs::remove_dir_all(&bin);
     }
 
@@ -1220,7 +1248,11 @@ mod tests {
         assert!(framework(&home, &config).is_none());
         std::fs::write(dot.join("core/core-spacemacs.el"), "").unwrap();
         assert_eq!(framework(&home, &config), Some(("Spacemacs", dot)));
-        // A `~/.emacs` is loaded instead of either.
+        // A `~/.emacs.el` with no `~/.emacs.d`: Emacs uses the XDG directory, and its framework.
+        std::fs::remove_dir_all(home.join(".emacs.d")).unwrap();
+        std::fs::write(home.join(".emacs.el"), "").unwrap();
+        assert_eq!(framework(&home, &config), Some(("Doom Emacs", xdg.clone())));
+        // A `~/.emacs` makes `~/.emacs.d` the directory, and is loaded instead of either.
         std::fs::write(home.join(".emacs"), "").unwrap();
         assert!(framework(&home, &config).is_none());
         let _ = std::fs::remove_dir_all(&home);
