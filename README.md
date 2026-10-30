@@ -200,11 +200,11 @@ the stock ones, from each release's `config.def.h`
 ([data/sheets/st.json](data/sheets/st.json), [surf.json](data/sheets/surf.json),
 [tabbed.json](data/sheets/tabbed.json), [dwm.json](data/sheets/dwm.json)). st's apply in a window of class
 `st-256color` or `St` (or that instance, as with `st -c scratchpad`), surf's in `Surf`, tabbed's in `tabbed`; a surf or st embedded in tabbed is part of tabbed's
-window, so only tabbed's keys show there. dwm's apply in a dwm session (its `_NET_WM_NAME`), beside the focused
+window, so only tabbed's keys show there. dwm's apply in a dwm session (by its `_NET_WM_NAME`, or the `dwm` process when `wmname` changed that), beside the focused
 window's, and only when a window has focus: on an empty desktop nothing is listed. If you patched `config.h`, copy the built-in sheet into
 your sheets folder under the same name (`st.json`, `dwm.json`, …) and edit it ([docs/sheets.md](docs/sheets.md)): it
 replaces the built-in one and applies where it did, whatever its `provider`. For st, surf and tabbed a parser named
-after the window class (`st-256color`) that reads your `config.h` works too; it adds to the built-in sheet, so
+after the window class (`st-256color`, by class only) that reads your `config.h` works too; it adds to the built-in sheet, so
 replace that with an empty one.
 
 There is no dmenu sheet: dmenu grabs the keyboard and is never the focused window, so `Super+/` can't open over it

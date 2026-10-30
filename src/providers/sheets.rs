@@ -106,7 +106,8 @@ const BROWSER_SHEETS: &[(&str, &str, &str)] = &[
     ),
 ];
 
-/// suckless programs' stock keys, built in (each their `config.def.h` at a release): the window classes (ignoring case),
+/// suckless programs' stock keys, built in (each their `config.def.h` at a release): the window classes or instances
+/// (ignoring case),
 /// the file name a user sheet replaces it with, and the text. A patched `config.h` isn't read.
 const APP_SHEETS: &[(&[&str], &str, &str)] = &[
     (
@@ -346,7 +347,15 @@ fn parse_reporting(
                 // A replacement for a suckless sheet applies where the built-in would, whatever its `provider`.
                 Some(here) => std::fs::read_to_string(&path)
                     .context("can't read it")
-                    .and_then(|t| built_in(&t))
+                    .and_then(|t| {
+                        let value: serde_json::Value =
+                            serde_json::from_str(&t).context("not a DMS cheatsheet")?;
+                        anyhow::ensure!(
+                            value.get("window_title").is_none(),
+                            "a window_title doesn't apply to it (it replaces a built-in suckless sheet)"
+                        );
+                        built_in(&t)
+                    })
                     .map(|s| s.filter(|_| here)),
                 None => static_sheet(&path, class, title),
             }
@@ -1429,18 +1438,37 @@ mod tests {
                 r#"{{"title": "mine", "provider": "{provider}", "binds": {{"x": [{{"key": "ctrl+x", "desc": "x"}}]}}}}"#
             )
         };
-        std::fs::write(dir.join("st.json"), mine("st")).unwrap();
-        std::fs::write(dir.join("DWM.json"), mine("dwm")).unwrap();
+        std::fs::write(dir.join("st.json"), mine("nope")).unwrap();
+        std::fs::write(
+            dir.join("DWM.json"),
+            mine("dwm").replace("ctrl+x", "ctrl+alt+shift+F12"),
+        )
+        .unwrap();
         let (k, notes) = keys("st-256color", None, None);
         assert_eq!((k, notes.len()), (vec!["ctrl+x".to_string()], 0));
+        // By instance too, as the built-in.
+        let (k, _) = keys("scratchpad", Some("st-256color"), None);
+        assert_eq!(k, ["ctrl+x"]);
         let (k, _) = keys("firefox", None, Some("dwm"));
         assert!(
-            k.contains(&"ctrl+x".to_string()) && !k.contains(&"alt+p".to_string()),
+            k.contains(&"ctrl+alt+shift+F12".to_string()) && !k.contains(&"alt+p".to_string()),
             "{k:?}"
         );
         // Not elsewhere: no st or dwm window, no keys of theirs.
         let (k, _) = keys("firefox", None, Some("i3"));
-        assert!(!k.contains(&"ctrl+x".to_string()), "{k:?}");
+        assert!(!k.contains(&"ctrl+alt+shift+F12".to_string()), "{k:?}");
+        // A `window_title` would be ignored there: it is refused, with a note.
+        std::fs::write(
+            dir.join("st.json"),
+            mine("nope").replace(r#""title""#, r#""window_title": "vim", "title""#),
+        )
+        .unwrap();
+        let (k, notes) = keys("st-256color", None, None);
+        assert!(k.is_empty(), "{k:?}");
+        assert!(
+            notes.len() == 1 && notes[0].contains("window_title"),
+            "{notes:?}"
+        );
         // A broken one replaces it too: one note naming it, and no keys of either.
         std::fs::write(dir.join("st.json"), "{").unwrap();
         std::fs::write(dir.join("DWM.json"), "{").unwrap();
