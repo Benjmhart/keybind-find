@@ -173,7 +173,8 @@ then Zed's specific overrides, then your `keymap.json` on top. A bind of yours r
 `null` removes it. Both files are read from `~/.config/zed/` (`$XDG_CONFIG_HOME/zed/`), or the Flatpak's
 `~/.var/app/dev.zed.Zed/config/zed/` when the first doesn't exist; a file that doesn't parse is one line and is left
 out. Only one Zed version is built in, and Zed updates itself weekly: keys a newer Zed added or moved are missing
-until keybind-find's copy is updated. AI bindings that `disable_ai` would hide are listed.
+until keybind-find's copy is updated. AI bindings that `disable_ai` would hide are listed, and a section's
+`unbind` isn't applied.
 
 Each bind's `context` is shown as tags: `Editor` as `[Editor=true]`, `!menu` as `[menu=false]`, `extension == md` as
 `[extension=md]`, vim's `vim_mode == normal` as `[mode=normal]` and Zed's own `mode == full` as `[editor_mode=full]`;

@@ -75,7 +75,12 @@ fn read(title: Option<&str>, env: Env) -> (Sheet, Facts, Vec<String>) {
                 return None;
             }
         };
-        serde_json::from_str(&super::micro::strip_jsonc(&text))
+        let text = super::micro::strip_jsonc(&text);
+        // An empty file (or only comments) is no settings and no binds, as for Zed.
+        if text.trim().is_empty() {
+            return None;
+        }
+        serde_json::from_str(&text)
             .map_err(|e| notes.push(format!("{}: {e}; leaving it out", path.display())))
             .ok()
     };
@@ -99,7 +104,8 @@ fn read(title: Option<&str>, env: Env) -> (Sheet, Facts, Vec<String>) {
              or a key with no keysym)"
         );
         if bad_contexts > 0 {
-            note += &format!("; {bad_contexts} context(s) that didn't parse are shown untagged");
+            note +=
+                &format!("; {bad_contexts} bind(s) whose context didn't parse are shown untagged");
         }
         notes.push(note);
     }
@@ -249,7 +255,7 @@ fn build(keymaps: &[(&str, Value)], notes: &mut Vec<String>) -> (Sheet, usize, u
 }
 
 /// A keymap's sections, `(context, bindings)`; `None` when it isn't Zed's shape (in any section or action).
-fn sections(keymap: &Value) -> Option<Vec<(&str, &serde_json::Map<String, Value>)>> {
+fn sections(keymap: &Value) -> Option<Vec<(&str, Vec<(&String, &Value)>)>> {
     keymap
         .as_array()?
         .iter()
@@ -258,14 +264,21 @@ fn sections(keymap: &Value) -> Option<Vec<(&str, &serde_json::Map<String, Value>
                 Value::Null => "",
                 c => c.as_str()?,
             };
-            let bindings = s["bindings"].as_object()?;
+            // `bindings` is optional (a section may hold only `unbind`, which isn't applied).
+            let bindings: Vec<_> = match &s["bindings"] {
+                Value::Null => Vec::new(),
+                b => b.as_object()?.iter().collect(),
+            };
             // An action is a name, `[name, args]` or `null`.
             let action = |a: &Value| match a {
                 Value::String(_) | Value::Null => true,
                 Value::Array(a) => a.first().is_some_and(Value::is_string),
                 _ => false,
             };
-            bindings.values().all(action).then_some((context, bindings))
+            bindings
+                .iter()
+                .all(|(_, a)| action(a))
+                .then_some((context, bindings))
         })
         .collect()
 }
@@ -790,6 +803,18 @@ mod tests {
         let (_, _, notes) = read(None, &env_of(None));
         assert_eq!(others(notes).len(), 1);
         std::fs::remove_dir(flatpak.join("keymap.json")).unwrap();
+        // An empty or comment-only keymap.json: nothing, silently. A section without `bindings` is valid.
+        std::fs::write(flatpak.join("keymap.json"), "// nothing yet\n").unwrap();
+        assert!(others(read(None, &env_of(None)).2).is_empty());
+        std::fs::write(
+            flatpak.join("keymap.json"),
+            r#"[{"context": "Editor", "unbind": {"ctrl-w": "x::Y"}}, {"bindings": {"ctrl-alt-q": "x::Y"}}]"#,
+        )
+        .unwrap();
+        let (s, _, notes) = read(None, &env_of(None));
+        assert!(others(notes).is_empty());
+        assert_eq!(find(&s, "ctrl+alt+q", ""), ["x::Y"]);
+        std::fs::remove_file(flatpak.join("keymap.json")).unwrap();
         // XDG_CONFIG_HOME set: its zed/ is read.
         let xdg_zed = h.join("xdg/zed");
         std::fs::create_dir_all(&xdg_zed).unwrap();
