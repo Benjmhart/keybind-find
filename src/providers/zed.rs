@@ -319,8 +319,11 @@ fn valid(action: &Value, nullable: bool) -> bool {
     match action {
         Value::Null => nullable,
         Value::String(n) => n != "zed::Unbind",
+        // `zed::Unbind`'s argument is a name, and it can't itself be an unbind target.
         Value::Array(a) => {
-            a.len() == 2 && a[0].is_string() && (a[0] != "zed::Unbind" || a[1].is_string())
+            a.len() == 2
+                && a[0].is_string()
+                && (a[0] != "zed::Unbind" || (nullable && a[1].is_string()))
         }
         _ => false,
     }
@@ -1024,8 +1027,12 @@ mod tests {
             assert!(find(&s, "q", "").is_empty(), "{bad}");
             assert_eq!(find(&s, "e", ""), ["d::D"], "{bad}");
         }
-        let (_, _, _, notes) = sheet_of("None", false, &[r#"[{"unbind": {"q": null}}]"#]);
-        assert_eq!(notes.len(), 1);
+        for bad in [
+            r#"[{"unbind": {"q": null}}]"#,
+            r#"[{"unbind": {"q": ["zed::Unbind", "a::A"]}}]"#,
+        ] {
+            assert_eq!(sheet_of("None", false, &[bad]).3.len(), 1, "{bad}");
+        }
         // Not Zed's shape at all: the whole file refused.
         for bad in [r#"[{"bindings": []}]"#, "[1]", r#"[{"context": 5}]"#] {
             let (_, _, _, notes) = sheet_of("None", false, &[bad]);
