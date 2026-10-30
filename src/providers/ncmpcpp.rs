@@ -144,7 +144,7 @@ fn parse(defaults: &str, files: &[(&str, &str)]) -> anyhow::Result<(Sheet, Vec<S
     }
     if left_out > 0 {
         notes.push(format!(
-            "leaving out {left_out} key(s) keybind-find can't send (mouse, a non-ASCII key)"
+            "leaving out {left_out} key(s) keybind-find can't send (mouse, a non-ASCII key, shift with a character)"
         ));
     }
     Ok((sheet, notes))
@@ -315,13 +315,14 @@ fn parts(s: &str) -> Option<Option<(Vec<&'static str>, String)>> {
     }
     for (prefix, m) in [("alt-", "alt"), ("ctrl-", "ctrl"), ("shift-", "shift")] {
         if let Some(rest) = s.strip_prefix(prefix).filter(|r| !r.is_empty()) {
-            // `stringToKey`: a special name, else one character. ncmpcpp never reads shift with a character (only with
-            // tab and the arrows), so `shift-a` is a key no press reaches: kept apart from `A`, and not listed.
+            // `stringToKey`: a special name, else one character.
             let one = rest.chars().count() == 1;
-            if m == "shift" && one && parts(rest).is_none() {
+            let inner = parts(rest).or_else(|| one.then(|| single(rest)))?;
+            // ncmpcpp's `readKey` adds shift only to named keys (tab, arrows, insert, …), never to a character or a
+            // ctrl code: `shift-a` or `shift-ctrl-a` is a key no press reaches, kept apart from `A` and not listed.
+            if m == "shift" && !shift_reaches(rest) {
                 return Some(None);
             }
-            let inner = parts(rest).or_else(|| one.then(|| single(rest)))?;
             return Some(inner.map(|(mut mods, k)| {
                 mods.push(m);
                 (mods, k)
@@ -354,6 +355,23 @@ fn parts(s: &str) -> Option<Option<(Vec<&'static str>, String)>> {
         _ => return None,
     };
     key(named)
+}
+
+/// Whether a key under `shift-` is one ncmpcpp's `readKey` can report with shift: a named key under any other
+/// prefixes, not a character or a `ctrl-<x>` code.
+fn shift_reaches(mut rest: &str) -> bool {
+    loop {
+        if rest.len() == 6 && rest.starts_with("ctrl-") {
+            return false;
+        }
+        match ["alt-", "ctrl-", "shift-"]
+            .iter()
+            .find_map(|p| rest.strip_prefix(p).filter(|r| !r.is_empty()))
+        {
+            Some(r) => rest = r,
+            None => return rest.chars().count() > 1,
+        }
+    }
 }
 
 /// One character as modifiers and a keysym: an upper-case letter is shift and the letter; none for one keybind-find
@@ -422,7 +440,7 @@ mod tests {
         assert_eq!(s.binds["keys"].len(), 95);
         assert_eq!(
             notes,
-            ["leaving out 1 key(s) keybind-find can't send (mouse, a non-ASCII key)"]
+            ["leaving out 1 key(s) keybind-find can't send (mouse, a non-ASCII key, shift with a character)"]
         );
         assert_eq!(get(&s, "p"), Some("pause"));
         assert_eq!(get(&s, "q"), Some("quit"));
@@ -508,14 +526,36 @@ mod tests {
             note("def_command \"c\" [deferred]\ndef_key \"p\"\n  quit\n")
                 .starts_with("b:2: definition of command 'c' cannot be empty")
         );
+        // The command map spans the files: the second file's `c` is a redefinition.
+        let c = "def_command \"c\" [deferred]\n  quit\n";
+        let notes = parse(DEFAULTS, &[("one", c), ("two", c)]).unwrap().1;
+        assert!(
+            notes[0].starts_with("two:1: redefinition of command 'c'"),
+            "{notes:?}"
+        );
+        // `\\` in a key name is a backslash.
+        let (s3, _) = parse(DEFAULTS, &[("b", "def_key \"\\\\\"\n  quit\n")]).unwrap();
+        assert_eq!(get(&s3, "backslash"), Some("quit"));
+        // A key with no notation is matched by name: the user's `mouse` replaces the default (still left out, once).
+        let notes = parse(DEFAULTS, &[("b", "def_key \"mouse\"\n  quit\n")])
+            .unwrap()
+            .1;
+        assert_eq!(notes, ["leaving out 1 key(s) keybind-find can't send (mouse, a non-ASCII key, shift with a character)"]);
         // `shift-a` is a key no press reaches: it doesn't replace `A`'s default.
         let (s2, _) = parse(DEFAULTS, &[("b", "def_key \"shift-a\"\n  quit\n")]).unwrap();
-        assert_ne!(get(&s2, "shift+a"), Some("quit"));
+        let (s2, notes2) = (
+            s2,
+            parse(DEFAULTS, &[("b", "def_key \"shift-a\"\n  quit\n")])
+                .unwrap()
+                .1,
+        );
+        assert_eq!(get(&s2, "shift+a"), Some("add"));
+        assert_eq!(notes2, ["leaving out 2 key(s) keybind-find can't send (mouse, a non-ASCII key, shift with a character)"]);
         // A non-ASCII key is a key to ncmpcpp but can't be sent: counted.
         let (_, notes) = parse(DEFAULTS, &[("b", "def_key \"é\"\n  quit\n")]).unwrap();
         assert_eq!(
             notes,
-            ["leaving out 2 key(s) keybind-find can't send (mouse, a non-ASCII key)"]
+            ["leaving out 2 key(s) keybind-find can't send (mouse, a non-ASCII key, shift with a character)"]
         );
         // Only the action's name gets `_` as a space; its argument is as written.
         let (s, _) = parse(
@@ -641,7 +681,8 @@ mod tests {
             ("space", "space"),
             ("tab", "Tab"),
             // Nested prefixes come out in canonical order, shift once.
-            ("shift-ctrl-a", "ctrl+shift+a"),
+            ("shift-ctrl-up", "ctrl+shift+Up"),
+            ("alt-shift-left", "alt+shift+Left"),
             ("alt-ctrl-x", "ctrl+alt+x"),
             ("ctrl-\\", "ctrl+backslash"),
         ] {
@@ -650,7 +691,16 @@ mod tests {
             assert!(want.parse::<keybind_find_sheet::Key>().is_ok(), "{want}");
         }
         // Valid to ncmpcpp, but not sent: counted.
-        for name in ["mouse", "é", "alt-mouse", "shift-a", "shift-A", "shift-1"] {
+        for name in [
+            "mouse",
+            "é",
+            "alt-mouse",
+            "shift-a",
+            "shift-A",
+            "shift-1",
+            "shift-ctrl-a",
+            "shift-alt-a",
+        ] {
             assert_eq!(notation(name), None, "{name}");
             assert!(valid(name), "{name}");
         }
