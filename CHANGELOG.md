@@ -7,6 +7,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Added
 
+- foot: its key, search and URL bindings from defaults pinned per version (1.28.0) with your `foot.ini` on top (following `include=`), and its text bindings, when a foot or footclient window has focus.
 - GNOME: its window, shell, mutter and media-key shortcuts, your custom shortcuts and the overlay key, from `gsettings`; on GNOME Wayland the list opens in fzf in alacritty (fuzzel needs layer-shell).
 - micro: its keys from defaults pinned per version (2.0.11, 2.0.14, 2.0.15) with your `bindings.json` on top, when micro is in the focused terminal.
 - zathura: its keys from defaults pinned per version (0.5.2, 0.5.11, 2026.10.23) with your zathurarc's `map`/`unmap` on top, when a zathura window has focus.

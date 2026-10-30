@@ -6,6 +6,7 @@ use crate::sheet::Sheet;
 mod alacritty;
 mod alacritty_defaults;
 mod espanso;
+mod foot;
 mod ghostty;
 mod gnome;
 mod herdr;
@@ -64,6 +65,7 @@ pub const KNOWN: &[&str] = &[
     "zathura",
     "micro",
     "gnome",
+    "foot",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -79,6 +81,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "nvim" => nvim::sheet(ctx),
         "herdr" => herdr::sheet(ctx),
         "alacritty" => alacritty::sheet(ctx),
+        "foot" => foot::sheet(),
         "ghostty" => ghostty::sheet(ctx),
         "sheets" => sheets::sheet(ctx),
         "tmux" => tmux::sheet(ctx),
