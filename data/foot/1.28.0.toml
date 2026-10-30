@@ -1,7 +1,8 @@
 # foot 1.28.0: the default key, search and URL bindings, generated from foot's source at tag 1.28.0 (commit ab33c9a19d626f8d0ac0bd1adfdba21946ada948):
 # config.c add_default_key_bindings, add_default_search_bindings and add_default_url_bindings, the action names
 # from binding_action_map, search_binding_action_map and url_binding_action_map, and each action's description
-# (its first sentence) from doc/foot.ini.5.scd. foot is MIT licensed: Copyright (c) 2018 Daniel Eklöf
+# (its first sentence, or the sentence naming it in a shared entry) from doc/foot.ini.5.scd. foot is MIT licensed:
+# Copyright (c) 2018 Daniel Eklöf
 # (https://codeberg.org/dnkl/foot/src/tag/1.28.0/LICENSE). Mouse bindings are not listed.
 
 foot_version = "1.28.0"
@@ -27,10 +28,10 @@ spawn-terminal = "Spawns a new terminal."
 minimize = "Minimizes the window."
 maximize = "Toggle the maximized state."
 fullscreen = "Toggles the fullscreen state."
-pipe-scrollback = "Pipes the currently visible text, the entire scrollback, the currently selected text, or the last command's output to an external tool."
-pipe-visible = "Pipes the currently visible text, the entire scrollback, the currently selected text, or the last command's output to an external tool."
-pipe-selected = "Pipes the currently visible text, the entire scrollback, the currently selected text, or the last command's output to an external tool."
-pipe-command-output = "Pipes the currently visible text, the entire scrollback, the currently selected text, or the last command's output to an external tool."
+pipe-scrollback = "Pipes the entire scrollback to an external tool."
+pipe-visible = "Pipes the currently visible text to an external tool."
+pipe-selected = "Pipes the currently selected text to an external tool."
+pipe-command-output = "Pipes the last command's output to an external tool."
 show-urls-copy = "Enter URL mode, where all currently visible URLs are tagged with a jump label with a key sequence that will place the URL in the clipboard."
 show-urls-launch = "Enter URL mode, where all currently visible URLs are tagged with a jump label with a key sequence that will open the URL (and exit URL mode)."
 show-urls-persistent = "Similar to show-urls-launch, but does not automatically exit URL mode after activating an URL."
@@ -40,9 +41,9 @@ unicode-input = "Input a Unicode character by typing its codepoint in hexadecima
 quit = "Quit foot."
 regex-launch = "Enter regex mode."
 regex-copy = "Same as regex-launch, but the match is placed in the clipboard, instead of \"launched\", upon activation."
-color-theme-switch-dark = "Switch between the dark color theme (defined in the colors-dark section), and the light color theme (defined in the colors-light section)."
-color-theme-switch-light = "Switch between the dark color theme (defined in the colors-dark section), and the light color theme (defined in the colors-light section)."
-color-theme-toggle = "Switch between the dark color theme (defined in the colors-dark section), and the light color theme (defined in the colors-light section)."
+color-theme-switch-dark = "Applies the dark color theme regardless of which color theme is currently active."
+color-theme-switch-light = "Applies the light color theme regardless of which color theme is currently active."
+color-theme-toggle = "Toggles between the primary and alternative color themes."
 
 [actions.search-bindings]
 scrollback-up-page = "Scrolls up/back one page in history."
@@ -83,7 +84,7 @@ unicode-input = "Unicode input mode."
 
 [actions.url-bindings]
 cancel = "Exits URL mode without opening a URL."
-toggle-url-visible = "By default, the jump label only shows the key sequence required to activate it."
+toggle-url-visible = "Toggles between showing and hiding the URL on the jump label."
 
 [[bind]]
 section = "key-bindings"

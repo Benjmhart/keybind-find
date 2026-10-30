@@ -3158,7 +3158,8 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             title: None,
         };
         let got = program_in(&props, "pid", None);
-        // `foot --server` serves every footclient window: the warning, and foot's own keys with no program inside.
+        // `foot --server` serves every footclient window: foot's own keys with no program inside (`settle` prints the
+        // warning, not checked here).
         let mut ctx = Context {
             window_id: None,
             class: props.class.clone(),

@@ -272,17 +272,17 @@ kitty's own documentation warns.
 ### foot
 
 In a foot window (app_id `foot`, or `footclient` in server mode), keybind-find lists foot's default bindings for its
-version (from foot's `config.c` at 1.28.0, each described by the first sentence of foot.ini(5); another version gets
+version (from foot's `config.c` at 1.28.0, each described from foot.ini(5); another version gets
 the nearest, with a one-line note; with no `foot` on `PATH`, the newest) with your `foot.ini` on top, read as foot
 reads it: the first of `$XDG_CONFIG_HOME/foot/foot.ini` (else `~/.config/foot/foot.ini`) and each `$XDG_CONFIG_DIRS`
 entry's `foot/foot.ini` (else `/etc/xdg/foot/foot.ini`), following `include=` (absolute or `~/`). `[key-bindings]`
 are listed under `foot`, `[search-bindings]` under `search`, `[url-bindings]` under `url`, and `[text-bindings]` under
 `text` as the text they send (`send \x1b[A`); `[mouse-bindings]` aren't read. A line of yours replaces every default
 key of that action, and `action=none` removes it; a `pipe-*` command or `regex-*` name is shown with the action. A key
-you give to an action while another still has it stays with the other, as in foot, which says so when it starts;
+you give to an action while another still has it stays with the other, as in foot, which reports it as an error;
 keybind-find says so in one line too. Left out and counted in one line: a modifier other than `Control`, `Shift`,
-`Mod1`/`Alt` and `Mod4`/`Super`, a key name that isn't shaped like an X keysym (names aren't looked up), and a line foot
-would refuse. An include cycle, or includes nested deeper than 8, stops with a note, as does a section name foot
+`Mod1`/`Alt` and `Mod4`/`Super`, a key name that isn't shaped like an X keysym (names aren't looked up), an upper-case
+key with `Shift` (foot never fires it), and a line foot would refuse. An include cycle, or includes nested deeper than 8, stops with a note, as does a section name foot
 doesn't know. Not seen: a config given with `foot -c` (or to `foot --server`), `-o` overrides, and a foot started
 with another `--app-id` or `app-id=`, which isn't recognised as foot.
 

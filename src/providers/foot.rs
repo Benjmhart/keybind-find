@@ -62,6 +62,7 @@ type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 /// `data/foot/<version>.toml`: each section's actions with their descriptions, and the default bindings.
 #[derive(Deserialize)]
 struct Pinned {
+    foot_version: String,
     actions: BTreeMap<String, BTreeMap<String, String>>,
     bind: Vec<PinnedBind>,
 }
@@ -166,6 +167,7 @@ fn parse(defaults: &Pinned, root: Option<&Path>, home: Option<&Path>) -> (Sheet,
         }
     }
     let mut reader = Reader {
+        version: &defaults.foot_version,
         actions: &defaults.actions,
         lists,
         notes: Vec::new(),
@@ -230,7 +232,8 @@ fn parse(defaults: &Pinned, root: Option<&Path>, home: Option<&Path>) -> (Sheet,
         let s = if left_out == 1 { "" } else { "s" };
         notes.push(format!(
             "leaving out {left_out} foot.ini binding{s} keybind-find can't read or send (a modifier other than \
-             Control, Shift, Mod1/Alt and Mod4/Super, a key name that isn't a keysym, or a malformed line)"
+             Control, Shift, Mod1/Alt and Mod4/Super, a key name that isn't a keysym, an upper-case key with Shift, \
+             which foot never fires, or a malformed line)"
         ));
     }
     (sheet, notes)
@@ -328,7 +331,11 @@ fn notation(b: &Binding) -> Option<String> {
         })
         .collect::<Option<Vec<_>>>()?;
     let key = match b.key.as_str() {
+        // foot.ini(5): with Shift among the modifiers an upper-case key "will never trigger".
         k if k.len() == 1 && k.chars().all(|c| c.is_ascii_uppercase()) => {
+            if mods.contains(&"shift") {
+                return None;
+            }
             mods.push("shift");
             k.to_ascii_lowercase()
         }
@@ -338,6 +345,7 @@ fn notation(b: &Binding) -> Option<String> {
 }
 
 struct Reader<'a> {
+    version: &'a str,
     actions: &'a BTreeMap<String, BTreeMap<String, String>>,
     lists: BTreeMap<&'static str, Vec<Binding>>,
     notes: Vec<String>,
@@ -353,7 +361,7 @@ impl Reader<'_> {
         let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         if self.open.contains(&canonical) {
             self.notes.push(format!(
-                "{}: included again inside itself; not read again",
+                "{}: included again inside itself (foot reports an error); not read again",
                 path.display()
             ));
             return;
@@ -376,7 +384,8 @@ impl Reader<'_> {
         // `None`: a section that isn't read (or an invalid one): its keys are skipped.
         let mut section = Some("main");
         for line in text.lines() {
-            let line = line.trim_start();
+            // foot trims with `isspace`: ASCII only.
+            let line = line.trim_start_matches(|c: char| c.is_ascii_whitespace());
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
@@ -386,7 +395,7 @@ impl Reader<'_> {
                 .skip(1)
                 .find(|&(i, c)| c == '#' && line[..i].ends_with([' ', '\t']))
                 .map_or(line.len(), |(i, _)| i);
-            let line = line[..cut].trim_end();
+            let line = line[..cut].trim_end_matches(|c: char| c.is_ascii_whitespace());
             if let Some(name) = line.strip_prefix('[') {
                 let name = name.strip_suffix(']').filter(|n| !n.contains(']'));
                 section = name.and_then(|n| {
@@ -402,9 +411,12 @@ impl Reader<'_> {
                 });
                 if !foot_section {
                     self.notes.push(format!(
-                        "{}: [{}] isn't a foot section; its lines aren't read",
+                        "{}: {}; its lines aren't read",
                         path.display(),
-                        name.unwrap_or(line)
+                        match name {
+                            Some(n) => format!("[{n}] isn't a foot {} section", self.version),
+                            None => format!("{line}: a malformed section header"),
+                        }
                     ));
                 }
                 continue;
@@ -414,7 +426,12 @@ impl Reader<'_> {
             };
             let kv = line
                 .split_once('=')
-                .map(|(k, v)| (k.trim_end(), v.trim_start()))
+                .map(|(k, v)| {
+                    (
+                        k.trim_end_matches(|c: char| c.is_ascii_whitespace()),
+                        v.trim_start_matches(|c: char| c.is_ascii_whitespace()),
+                    )
+                })
                 .filter(|(k, v)| !k.is_empty() && !v.is_empty());
             match (section, kv) {
                 ("main", Some(("include", value))) => self.include(path, value),
@@ -628,8 +645,7 @@ mod tests {
                 .map(|(_, d)| d)
                 .collect::<Vec<_>>(),
             [
-                "Pipes the currently visible text, the entire scrollback, the currently selected text, or the last \
-                 command's output to an external tool. [sh -c \"xurls | fuzzel | xargs -r firefox\"]",
+                "Pipes the currently visible text to an external tool. [sh -c \"xurls | fuzzel | xargs -r firefox\"]",
                 "Enter regex mode. [hashes]",
             ]
         );
@@ -655,9 +671,9 @@ mod tests {
         );
         // The cycle back to foot.ini: a note, read once.
         assert!(
-            notes
-                .iter()
-                .any(|n| n.ends_with("foot.ini: included again inside itself; not read again")),
+            notes.iter().any(|n| n.ends_with(
+                "foot.ini: included again inside itself (foot reports an error); not read again"
+            )),
             "{notes:?}"
         );
         // Mod3+x (an unsendable modifier), `bogus-action`, a key that isn't a keysym (the whole line refused), a
@@ -665,7 +681,8 @@ mod tests {
         assert_eq!(
             notes.last().unwrap(),
             "leaving out 6 foot.ini bindings keybind-find can't read or send (a modifier other than Control, Shift, \
-             Mod1/Alt and Mod4/Super, a key name that isn't a keysym, or a malformed line)"
+             Mod1/Alt and Mod4/Super, a key name that isn't a keysym, an upper-case key with Shift, which foot never \
+             fires, or a malformed line)"
         );
         // Mod3+x replaced unicode-input's default: listed nowhere.
         assert!(keys(&s, "foot", "unicode-input").is_empty());
@@ -697,7 +714,9 @@ mod tests {
              [url-bindings]\n\
              cancel=None\n\
              [key-binding]\n\
-             fullscreen=F11\n",
+             fullscreen=F11\n\
+             [key-bindings\n\
+             font-reset=F12\n",
         );
         // Two of the user's lines: the earlier keeps the combo, modifier order aside.
         assert_eq!(keys(&s, "foot", "minimize"), ["ctrl+shift+F2"]);
@@ -713,16 +732,55 @@ mod tests {
         assert!(keys(&s, "url", "cancel").is_empty());
         // A section name foot doesn't know is noted, and not read.
         assert!(keys(&s, "foot", "fullscreen").is_empty());
-        assert_eq!(notes.len(), 3, "{notes:?}");
-        assert!(notes[0]
-            .ends_with("foot.ini: [key-binding] isn't a foot section; its lines aren't read"));
+        assert_eq!(notes.len(), 4, "{notes:?}");
+        assert!(notes[0].ends_with(
+            "foot.ini: [key-binding] isn't a foot 1.28.0 section; its lines aren't read"
+        ));
+        assert!(notes[1].ends_with(
+            "foot.ini: [key-bindings: a malformed section header; its lines aren't read"
+        ));
+        assert_eq!(keys(&s, "foot", "font-reset"), ["ctrl+0", "ctrl+KP_0"]);
         assert_eq!(
-            notes[1],
+            notes[2],
             "[key-bindings] maximize: Control+Shift+F2 is already mapped to minimize; foot keeps that"
         );
         assert_eq!(
-            notes[2],
+            notes[3],
             "[key-bindings] text abc: Control+Shift+c is already mapped to clipboard-copy; foot keeps that"
+        );
+        // Shift with an upper-case key never fires in foot: left out, counted. Alt and Super are foot's virtual
+        // modifiers. A `#` not after a blank is no comment. Two commands, or two texts, on one combo: a collision.
+        let (s, notes) = parse_text(
+            "more",
+            "[key-bindings]\n\
+             clipboard-paste=Control+Shift+V\n\
+             quit=Alt+Super+y\n\
+             pipe-visible=[echo a#b] Control+F9\n\
+             pipe-selected=[echo c] Control+F9\n\
+             [text-bindings]\n\
+             a=Control+F8\n\
+             b=Control+F8\n",
+        );
+        assert!(keys(&s, "foot", "clipboard-paste").is_empty());
+        assert_eq!(keys(&s, "foot", "quit"), ["super+alt+y"]);
+        assert_eq!(
+            rows(&s, "foot").into_iter().find(|(k, _)| *k == "ctrl+F9"),
+            Some((
+                "ctrl+F9",
+                "Pipes the currently visible text to an external tool. [echo a#b]"
+            ))
+        );
+        assert_eq!(rows(&s, "text"), [("ctrl+F8", "send `a`")]);
+        assert_eq!(notes.len(), 3, "{notes:?}");
+        assert!(notes[0].starts_with(
+            "[key-bindings] pipe-selected: Control+F9 is already mapped to pipe-visible"
+        ));
+        assert!(
+            notes[1].starts_with("[key-bindings] text b: Control+F8 is already mapped to text a")
+        );
+        assert!(
+            notes[2].starts_with("leaving out 1 foot.ini binding "),
+            "{notes:?}"
         );
         // foot's other sections and `[regex:name]` aren't noted.
         let (_, notes) = parse_text(
@@ -898,7 +956,8 @@ mod tests {
                 c.env("PATH", &bin);
             }
         };
-        let none = |_: &str| None;
+        // No foot.ini anywhere, the machine's /etc/xdg included.
+        let none = |k: &str| (k == "XDG_CONFIG_DIRS").then(|| "/nonexistent".to_string());
         let bin = fake("exact", "foot version: 1.28.0 +pgo +ime");
         let (s, notes) = sheet_with(REGISTRY, path(&bin), &none).unwrap();
         let _ = std::fs::remove_dir_all(&bin);
@@ -913,9 +972,15 @@ mod tests {
         );
         // No foot: the newest defaults, the user's file, and the note.
         let missing = std::env::temp_dir().join(format!("kbf-foot-none-{}", std::process::id()));
-        let home = fixture("home").join(".config").display().to_string();
-        let env = move |k: &str| (k == "XDG_CONFIG_HOME").then(|| home.clone());
+        // HOME reaches the reading: the fixture's `include=~/…` is followed.
+        let home = fixture("home").display().to_string();
+        let env = move |k: &str| match k {
+            "HOME" => Some(home.clone()),
+            "XDG_CONFIG_DIRS" => Some("/nonexistent".into()),
+            _ => None,
+        };
         let (s, notes) = sheet_with(REGISTRY, path(&missing), &env).unwrap();
+        assert_eq!(keys(&s, "search", "cancel"), ["Escape"]);
         assert_eq!(
             notes[0],
             "foot's version is unknown: using the defaults of 1.28.0"
@@ -936,7 +1001,8 @@ mod tests {
         let text = String::from_utf8_lossy(&out.stdout);
         assert!(version_of(&text).is_some(), "{text}");
         // The provider's own run of it, with no foot.ini.
-        let none = |_: &str| None;
+        // No foot.ini anywhere, the machine's /etc/xdg included.
+        let none = |k: &str| (k == "XDG_CONFIG_DIRS").then(|| "/nonexistent".to_string());
         let (s, _) = sheet_with(REGISTRY, |_| {}, &none).unwrap();
         assert!(!s.binds["foot"].is_empty());
     }
