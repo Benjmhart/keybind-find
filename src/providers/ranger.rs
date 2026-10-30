@@ -1,0 +1,637 @@
+//! ranger: its browser keys from the default rc.conf pinned at 1.9.4 (`data/ranger/`), then `/etc/ranger/rc.conf`
+//! and the user's `rc.conf`, read as ranger reads them into its key tree. Shown when ranger is the program in the
+//! focused terminal. ranger is never run, and no `eval` line is.
+
+use crate::sheet::{Bind, Sheet};
+use std::path::{Path, PathBuf};
+
+type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
+
+const DEFAULTS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/data/ranger/1.9.4.conf"
+));
+
+const SYSTEM: &str = "/etc/ranger/rc.conf";
+
+pub fn sheet() -> anyhow::Result<Sheet> {
+    let env = |k: &str| std::env::var(k).ok();
+    let (sheet, notes) = read(&env, Path::new(SYSTEM));
+    for note in notes {
+        eprintln!("keybind-find: ranger: {note}");
+    }
+    Ok(sheet)
+}
+
+/// The sheet and notes from the files ranger would source (`load_settings`): the defaults unless
+/// `RANGER_LOAD_DEFAULT_RC` is `false` (any case) and the system or user file is readable, then `system`, then the
+/// user's. A file that can't be read is skipped, as ranger's `os.access(…, R_OK)` check does.
+fn read(env: Env, system: &Path) -> (Sheet, Vec<String>) {
+    // ranger reads text; a file that isn't UTF-8 is read lossily here.
+    let text = |p: &Path| {
+        std::fs::read(p)
+            .ok()
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+    };
+    let files: Vec<String> = [Some(system.to_path_buf()), user_conf(env)]
+        .into_iter()
+        .flatten()
+        .filter_map(|p| text(&p))
+        .collect();
+    let skip_defaults = env("RANGER_LOAD_DEFAULT_RC").is_some_and(|v| v.to_uppercase() == "FALSE")
+        && !files.is_empty();
+    let texts: Vec<&str> = (!skip_defaults)
+        .then_some(DEFAULTS)
+        .into_iter()
+        .chain(files.iter().map(String::as_str))
+        .collect();
+    parse(&texts)
+}
+
+/// The user's rc.conf: `$XDG_CONFIG_HOME/ranger/rc.conf` when that is absolute, else `~/.config/ranger/rc.conf`.
+fn user_conf(env: Env) -> Option<PathBuf> {
+    let dir = match env("XDG_CONFIG_HOME").map(PathBuf::from) {
+        Some(x) if x.is_absolute() => x.join("ranger"),
+        _ => PathBuf::from(env("HOME").filter(|h| !h.is_empty())?).join(".config/ranger"),
+    };
+    Some(dir.join("rc.conf"))
+}
+
+/// ranger's key tree for one context (`KeyMaps`): each key code leads to a command or to more keys, in the order
+/// they were first bound.
+#[derive(Clone, Debug)]
+enum Node {
+    Command(String),
+    Keys(Vec<(i64, Node)>),
+}
+
+/// The sheet from rc.conf `texts` in the order ranger sources them, and the notes for stderr.
+fn parse(texts: &[&str]) -> (Sheet, Vec<String>) {
+    let mut tree: Vec<(i64, Node)> = Vec::new();
+    let mut skipped_lines = 0;
+    for text in texts {
+        for line in text.lines() {
+            // `source`: strips spaces and line ends only; comments and blank lines skipped.
+            let line = line.trim_matches(|c| c == ' ' || c == '\r' || c == '\n');
+            if line.starts_with('#') || line.trim().is_empty() {
+                continue;
+            }
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let ran = match words[0] {
+                "map" if words.len() >= 3 => {
+                    bind(
+                        &mut tree,
+                        &codes(words[1]),
+                        Node::Command(rest(line, 2).to_string()),
+                    );
+                    true
+                }
+                // Each target in turn; a source that isn't bound stops the line (ranger's `KeyError`).
+                "copymap" if words.len() >= 3 => words[2..].iter().all(|target| {
+                    let Some(node) = find(&tree, &codes(words[1])).cloned() else {
+                        return false;
+                    };
+                    bind(&mut tree, &codes(target), node);
+                    true
+                }),
+                "unmap" => words[1..]
+                    .iter()
+                    .all(|keys| unbind(&mut tree, &codes(keys))),
+                // Never run.
+                "eval" => false,
+                // Other contexts, settings, aliases: not browser keys.
+                _ => true,
+            };
+            if !ran {
+                skipped_lines += 1;
+            }
+        }
+    }
+    let mut sheet = Sheet {
+        title: "ranger".into(),
+        provider: "ranger".into(),
+        binds: Default::default(),
+    };
+    let mut left_out = 0;
+    let mut path = Vec::new();
+    walk(&tree, &mut path, &mut |keys, command| {
+        let Some(key) = notation(keys) else {
+            left_out += 1;
+            return;
+        };
+        let category = command.split_whitespace().next().unwrap_or("ranger");
+        let binds = sheet.binds.entry(category.to_string()).or_default();
+        // `<backspace>` and `<backspace2>` are both BackSpace: one entry when they run the same command.
+        if binds.iter().any(|b| b.key == key && b.desc == command) {
+            return;
+        }
+        binds.push(Bind {
+            key,
+            desc: command.to_string(),
+            action: command.to_string(),
+            when: Default::default(),
+        });
+    });
+    let mut notes = Vec::new();
+    if left_out + skipped_lines > 0 {
+        notes.push(format!(
+            "leaving out {left_out} key(s) keybind-find can't send (<any>, <bg>, a key code) and {skipped_lines} \
+             line(s) it doesn't run (eval) or ranger stops on (copymap or unmap of a key not bound)"
+        ));
+    }
+    (sheet, notes)
+}
+
+/// `Command.rest(n)`: the line from its `n`th word on.
+fn rest(line: &str, n: usize) -> &str {
+    let mut words = 0;
+    let mut in_space = true;
+    for (i, c) in line.char_indices() {
+        if c.is_whitespace() {
+            if !in_space {
+                in_space = true;
+                words += 1;
+            }
+        } else if in_space {
+            in_space = false;
+            if words == n {
+                return &line[i..];
+            }
+        }
+    }
+    ""
+}
+
+/// `KeyMaps.bind`: a key that held a command becomes a prefix, and a prefix bound as a whole is replaced.
+fn bind(map: &mut Vec<(i64, Node)>, keys: &[i64], node: Node) {
+    let Some((&key, more)) = keys.split_first() else {
+        return;
+    };
+    let at = map.iter().position(|(k, _)| *k == key);
+    if more.is_empty() {
+        match at {
+            Some(i) => map[i].1 = node,
+            None => map.push((key, node)),
+        }
+        return;
+    }
+    let i = match at {
+        Some(i) => {
+            if matches!(map[i].1, Node::Command(_)) {
+                map[i].1 = Node::Keys(Vec::new());
+            }
+            i
+        }
+        None => {
+            map.push((key, Node::Keys(Vec::new())));
+            map.len() - 1
+        }
+    };
+    if let Node::Keys(inner) = &mut map[i].1 {
+        bind(inner, more, node);
+    }
+}
+
+/// What `keys` lead to, as `KeyMaps.copy` finds it; `None` when it isn't bound.
+fn find<'a>(map: &'a [(i64, Node)], keys: &[i64]) -> Option<&'a Node> {
+    let (key, more) = keys.split_first()?;
+    let node = &map.iter().find(|(k, _)| k == key)?.1;
+    match (more.is_empty(), node) {
+        (true, n) => Some(n),
+        (false, Node::Keys(inner)) => find(inner, more),
+        (false, Node::Command(_)) => None,
+    }
+}
+
+/// `_unbind_traverse`: removes `keys` and any prefix left empty; `false` where ranger raises (a command where more
+/// keys were to follow).
+fn unbind(map: &mut Vec<(i64, Node)>, keys: &[i64]) -> bool {
+    let Some((key, more)) = keys.split_first() else {
+        return true;
+    };
+    let Some(i) = map.iter().position(|(k, _)| k == key) else {
+        return true;
+    };
+    if more.is_empty() {
+        map.remove(i);
+        return true;
+    }
+    let Node::Keys(inner) = &mut map[i].1 else {
+        return false;
+    };
+    let ok = unbind(inner, more);
+    if inner.is_empty() {
+        map.remove(i);
+    }
+    ok
+}
+
+fn walk(map: &[(i64, Node)], path: &mut Vec<i64>, each: &mut dyn FnMut(&[i64], &str)) {
+    for (key, node) in map {
+        path.push(*key);
+        match node {
+            Node::Command(c) => each(path, c),
+            Node::Keys(inner) => walk(inner, path, each),
+        }
+        path.pop();
+    }
+}
+
+// ranger's markers, numbered past curses' keys.
+const ANY: i64 = 9001;
+const PASSIVE: i64 = 9002;
+const ALT: i64 = 9003;
+const QUANTIFIER: i64 = 9004;
+/// A `<number>` in a key, offset so it never reads as a key.
+const CODE: i64 = 1 << 32;
+
+/// `parse_keybinding`: a key sequence as key codes. `<name>` is looked up lower-cased; a number in brackets is that
+/// code (marked, and never sent); any other `<…>` is its characters. Under Python 3 the text goes through its UTF-8 bytes.
+fn codes(keys: &str) -> Vec<i64> {
+    let bytes = keys.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'<' {
+            if let Some(end) = bytes[i + 1..].iter().position(|b| *b == b'>') {
+                let inner = &bytes[i + 1..i + 1 + end];
+                let name = String::from_utf8_lossy(inner).to_lowercase();
+                match special(&name) {
+                    Some(k) => out.extend(k),
+                    // A key code: left out (the AC), so kept apart from the character it may be.
+                    None if !name.is_empty() && name.bytes().all(|b| b.is_ascii_digit()) => {
+                        out.push(CODE + name.parse::<i64>().unwrap_or(0));
+                    }
+                    None => {
+                        out.push(b'<' as i64);
+                        out.extend(inner.iter().map(|b| *b as i64));
+                        out.push(b'>' as i64);
+                    }
+                }
+                i += end + 2;
+                continue;
+            }
+        }
+        out.push(bytes[i] as i64);
+        i += 1;
+    }
+    out
+}
+
+/// `special_keys`, by lower-cased name.
+fn special(name: &str) -> Option<Vec<i64>> {
+    let base = |n: &str| -> Option<i64> {
+        Some(match n {
+            "bs" | "backspace" => 263,
+            "backspace2" => 127,
+            "delete" => 330,
+            "s-delete" => 383,
+            "insert" => 331,
+            "cr" | "enter" | "return" => 10,
+            "space" => 32,
+            "esc" | "escape" => 27,
+            "down" => 258,
+            "up" => 259,
+            "left" => 260,
+            "right" => 261,
+            "pagedown" => 338,
+            "pageup" => 339,
+            "home" => 262,
+            "end" => 360,
+            "tab" => 9,
+            "s-tab" => 353,
+            "lt" => 60,
+            "gt" => 62,
+            _ => return None,
+        })
+    };
+    if let Some(k) = base(name) {
+        return Some(vec![k]);
+    }
+    if let Some(rest) = name.strip_prefix("a-") {
+        if let Some(k) = base(rest) {
+            return Some(vec![ALT, k]);
+        }
+        let mut chars = rest.chars();
+        if let (Some(c), None) = (chars.next(), chars.next()) {
+            // Lower-cased already, so only lower-case letters match, as in ranger.
+            if c.is_ascii_alphanumeric() || "_!{}".contains(c) {
+                return Some(vec![ALT, c as i64]);
+            }
+        }
+    }
+    if let Some(rest) = name.strip_prefix("c-") {
+        let mut chars = rest.chars();
+        if let (Some(c), None) = (chars.next(), chars.next()) {
+            if c.is_ascii_lowercase() || c == '_' {
+                return Some(vec![c as i64 - 96]);
+            }
+        }
+        if rest == "space" {
+            return Some(vec![0]);
+        }
+    }
+    if let Some(n) = name.strip_prefix('f').and_then(|n| n.parse::<i64>().ok()) {
+        if (0..64).contains(&n) && name[1..] == n.to_string() {
+            return Some(vec![264 + n]);
+        }
+    }
+    Some(vec![match name {
+        "any" => ANY,
+        "alt" => ALT,
+        "bg" => PASSIVE,
+        "allow_quantifiers" => QUANTIFIER,
+        _ => return None,
+    }])
+}
+
+/// A key-code sequence as key notation; `None` when a key can't be sent (`<any>`, `<bg>`, a code with no keysym).
+fn notation(keys: &[i64]) -> Option<String> {
+    let mut chords = Vec::new();
+    let mut alt = false;
+    for &k in keys {
+        if k == ALT {
+            if alt {
+                return None;
+            }
+            alt = true;
+            continue;
+        }
+        let (mut mods, keysym) = key(k)?;
+        if std::mem::take(&mut alt) {
+            mods.push("alt");
+        }
+        chords.push(crate::sheet::chord(&mods, &keysym));
+    }
+    (!alt && !chords.is_empty()).then(|| chords.join(" "))
+}
+
+/// One key code (curses' numbering) as modifiers and a keysym.
+fn key(k: i64) -> Option<(Vec<&'static str>, String)> {
+    let plain = |s: &str| Some((Vec::new(), s.to_string()));
+    match k {
+        0 => Some((vec!["ctrl"], "space".into())),
+        9 => plain("Tab"),
+        10 => plain("Return"),
+        // `<c-_>` is `ord('_') - 96`.
+        -1 => Some((vec!["ctrl"], "underscore".into())),
+        1..=26 => Some((vec!["ctrl"], ((k + 96) as u8 as char).to_string())),
+        27 => plain("Escape"),
+        32..=126 => {
+            let c = k as u8 as char;
+            let keysym = super::nvim::single(c.to_ascii_lowercase())?.to_string();
+            Some((
+                if c.is_ascii_uppercase() {
+                    vec!["shift"]
+                } else {
+                    Vec::new()
+                },
+                keysym,
+            ))
+        }
+        127 | 263 => plain("BackSpace"),
+        330 => plain("Delete"),
+        383 => Some((vec!["shift"], "Delete".into())),
+        331 => plain("Insert"),
+        258 => plain("Down"),
+        259 => plain("Up"),
+        260 => plain("Left"),
+        261 => plain("Right"),
+        338 => plain("Next"),
+        339 => plain("Prior"),
+        262 => plain("Home"),
+        360 => plain("End"),
+        353 => Some((vec!["shift"], "Tab".into())),
+        265..=299 => plain(&format!("F{}", k - 264)),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/ranger")
+            .join(name)
+    }
+
+    fn text(name: &str) -> String {
+        std::fs::read_to_string(fixture(name)).unwrap()
+    }
+
+    fn get<'a>(s: &'a Sheet, key: &str) -> Vec<&'a str> {
+        s.binds
+            .values()
+            .flatten()
+            .filter(|b| b.key == key)
+            .map(|b| b.desc.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn pinned_defaults() {
+        assert!(
+            DEFAULTS.contains("tag v1.9.4")
+                && DEFAULTS.contains("55fc2839f693aed9486d211694d7317d78161341")
+        );
+        assert!(DEFAULTS.contains("ranger/config/rc.conf"));
+        let (s, notes) = parse(&[DEFAULTS]);
+        assert_eq!(s.binds.values().map(Vec::len).sum::<usize>(), 280);
+        // Only the `<any>`/`<bg>` maps are left out; no line is skipped.
+        assert_eq!(
+            notes,
+            ["leaving out 11 key(s) keybind-find can't send (<any>, <bg>, a key code) and 0 line(s) it doesn't run \
+              (eval) or ranger stops on (copymap or unmap of a key not bound)"]
+        );
+        assert_eq!(get(&s, "g g"), ["move to=0"]);
+        assert_eq!(get(&s, "q"), ["quit"]);
+        assert_eq!(get(&s, "plus u x"), ["shell -f chmod u+x %s"]);
+        assert_eq!(get(&s, "k"), ["move up=1"]);
+        assert_eq!(get(&s, "Up"), ["move up=1"]);
+        // The category is the command's first word.
+        assert!(s.binds["quit"].iter().any(|b| b.key == "q"));
+        for b in s.binds.values().flatten() {
+            assert!(
+                b.key.parse::<keybind_find_sheet::Key>().is_ok(),
+                "{}",
+                b.key
+            );
+            assert!(b.when.is_empty());
+        }
+        // Each key once (BackSpace's two codes run the same command).
+        let mut keys: Vec<&str> = s.binds.values().flatten().map(|b| b.key.as_str()).collect();
+        keys.sort();
+        let n = keys.len();
+        keys.dedup();
+        assert_eq!(keys.len(), n);
+    }
+
+    #[test]
+    fn rules() {
+        let (user, system) = (text("rc.conf"), text("system-rc.conf"));
+        let (s, notes) = parse(&[DEFAULTS, &system, &user]);
+        assert_eq!(get(&s, "q"), ["quitall"]);
+        assert!(get(&s, "shift+q").is_empty());
+        // `copymap` copies the binding the source has at that line: the user's.
+        assert_eq!(get(&s, "ctrl+q"), ["quitall"]);
+        assert_eq!(get(&s, "shift+z shift+q"), ["quitall"]);
+        assert_eq!(get(&s, "shift+j"), ["move down=5"]);
+        assert_eq!(get(&s, "alt+j"), ["scroll_preview 3"]);
+        assert_eq!(get(&s, "ctrl+f"), ["move down=1 pages=True"]);
+        // Other contexts skipped: the console's `<C-x>` isn't a browser key, the pager's `q` didn't replace it.
+        assert!(get(&s, "ctrl+y").is_empty());
+        // The system file's `ZZ` stands; its `w` lost to the user's later lines.
+        assert_eq!(get(&s, "shift+z shift+z"), ["quit"]);
+        assert_eq!(get(&s, "w"), ["console tab_new"]);
+        // `eval` counted; `x<any>` left out with the defaults' 11.
+        assert!(
+            notes[0].starts_with("leaving out 12 key(s)") && notes[0].contains(" and 1 line(s)"),
+            "{notes:?}"
+        );
+    }
+
+    #[test]
+    fn the_key_tree() {
+        // Binding a prefix replaces what was under it; binding under a key that held a command makes it a prefix.
+        let (s, _) = parse(&["map gg top\nmap g go\n"]);
+        assert_eq!((get(&s, "g"), get(&s, "g g")), (vec!["go"], vec![]));
+        let (s, _) = parse(&["map g go\nmap gx x\n"]);
+        assert_eq!((get(&s, "g"), get(&s, "g x")), (vec![], vec!["x"]));
+        // `copymap` of a prefix copies everything under it.
+        let (s, _) = parse(&["map ga a\nmap gb b\ncopymap g h\n"]);
+        assert_eq!((get(&s, "h a"), get(&s, "h b")), (vec!["a"], vec!["b"]));
+        // `unmap` removes the key and a prefix left empty; several at once.
+        let (s, _) = parse(&["map ga a\nmap gb b\nmap c c\nunmap ga gb c\n"]);
+        assert!(s.binds.is_empty());
+        // A missing source stops the line (the targets after it too); so does unmapping under a command.
+        let (s, notes) = parse(&["map a a\ncopymap zz b\nunmap aa\n"]);
+        assert_eq!(get(&s, "a"), ["a"]);
+        assert!(notes[0].ends_with("and 2 line(s) it doesn't run (eval) or ranger stops on (copymap or unmap of a key not bound)"), "{notes:?}");
+        // Two names for one code are one key: `<C-j>` is `<CR>`.
+        let (s, _) = parse(&["map <CR> open\nmap <C-j> down\n"]);
+        assert_eq!(get(&s, "Return"), ["down"]);
+        // `map` with no command, and blank or comment lines: nothing.
+        let (s, notes) = parse(&["map x\n\n   # note\n  map  y   cmd   arg\n"]);
+        assert_eq!((get(&s, "y"), notes.len()), (vec!["cmd   arg"], 0));
+    }
+
+    #[test]
+    fn files_and_order() {
+        let dir = std::env::temp_dir().join(format!("kbf-ranger-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let home = dir.join("home");
+        std::fs::create_dir_all(home.join(".config/ranger")).unwrap();
+        std::fs::copy(fixture("rc.conf"), home.join(".config/ranger/rc.conf")).unwrap();
+        let system = dir.join("system-rc.conf");
+        let h = home.display().to_string();
+        let env = |extra: &'static [(&'static str, &'static str)]| {
+            let h = h.clone();
+            move |k: &str| {
+                if k == "HOME" {
+                    return Some(h.clone());
+                }
+                extra
+                    .iter()
+                    .find(|(n, _)| *n == k)
+                    .map(|(_, v)| v.to_string())
+            }
+        };
+        // Defaults, then the user's file (no system file).
+        let (s, _) = read(&env(&[]), &system);
+        assert_eq!(
+            (get(&s, "q"), get(&s, "g g")),
+            (vec!["quitall"], vec!["move to=0"])
+        );
+        // RANGER_LOAD_DEFAULT_RC=false (any case) with a readable user file: no defaults.
+        let (s, _) = read(&env(&[("RANGER_LOAD_DEFAULT_RC", "false")]), &system);
+        assert!(get(&s, "g g").is_empty());
+        assert_eq!(get(&s, "q"), ["quitall"]);
+        // … but kept when neither the user's nor the system file is readable.
+        let (s, _) = read(
+            &env(&[
+                ("RANGER_LOAD_DEFAULT_RC", "FALSE"),
+                ("XDG_CONFIG_HOME", "/nonexistent"),
+            ]),
+            &system,
+        );
+        assert_eq!(get(&s, "g g"), ["move to=0"]);
+        // The system file counts as readable, and comes before the user's.
+        std::fs::copy(fixture("system-rc.conf"), &system).unwrap();
+        let (s, _) = read(
+            &env(&[
+                ("RANGER_LOAD_DEFAULT_RC", "False"),
+                ("XDG_CONFIG_HOME", "/nonexistent"),
+            ]),
+            &system,
+        );
+        assert_eq!((get(&s, "w"), get(&s, "g g")), (vec!["tab_close"], vec![]));
+        let _ = std::fs::remove_dir_all(&dir);
+        // XDG_CONFIG_HOME absolute: its ranger/; relative or empty: ~/.config/ranger.
+        assert_eq!(
+            user_conf(&env(&[("XDG_CONFIG_HOME", "/x")])),
+            Some(PathBuf::from("/x/ranger/rc.conf"))
+        );
+        for xdg in ["", "rel"] {
+            let pairs: &'static [(&'static str, &'static str)] = if xdg.is_empty() {
+                &[("XDG_CONFIG_HOME", "")]
+            } else {
+                &[("XDG_CONFIG_HOME", "rel")]
+            };
+            assert_eq!(
+                user_conf(&env(pairs)),
+                Some(home.join(".config/ranger/rc.conf"))
+            );
+        }
+        assert_eq!(user_conf(&|_| None), None);
+    }
+
+    #[test]
+    fn keys() {
+        for (ranger, want) in [
+            ("<C-f>", "ctrl+f"),
+            ("<a-j>", "alt+j"),
+            ("<A-J>", "alt+j"),
+            ("<CR>", "Return"),
+            ("<enter>", "Return"),
+            ("<esc>", "Escape"),
+            ("<space>", "space"),
+            ("<tab>", "Tab"),
+            ("<s-tab>", "shift+Tab"),
+            ("<bs>", "BackSpace"),
+            ("<backspace2>", "BackSpace"),
+            ("<delete>", "Delete"),
+            ("<insert>", "Insert"),
+            ("<up>", "Up"),
+            ("<LEFT>", "Left"),
+            ("<home>", "Home"),
+            ("<end>", "End"),
+            ("<PAGEDOWN>", "Next"),
+            ("<pageup>", "Prior"),
+            ("<lt>", "less"),
+            ("<gt>", "greater"),
+            ("<F5>", "F5"),
+            ("<c-space>", "ctrl+space"),
+            ("<a-left>", "alt+Left"),
+            ("J", "shift+j"),
+            ("gg", "g g"),
+            ("+ux", "plus u x"),
+            ("<foo>", "less f o o greater"),
+            ("<x", "less x"),
+        ] {
+            assert_eq!(notation(&codes(ranger)).as_deref(), Some(want), "{ranger}");
+        }
+        for ranger in [
+            "p`<any>",
+            "<allow_quantifiers>",
+            "m<bg>",
+            "<100>",
+            "<f0>",
+            "é",
+            "<alt>",
+        ] {
+            assert_eq!(notation(&codes(ranger)), None, "{ranger}");
+        }
+    }
+}

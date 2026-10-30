@@ -25,6 +25,7 @@ mod ncmpcpp;
 mod nvim;
 mod obsidian;
 mod pinned;
+mod ranger;
 // `src/plugins.rs`, declared here because `main.rs` is not this story's to edit.
 #[path = "../plugins.rs"]
 pub mod plugins;
@@ -82,6 +83,7 @@ pub const KNOWN: &[&str] = &[
     "emacs",
     "zed",
     "ncmpcpp",
+    "ranger",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -119,6 +121,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "emacs" => emacs::sheet(ctx),
         "zed" => zed::sheet(ctx),
         "ncmpcpp" => ncmpcpp::sheet(),
+        "ranger" => ranger::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
