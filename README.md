@@ -130,16 +130,31 @@ contributes) removes that command's default and extension binds (those whose key
 gives none or `true`; never your own), wherever it stands in the file. A rule
 with the same key and `when` as an earlier one is listed in its place (VS Code would also let it shadow binds whose
 `when` it covers; those stay listed). Each bind's `when` clause becomes scopes: `editorTextFocus` shows as
-`[editorTextFocus=true]`, `!editorReadonly` as `[editorReadonly=false]`, `editorLangId == rust` as `[filetype=rust]` (`resourceLangId` and `resourceExtname` name what the explorer has selected, so they stay tags);
+`[editorTextFocus=true]`, `!editorReadonly` as `[editorReadonly=false]`, `editorLangId == rust` as `[filetype=rust]` (`resourceLangId` and `resourceExtname` follow whichever view has focus, the editor's file or the explorer's selection, so they stay tags);
 parts that can't be a scope (`!=`, regexes, `in`, comparisons) are dropped, so a bind is shown in more places, never
 fewer, and binds VS Code never runs on Linux (a `when` of `false`, or one that needs `isMac`, `isWindows` or `isWeb`)
-aren't listed. A key you bind to no command does nothing, so the default it replaces isn't listed either. The file's extension and language
-are guessed from the window title, which needs VS Code's default `window.title` (the file first, the product name
+aren't listed. A key you bind to no command does nothing, so the default it replaces isn't listed either. With the keybind-find extension (below) the file's language and
+extension come from VS Code itself; without it they are guessed from the window title, which needs VS Code's default `window.title` (the file first, the product name
 last); with no editor open the folder name is taken for a file name. Only the default profile's `keybindings.json` is
 read. Extensions come from `~/.vscode/extensions` (Insiders `~/.vscode-insiders`, VSCodium and Code - OSS
 `~/.vscode-oss`, or the Flatpak's), those its `extensions.json` lists; disabled ones are still listed (VS Code keeps
 that in a database). Keys keybind-find can't name (`[IntlBackslash]`, the browser keys), `when` clauses it can't read
 and extensions whose `package.json` doesn't parse are counted in one line.
+
+**The keybind-find extension** (`editors/vscode/`, two files, no build step) tells keybind-find the language
+(`editorLangId`, as `filetype`) and the extension of the file open in the focused window, exactly, with any
+`window.title`. To install it, copy the folder from this repository and restart VS Code:
+
+```sh
+cp -r editors/vscode ~/.vscode/extensions/keybind-find.keybind-find-0.1.0
+```
+
+(`~/.vscode-insiders/extensions/` for Insiders, `~/.vscode-oss/extensions/` for VSCodium and Code - OSS.) It writes
+one small file per window, `$XDG_RUNTIME_DIR/keybind-find/vscode/<pid>.json`, when the window's focus, editor or
+language changes, and deletes it when VS Code closes; it makes no network calls and runs nothing. It can't report the
+rest of VS Code's context: no extension can read context keys, so focus keys (`editorTextFocus`, `terminalFocus`),
+the `resource*` keys and other extensions' keys (VSCodeVim's mode) stay tags. It isn't on the Marketplace or Open VSX
+yet.
 
 ### Obsidian
 

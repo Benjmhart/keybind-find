@@ -1,0 +1,66 @@
+// Writes the focused window's language to `$XDG_RUNTIME_DIR/keybind-find/vscode/<pid>.json` for keybind-find's
+// VS Code sheet. No network, no programs; nothing is read beyond the VS Code API and `XDG_RUNTIME_DIR`.
+'use strict';
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * The state file's object, from the window's values; `document` is the active text editor's, or undefined. Only what
+ * the API shows exactly: the language (`editorLangId`) and the file's extension. `resourceScheme` and the other
+ * `resource*` keys follow whichever view has focus, which no API reports, so they are left out.
+ */
+function state({ pid, focused, time, appName, document }) {
+  const facts = {};
+  if (document) {
+    facts.filetype = document.languageId;
+    const ext = path.posix.extname(document.uri.path);
+    if (ext.length > 1) facts.extension = ext.slice(1);
+  }
+  return { version: 1, pid, focused, time, appName, facts };
+}
+
+let file;
+
+function write(vscode) {
+  const run = process.env.XDG_RUNTIME_DIR;
+  if (!run) return;
+  const dir = path.join(run, 'keybind-find', 'vscode');
+  file = path.join(dir, `${process.pid}.json`);
+  const editor = vscode.window.activeTextEditor;
+  const s = state({
+    pid: process.pid,
+    focused: vscode.window.state.focused,
+    time: Date.now(),
+    appName: vscode.env.appName,
+    document: editor && editor.document,
+  });
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(`${file}.tmp`, JSON.stringify(s), { mode: 0o600 });
+    fs.renameSync(`${file}.tmp`, file);
+  } catch {
+    // Nowhere to report it; keybind-find falls back to the window title.
+  }
+}
+
+function activate(context) {
+  const vscode = require('vscode');
+  const update = () => write(vscode);
+  context.subscriptions.push(
+    vscode.window.onDidChangeWindowState(update),
+    vscode.window.onDidChangeActiveTextEditor(update),
+    // A language change closes and reopens the document.
+    vscode.workspace.onDidOpenTextDocument(update),
+  );
+  update();
+}
+
+function deactivate() {
+  try {
+    if (file) fs.unlinkSync(file);
+  } catch {
+    // Already gone.
+  }
+}
+
+module.exports = { activate, deactivate, state };

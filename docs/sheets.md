@@ -58,9 +58,11 @@ anything. Today the facts come from nvim and VS Code. When Super+/ is pressed ov
 it for its `mode` (`normal`, `visual`, `insert`, `o` for operator-pending, `c` for the command line, `t` for the
 terminal) and the buffer's `filetype`. The current buffer's own maps carry `buffer=current`, which stays a tag. With
 no running nvim (`keybind-find dump nvim` from a shell), there are no facts and every scope shows as a tag. In a VS
-Code window the facts are guessed from the window title: the file's `extension` (`rs` for `main.rs - project - Visual
-Studio Code`) and its VS Code language as `filetype` (`rust`), so binds whose `when` names another `editorLangId` are
-hidden; with a `window.title` that leaves out the product name there are none.
+Code window the facts are the file's `extension` (`rs`) and its VS Code language as `filetype` (`rust`), so binds
+whose `when` names another `editorLangId` are hidden. With keybind-find's VS Code extension installed (README, VS
+Code) they are VS Code's own, for the focused window's active editor, and with no editor open there are none;
+without it they are guessed from the window title (`main.rs - project - Visual Studio Code`), and with a
+`window.title` that leaves out the product name there are none.
 
 ```json
 {"key": "ctrl+r", "desc": "Insert from register", "when": {"mode": "insert"}}
