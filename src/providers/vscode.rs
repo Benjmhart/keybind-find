@@ -1,7 +1,8 @@
 //! VS Code, Insiders, VSCodium and Code - OSS: the default keybindings pinned for one release (`data/vscode/`), the
 //! installed extensions' keybindings, then the user's `keybindings.json`, as VS Code ranks them. Each bind's `when`
-//! clause becomes scopes, and the file in the window title gives the `extension` and `filetype` facts. Files are only
-//! read; commands are shown, never run.
+//! clause becomes scopes. The `extension` and `filetype` facts come from the keybind-find extension's state file
+//! (`editors/vscode/`) when it runs, else from the file in the window title. Files are only read; commands are shown,
+//! never run.
 
 use super::micro::strip_jsonc;
 use super::nvim::single;
@@ -170,7 +171,50 @@ fn sheet_with(
              (shown everywhere); {broken} extension package.json file(s) not read"
         ));
     }
-    Ok((sheet, title.map(facts).unwrap_or_default(), notes))
+    let facts = variant
+        .and_then(|v| live_facts(v, env))
+        .or_else(|| title.map(facts))
+        .unwrap_or_default();
+    Ok((sheet, facts, notes))
+}
+
+/// The facts the keybind-find extension (`editors/vscode/`) wrote for the focused window:
+/// `$XDG_RUNTIME_DIR/keybind-find/vscode/<pid>.json` files from running extension hosts, version 1, the newest `time`
+/// with `focused: true`, when its `appName` is `v`'s. None when there is no such file (the title guess then).
+// ponytail: newest focused file, not the window's pid (the provider doesn't get it); upgrade if two windows report focus.
+fn live_facts(v: &Variant, env: Env) -> Option<Facts> {
+    let dir =
+        Path::new(&env("XDG_RUNTIME_DIR").filter(|d| !d.is_empty())?).join("keybind-find/vscode");
+    let newest = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        // Regular files only: a FIFO would block the read.
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
+        .filter_map(|p| serde_json::from_str::<Value>(&std::fs::read_to_string(p).ok()?).ok())
+        .filter(|s| {
+            s["version"] == 1
+                && s["focused"] == true
+                && s["pid"]
+                    .as_u64()
+                    .is_some_and(|pid| Path::new("/proc").join(pid.to_string()).exists())
+        })
+        .max_by(|a, b| {
+            a["time"]
+                .as_f64()
+                .unwrap_or(0.0)
+                .total_cmp(&b["time"].as_f64().unwrap_or(0.0))
+        })?;
+    if newest["appName"] != v.name_long {
+        return None;
+    }
+    let facts = newest["facts"].as_object().into_iter().flatten();
+    Some(
+        facts
+            .filter_map(|(k, v)| Some((k.parse().ok()?, v.as_str()?.parse().ok()?)))
+            .collect(),
+    )
 }
 
 /// The variant: the one whose `appName` ends the title, else the one the class names, else the first whose config
@@ -909,7 +953,8 @@ fn scopes(when: &When) -> Scopes {
             _ => Scopes::new(),
         },
         When::Eq(k, v) => match k.as_str() {
-            // `resourceLangId`/`resourceExtname` name the explorer's selection, not the editor: plain tags.
+            // `resourceLangId`/`resourceExtname` follow the focused view (the editor's file, or the explorer's
+            // selection), which nothing reports: plain tags.
             "editorLangId" => one("filetype", v),
             _ => one(k, v),
         },
@@ -1323,6 +1368,158 @@ mod tests {
             Some(home.join(".vscode/extensions"))
         );
         std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn live_state_files() {
+        let tmp = std::env::temp_dir().join(format!("kbf-vscode-live-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let dir = tmp.join("keybind-find/vscode");
+        std::fs::create_dir_all(&dir).unwrap();
+        let me = std::process::id();
+        let write = |name: &str, text: String| std::fs::write(dir.join(name), text).unwrap();
+        let state = |pid: u64, focused: bool, time: u64, app: &str, facts: &str| {
+            format!(
+                r#"{{"version": 1, "pid": {pid}, "focused": {focused}, "time": {time}, "appName": "{app}", "facts": {facts}}}"#
+            )
+        };
+        let code = &VARIANTS[0];
+        let run = tmp.display().to_string();
+        let env = env_at(&tmp, &[("XDG_RUNTIME_DIR", &run)]);
+        let text = |f: Option<Facts>| {
+            f.map(|f| {
+                f.iter()
+                    .map(|(k, v)| format!("{k}={v}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+        };
+        // No directory entries: none.
+        assert_eq!(live_facts(code, &env), None);
+        // One focused file: its facts; a value that isn't a `Name` is left out.
+        let facts = r#"{"filetype": "rust", "extension": "rs", "bad": "has space", "n": 3, "bad key": "x"}"#;
+        write(
+            "1.json",
+            state(me as u64, true, 10, "Visual Studio Code", facts),
+        );
+        assert_eq!(
+            text(live_facts(code, &env)).as_deref(),
+            Some("extension=rs filetype=rust")
+        );
+        // Two focused: the newest wins; an unfocused one, newer still, doesn't count.
+        let py = r#"{"filetype": "python"}"#;
+        write(
+            "2.json",
+            state(me as u64, true, 20, "Visual Studio Code", py),
+        );
+        write(
+            "3.json",
+            state(
+                me as u64,
+                false,
+                30,
+                "Visual Studio Code",
+                r#"{"filetype": "c"}"#,
+            ),
+        );
+        assert_eq!(
+            text(live_facts(code, &env)).as_deref(),
+            Some("filetype=python")
+        );
+        // Newer, but from a dead pid, of version 2, not JSON, or a `.tmp` mid-write: ignored.
+        let go = r#"{"filetype": "go"}"#;
+        write(
+            "4.json",
+            state(u32::MAX as u64, true, 40, "Visual Studio Code", go),
+        );
+        write(
+            "5.json",
+            state(me as u64, true, 50, "Visual Studio Code", go)
+                .replace(r#""version": 1"#, r#""version": 2"#),
+        );
+        write("6.json", "{".into());
+        write(
+            "7.json.tmp",
+            state(me as u64, true, 70, "Visual Studio Code", go),
+        );
+        assert_eq!(
+            text(live_facts(code, &env)).as_deref(),
+            Some("filetype=python")
+        );
+        // No editor: no facts, and no title guess either.
+        write(
+            "8.json",
+            state(me as u64, true, 80, "Visual Studio Code", "{}"),
+        );
+        let (_, f, _) =
+            sheet_with(PINNED, Some("main.rs - p - Visual Studio Code"), None, &env).unwrap();
+        assert!(f.is_empty(), "{f:?}");
+        // The newest focused one is another variant's: the title guess, silently.
+        write("9.json", state(me as u64, true, 90, "VSCodium", py));
+        assert_eq!(live_facts(code, &env), None);
+        let (_, f, notes) =
+            sheet_with(PINNED, Some("main.rs - p - Visual Studio Code"), None, &env).unwrap();
+        assert_eq!(text(Some(f)).as_deref(), Some("extension=rs filetype=rust"));
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        // A custom `window.title`: the variant from the window class, and still the live facts.
+        let (_, f, _) = sheet_with(PINNED, Some("main.rs"), Some("VSCodium"), &env).unwrap();
+        assert_eq!(text(Some(f)).as_deref(), Some("filetype=python"));
+        // No variant at all (no title, class or config directory): no live facts.
+        let (_, f, _) = sheet_with(PINNED, None, None, &env).unwrap();
+        assert!(f.is_empty(), "{f:?}");
+        // A FIFO named `.json` is skipped, not read (the read would block).
+        let fifo = dir.join("fifo.json");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        // In a thread, so a read that blocks fails the test instead of hanging it.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let env2 = env_at(&tmp, &[("XDG_RUNTIME_DIR", &run)]);
+        std::thread::spawn(move || tx.send(text(live_facts(&VARIANTS[2], &env2))));
+        let got = rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        assert_eq!(got.as_deref(), Some("filetype=python"));
+        // It is VSCodium's own, not Code's.
+        assert_eq!(live_facts(code, &env), None);
+        // No runtime directory, or an empty variable: none.
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert_eq!(live_facts(&VARIANTS[2], &env), None);
+        assert_eq!(
+            live_facts(code, &env_at(&tmp, &[("XDG_RUNTIME_DIR", "")])),
+            None
+        );
+        assert_eq!(live_facts(code, &env_at(&tmp, &[])), None);
+    }
+
+    /// The extension's tests under `node --test`; skipped, with a message, without node 18+ (`node:test`) or outside
+    /// the repository (`editors/` isn't packaged).
+    #[test]
+    fn extension_state_builder() {
+        let test = Path::new(env!("CARGO_MANIFEST_DIR")).join("editors/vscode/extension.test.js");
+        let major = std::process::Command::new("node")
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|o| {
+                let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                v.strip_prefix('v')?.split('.').next()?.parse::<u32>().ok()
+            });
+        if !major.is_some_and(|m| m >= 18) || !test.exists() {
+            eprintln!("skipping: needs node 18 or later and editors/vscode/");
+            return;
+        }
+        let out = std::process::Command::new("node")
+            .arg("--test")
+            .arg(test)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 
     #[test]

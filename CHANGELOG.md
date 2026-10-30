@@ -7,6 +7,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Added
 
+- VS Code: a small companion extension (`editors/vscode/`) that tells keybind-find the focused window's language and file extension, in place of the window-title guess.
 - VS Code (and Insiders, VSCodium, Code - OSS): its default keys (1.143.1) with your installed extensions' and your `keybindings.json` on top, each `when` clause as scopes, and the file's language guessed from the window title.
 - Midnight Commander: its keys by keymap section, from mc's compiled-in defaults (4.8.33) with the system and your keymap on top, when mc, mcedit, mcview or mcdiff is in the focused terminal.
 - GNOME Terminal: its keyboard shortcuts from `gsettings`, as its preferences set them, when a GNOME Terminal window has focus (on X11, sway and Hyprland).

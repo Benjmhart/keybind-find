@@ -1,0 +1,14 @@
+{
+  "name": "keybind-find",
+  "displayName": "keybind-find",
+  "description": "Tells keybind-find the focused window's language, so its sheet shows the keys that apply.",
+  "version": "0.1.0",
+  "publisher": "keybind-find",
+  "license": "MIT",
+  "repository": "https://github.com/Benjmhart/keybind-find",
+  "engines": { "vscode": "^1.47.0" },
+  "extensionKind": ["ui"],
+  "capabilities": { "untrustedWorkspaces": { "supported": true }, "virtualWorkspaces": true },
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js"
+}
