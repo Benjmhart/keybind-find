@@ -696,6 +696,8 @@ fn providers_for(
             Some("mc" | "mcedit" | "mcview" | "mcdiff") => providers.push("mc"),
             Some(c) if EMACS_COMMS.contains(&c) => providers.push("emacs"),
             Some("ncmpcpp") => providers.push("ncmpcpp"),
+            // A Python script: its comm is the script's name.
+            Some("ranger") => providers.push("ranger"),
             _ => {}
         }
         // `man`, `git log` and `systemctl status` lead the pipeline that less runs in.
@@ -1842,6 +1844,7 @@ mod tests {
                 (Some("mcview"), vec!["mc"]),
                 (Some("mcdiff"), vec!["mc"]),
                 (Some("ncmpcpp"), vec!["ncmpcpp"]),
+                (Some("ranger"), vec!["ranger"]),
                 (Some("python3"), vec![]),
                 (None, vec![]),
             ] {

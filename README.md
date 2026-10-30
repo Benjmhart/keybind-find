@@ -34,6 +34,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | micro | its keys: micro's defaults for its version (2.0.11, 2.0.14 and 2.0.15 built in) with your `bindings.json` on top | none ([below](#micro)) |
 | Midnight Commander | its keys by section (file manager, panel, editor, viewer, …): mc's compiled-in defaults (4.8.33's built in) with the system and your keymap on top | none ([below](#midnight-commander)) |
 | yazi | its keys: yazi's default keymap for its version (25.4.8, 25.5.31 and 26.9.1 built in) with your `keymap.toml` merged in | none ([below](#yazi)) |
+| ranger | its file-browser keys: ranger's default rc.conf (1.9.4's built in, the same since 1.9.3) with `/etc/ranger/rc.conf` and yours on top | none ([below](#ranger)) |
 | ncmpcpp | its keys: ncmpcpp's defaults (0.10.1's built in, the same since 0.9.2) with your `bindings` files on top | none ([below](#ncmpcpp)) |
 | herdr | herdr's defaults for its version, your `config.toml` and plugin commands | none |
 | tmux | the running server's `list-keys`, so your prefix and bindings, with each key's note | none |
@@ -52,7 +53,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | espanso | `espanso match list`; picking a match types its trigger | none |
 | anything else | a sheet you write, or a script that prints one | [docs/sheets.md](docs/sheets.md) |
 
-nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
+nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
 sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
@@ -331,6 +332,20 @@ Not seen: a keymap given with `mc -K`, and `MC_KEYMAP` or `MC_DATADIR` set only 
 (keybind-find has its own environment, from your window manager). While mc's subshell is in front (Ctrl-O) the terminal
 still reports mc, so mc's keys are listed, not the shell's. MinIO's client is also called `mc`; in a terminal running
 it you get Midnight Commander's list.
+
+### ranger
+
+Over ranger in a terminal, keybind-find lists its file-browser keys without running it: the `map`, `copymap` and
+`unmap` lines of ranger's default rc.conf (from 1.9.4, unchanged since 1.9.3, built in, its `eval` loops written out),
+then `/etc/ranger/rc.conf`, then yours (`$XDG_CONFIG_HOME/ranger/rc.conf`, else `~/.config/ranger/rc.conf`), read
+into ranger's key tree as ranger does: a later line wins, binding `g` drops `gg` and the reverse, `copymap` copies
+what the key has at that line. Only the browser's keys are listed (not the console's `cmap`, the pager's `pmap` or
+the task view's `tmap`), with the command as the description and its first word as the category. When
+`RANGER_LOAD_DEFAULT_RC` is `false` the defaults are left out, as ranger does; that variable, like `HOME` and
+`XDG_CONFIG_HOME`, is read from keybind-find's environment, not ranger's, and a config directory given with `-r`/`--confdir` isn't read. `source` lines
+(an absolute path or `~/…`), `chain` and `alias` are followed. Your `eval` lines aren't run (they are counted), nor
+is any command. Keys keybind-find can't send (`<any>` bookmark keys,
+`<bg>`, a `<number>` key code) are left out with a count; an unknown `<name>` is its characters, as in ranger.
 
 ### ncmpcpp
 

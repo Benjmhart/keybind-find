@@ -7,6 +7,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Added
 
+- ranger: its file-browser keys from the default rc.conf pinned at 1.9.4 (the same since 1.9.3) with `/etc/ranger/rc.conf` and your `rc.conf` on top, read into ranger's key tree, when ranger is in the focused terminal.
 - ncmpcpp: its keys from defaults pinned at 0.10.1 (the same since 0.9.2) with your `bindings` files on top, read as ncmpcpp reads them, when ncmpcpp is in the focused terminal.
 - Zed: its keys from the Linux keymaps of Zed 1.25.3 (built in) for your base keymap and vim or helix mode, with your `keymap.json` on top, each bind's context as tags, and the file's extension guessed from the window title.
 - Emacs: the keys active in the buffer you are in, asked of the running Emacs over its server (`emacsclient`), with its major mode and evil state as facts; with no server, the global map (and evil's state maps) of your init file from `emacs --batch`. In a terminal (`emacs`, `emacsclient -t`) or an Emacs window.
