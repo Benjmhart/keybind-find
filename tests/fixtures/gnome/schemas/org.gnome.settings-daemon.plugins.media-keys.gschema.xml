@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.settings-daemon.plugins.media-keys" path="/org/gnome/settings-daemon/plugins/media-keys/">
+    <key name="custom-keybindings" type="as">
+      <default>[]</default>
+      <summary>Custom keybindings</summary>
+      <description>List of custom keybindings</description>
+    </key>
+    <key name="help" type="as">
+      <default>['', '&lt;Super&gt;F1']</default>
+      <summary>Launch help browser</summary>
+      <description>Binding to launch the help browser.</description>
+    </key>
+    <key name="volume-up" type="as">
+      <default>['']</default>
+      <summary>Volume up</summary>
+      <description>Binding to raise the volume.</description>
+    </key>
+    <key name="volume-up-static" type="as">
+      <default>['XF86AudioRaiseVolume', '&lt;Ctrl&gt;XF86AudioRaiseVolume']</default>
+      <summary>Volume up</summary>
+      <description>Static binding to raise the volume.</description>
+    </key>
+    <key name="volume-step" type="i">
+      <default>6</default>
+      <range min="1" max="20"/>
+      <summary>Size of volume step</summary>
+      <description>Size of the volume step for each volume change</description>
+    </key>
+  </schema>
+  <schema id="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding">
+    <key name="name" type="s">
+      <default>''</default>
+      <summary>Name</summary>
+      <description>Name of the custom binding</description>
+    </key>
+    <key name="binding" type="s">
+      <default>''</default>
+      <summary>Binding</summary>
+      <description>Binding for the custom binding</description>
+    </key>
+    <key name="command" type="s">
+      <default>''</default>
+      <summary>Command</summary>
+      <description>Command to run when the binding is invoked</description>
+    </key>
+  </schema>
+</schemalist>

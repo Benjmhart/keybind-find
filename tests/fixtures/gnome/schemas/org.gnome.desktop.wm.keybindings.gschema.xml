@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.desktop.wm.keybindings"
+          path="/org/gnome/desktop/wm/keybindings/">
+    <key name="close" type="as">
+      <default><![CDATA[['<Alt>F4']]]></default>
+      <summary>Close window</summary>
+    </key>
+    <key name="switch-group" type="as">
+      <default><![CDATA[['<Super>Above_Tab','<Alt>Above_Tab']]]></default>
+      <summary>Switch windows of an application</summary>
+    </key>
+    <key name="switch-to-workspace-left" type="as">
+      <default><![CDATA[['<Super>Page_Up','<Super>KP_Prior','<Super><Alt>Left','<Control><Alt>Left']]]></default>
+      <summary>Switch to workspace left</summary>
+    </key>
+    <key name="always-on-top" type="as">
+      <default>[]</default>
+      <summary>Toggle window to be always on top</summary>
+      <description>Set or unset window to appear always on top</description>
+    </key>
+  </schema>
+</schemalist>

@@ -84,7 +84,7 @@ fn alternate(entries: &mut [Entry]) {
     let wm = groups.iter().position(|g| {
         matches!(
             g[0].provider.as_str(),
-            "xmonad" | "sway" | "hyprland" | "kde" | "xfce" | "i3"
+            "xmonad" | "sway" | "hyprland" | "kde" | "xfce" | "i3" | "gnome"
         )
     });
     if let Some(wm @ 1..) = wm {
@@ -275,6 +275,10 @@ mod tests {
         assert_eq!(
             ranked(&[("i3", 1), ("espanso", 1), ("nvim", 1)], ""),
             ["nvim0", "i30", "espanso0"]
+        );
+        assert_eq!(
+            ranked(&[("gnome", 1), ("espanso", 1), ("nvim", 1)], ""),
+            ["nvim0", "gnome0", "espanso0"]
         );
     }
 

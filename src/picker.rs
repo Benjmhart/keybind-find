@@ -29,7 +29,13 @@ pub fn pick(
     let (cfg, refused) = config::picker();
     let picker = std::env::var("KEYBIND_FIND_PICKER").ok();
     let wayland = std::env::var("WAYLAND_DISPLAY").ok();
-    let (choice, fallback) = choose(&cfg, picker.as_deref(), wayland.as_deref(), on_path);
+    let (choice, fallback) = choose(
+        &cfg,
+        picker.as_deref(),
+        wayland.as_deref(),
+        window.wm.as_deref(),
+        on_path,
+    );
     // fzf's header shows a refused `[picker]` (it is in `config::load`'s note); any other picker, stderr.
     if !matches!(choice, Choice::Fzf(_)) {
         if let Some(why) = &refused {
@@ -57,15 +63,18 @@ enum Choice {
 
 /// The picker for `cfg`: `KEYBIND_FIND_PICKER` first (a dmenu-style command), then `[picker]`'s kind, else today's
 /// order (fzf on X11 when it and the terminal are installed, else fuzzel on Wayland, else dmenu). A `kind = "fzf"`
-/// whose tools are missing falls back to the dmenu-style picker, with the reason.
+/// whose tools are missing falls back to the dmenu-style picker, with the reason. A GNOME (`session`) Wayland session
+/// gets fzf as on X11, since fuzzel needs layer-shell, which Mutter lacks; without fzf, fuzzel and the fix.
 fn choose(
     cfg: &config::Picker,
     env_picker: Option<&str>,
     wayland: Option<&str>,
+    session: Option<&str>,
     on_path: impl Fn(&str) -> bool,
 ) -> (Choice, Option<String>) {
     let terminal = cfg.terminal.clone().unwrap_or_else(default_terminal);
     let have_fzf = || on_path("fzf") && terminal.first().is_some_and(|t| on_path(t));
+    let gnome_wayland = session == Some("gnome") && wayland.is_some_and(|w| !w.is_empty());
     let dmenu = || {
         Choice::Dmenu(
             cfg.command
@@ -90,6 +99,15 @@ fn choose(
             )),
         ),
         None if use_fzf(None, wayland, have_fzf()) => (Choice::Fzf(terminal), None),
+        None if gnome_wayland && have_fzf() => (Choice::Fzf(terminal), None),
+        // A dmenu-style command of the user's is what they chose; only the default fuzzel gets the note.
+        None if gnome_wayland && cfg.command.is_none() => (
+            dmenu(),
+            Some(format!(
+                "GNOME on Wayland has no layer-shell for fuzzel: install fzf and {}, or set [picker]",
+                terminal.first().map_or("a terminal", String::as_str)
+            )),
+        ),
         None => (dmenu(), None),
     }
 }
@@ -1268,24 +1286,28 @@ mod tests {
         };
         let default = Picker::default();
         // No [picker]: today's order.
-        assert_eq!(choose(&default, None, None, all), fzf(default_terminal()));
         assert_eq!(
-            choose(&default, None, Some("wayland-1"), all),
+            choose(&default, None, None, None, all),
+            fzf(default_terminal())
+        );
+        assert_eq!(
+            choose(&default, None, Some("wayland-1"), None, all),
             dmenu(&["fuzzel", "--dmenu"])
         );
         assert_eq!(
-            choose(&default, None, None, none),
+            choose(&default, None, None, None, none),
             dmenu(&["dmenu", "-i", "-l", "25"])
         );
         // The terminal is what fzf needs installed besides itself.
         let only_fzf = |p: &str| p == "fzf";
         assert_eq!(
-            choose(&default, None, None, only_fzf),
+            choose(&default, None, None, None, only_fzf),
             dmenu(&["dmenu", "-i", "-l", "25"])
         );
         let with_kitty = cfg(None, None, Some(kitty.clone()));
         assert_eq!(
-            choose(&with_kitty, None, None, |p| p == "fzf" || p == "kitty"),
+            choose(&with_kitty, None, None, None, |p| p == "fzf"
+                || p == "kitty"),
             fzf(kitty.clone())
         );
         // Each kind.
@@ -1295,42 +1317,91 @@ mod tests {
             None,
         );
         assert_eq!(
-            choose(&json, None, None, all),
+            choose(&json, None, None, None, all),
             (Choice::Json(strings(&["front", "--x"])), None)
         );
         let dm = cfg(Some(PickerKind::Dmenu), Some(rofi.clone()), None);
         assert_eq!(
-            choose(&dm, None, None, all),
+            choose(&dm, None, None, None, all),
             (Choice::Dmenu(rofi.clone()), None)
         );
         let dm_default = cfg(Some(PickerKind::Dmenu), None, None);
         assert_eq!(
-            choose(&dm_default, None, Some("w"), all),
+            choose(&dm_default, None, Some("w"), None, all),
             dmenu(&["fuzzel", "--dmenu"])
         );
         // `kind = "fzf"` on Wayland too (kitty runs there); without its tools, the dmenu-style picker and why.
         let f = cfg(Some(PickerKind::Fzf), None, Some(kitty.clone()));
-        assert_eq!(choose(&f, None, Some("w"), all), fzf(kitty.clone()));
-        let (choice, why) = choose(&f, None, None, none);
+        assert_eq!(choose(&f, None, Some("w"), None, all), fzf(kitty.clone()));
+        let (choice, why) = choose(&f, None, None, None, none);
         assert_eq!(choice, Choice::Dmenu(strings(&["dmenu", "-i", "-l", "25"])));
         assert!(why.unwrap().contains("fzf or kitty is not installed"));
         // KEYBIND_FIND_PICKER overrides every kind, as a dmenu-style command; blank is unset.
         for c in [&default, &json, &dm, &f] {
             assert_eq!(
-                choose(c, Some("bemenu -i"), None, all),
+                choose(c, Some("bemenu -i"), None, None, all),
                 dmenu(&["bemenu", "-i"])
             );
         }
         assert_eq!(
-            choose(&json, Some("  "), None, all).0,
+            choose(&json, Some("  "), None, None, all).0,
             Choice::Json(strings(&["front", "--x"]))
         );
         // A dmenu-style command given without a kind is the fallback's, in today's order.
         let plain = cfg(None, Some(rofi.clone()), None);
-        assert_eq!(choose(&plain, None, None, all), fzf(default_terminal()));
         assert_eq!(
-            choose(&plain, None, Some("w"), all),
-            (Choice::Dmenu(rofi), None)
+            choose(&plain, None, None, None, all),
+            fzf(default_terminal())
+        );
+        assert_eq!(
+            choose(&plain, None, Some("w"), None, all),
+            (Choice::Dmenu(rofi.clone()), None)
+        );
+        // GNOME on Wayland: fzf in its terminal when installed (no layer-shell for fuzzel), else fuzzel and the fix.
+        let gnome = Some("gnome");
+        assert_eq!(
+            choose(&default, None, Some("wayland-0"), gnome, all),
+            fzf(default_terminal())
+        );
+        assert_eq!(
+            choose(&with_kitty, None, Some("w"), gnome, |p| p == "fzf"
+                || p == "kitty"),
+            fzf(kitty.clone())
+        );
+        let (choice, why) = choose(&default, None, Some("wayland-0"), gnome, none);
+        assert_eq!(choice, Choice::Dmenu(strings(&["fuzzel", "--dmenu"])));
+        assert_eq!(
+            why.as_deref(),
+            Some("GNOME on Wayland has no layer-shell for fuzzel: install fzf and alacritty, or set [picker]")
+        );
+        // The user's dmenu-style command, an env picker or a kind still wins; X11 GNOME and other Wayland unchanged.
+        assert_eq!(
+            choose(&plain, None, Some("w"), gnome, none),
+            (Choice::Dmenu(rofi.clone()), None)
+        );
+        assert_eq!(
+            choose(&default, Some("bemenu -i"), Some("w"), gnome, all),
+            dmenu(&["bemenu", "-i"])
+        );
+        assert_eq!(
+            choose(&dm_default, None, Some("w"), gnome, all),
+            dmenu(&["fuzzel", "--dmenu"])
+        );
+        assert_eq!(
+            choose(&json, None, Some("w"), gnome, all).0,
+            Choice::Json(strings(&["front", "--x"]))
+        );
+        assert_eq!(
+            choose(&default, None, None, gnome, all),
+            fzf(default_terminal())
+        );
+        assert_eq!(
+            choose(&default, None, Some(""), gnome, none),
+            dmenu(&["dmenu", "-i", "-l", "25"])
+        );
+        assert_eq!(
+            choose(&default, None, Some("w"), Some("sway"), all),
+            dmenu(&["fuzzel", "--dmenu"])
         );
     }
 

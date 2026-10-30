@@ -7,6 +7,7 @@ mod alacritty;
 mod alacritty_defaults;
 mod espanso;
 mod ghostty;
+mod gnome;
 mod herdr;
 mod hyprland;
 mod i3;
@@ -62,6 +63,7 @@ pub const KNOWN: &[&str] = &[
     "yazi",
     "zathura",
     "micro",
+    "gnome",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -71,6 +73,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "hyprland" => hyprland::sheet(ctx),
         "kde" => kde::sheet(ctx),
         "xfce" => xfce::sheet(),
+        "gnome" => gnome::sheet(),
         "i3" => i3::sheet(ctx),
         "espanso" => espanso::sheet(ctx),
         "nvim" => nvim::sheet(ctx),

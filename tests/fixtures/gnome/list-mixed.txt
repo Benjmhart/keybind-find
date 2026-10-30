@@ -1,0 +1,13 @@
+org.gnome.settings-daemon.plugins.media-keys calculator ['']
+org.gnome.settings-daemon.plugins.media-keys calculator-static ['XF86Calculator']
+org.gnome.settings-daemon.plugins.media-keys custom-keybindings @as []
+org.gnome.settings-daemon.plugins.media-keys email 'disabled'
+org.gnome.settings-daemon.plugins.media-keys help ['', '<Super>F1']
+org.gnome.settings-daemon.plugins.media-keys home '<Super>e'
+org.gnome.settings-daemon.plugins.media-keys hyper ['<Hyper>h']
+org.gnome.settings-daemon.plugins.media-keys logout "<Primary><Shift>q"
+org.gnome.settings-daemon.plugins.media-keys next ['<Super>Above_Tab']
+org.gnome.settings-daemon.plugins.media-keys screensaver "<Super>\'"
+org.gnome.settings-daemon.plugins.media-keys volume-mute ['XF86AudioMute']
+org.gnome.settings-daemon.plugins.media-keys volume-step uint32 6
+org.gnome.settings-daemon.plugins.media-keys.child other ['<Super>z']

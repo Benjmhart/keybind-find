@@ -1,0 +1,19 @@
+<schemalist>
+  <schema id="org.gnome.shell.keybindings" path="/org/gnome/shell/keybindings/">
+    <key name="toggle-application-view" type="as">
+      <default>["&lt;Super&gt;a"]</default>
+      <summary>Keybinding to open the “Show Applications” view</summary>
+      <description>
+        Keybinding to open the “Show Applications” view of the Activities
+        Overview.
+      </description>
+    </key>
+    <key name="toggle-overview" type="as">
+      <default>[]</default>
+      <summary>Keybinding to open the overview</summary>
+      <description>
+        Keybinding to open the Activities Overview.
+      </description>
+    </key>
+  </schema>
+</schemalist>

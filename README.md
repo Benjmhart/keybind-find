@@ -19,8 +19,9 @@ The lists are read from the programs' real configuration, your own bindings incl
 | KDE Plasma | its global shortcuts (`kglobalshortcutsrc`) and the launch shortcuts of `.desktop` files, and the focused window (on Wayland from `kdotool`) | on Wayland, `kdotool`; picks there are not sent ([below](#kde-plasma)) |
 | i3 | the bindings of the config i3 has loaded (`i3-msg -t get_config`; from 4.20, includes followed and variables replaced by i3) | none ([below](#i3)) |
 | Xfce | xfwm4's window shortcuts and your application shortcuts, from `xfconf-query` (X11) | `xfconf-query` ([below](#xfce)) |
+| GNOME | its window, shell, mutter and media-key shortcuts, your custom shortcuts and the overlay key, from `gsettings`; on X11 also the focused window | `gsettings`; on Wayland picks are not sent and the list opens in fzf ([below](#gnome)) |
 | any other X11 window manager | the focused window, so every app below works; not the window manager's own keys | an EWMH window manager (it sets `_NET_ACTIVE_WINDOW`) |
-| other Wayland compositors (niri, GNOME) | espanso only: the focused window isn't read, so no app below | untested; fuzzel needs layer-shell (not GNOME), wtype the virtual-keyboard protocol (not GNOME or KDE: a pick there is refused, [below](#kde-plasma)) |
+| other Wayland compositors (niri) | espanso only: the focused window isn't read, so no app below | untested |
 | alacritty | its keys: alacritty's defaults merged with your `[[keyboard.bindings]]` | none |
 | Ghostty | its keys from `ghostty +list-keybinds`, as your config sets them | none ([below](#ghostty)) |
 | kitty | its default shortcuts for its version (0.49.2 built in) with your `kitty.conf` maps on top | none; the program in a tab needs remote control ([below](#kitty)) |
@@ -307,6 +308,26 @@ or `<Release>`; a keycode; or a key not shaped like an X keysym name, since name
 counted in one line. When `xfconf-query` is missing or fails (no D-Bus session to ask), that is one line and the list
 goes on without Xfce's keys. Xfce's Wayland session runs another compositor, so there no Xfce shortcuts are listed.
 
+### GNOME
+
+On GNOME (X11 and Wayland, Ubuntu's session too), keybind-find lists the shortcuts from `gsettings list-recursively`
+of five schemas: `org.gnome.desktop.wm.keybindings` under `window manager`, `org.gnome.shell.keybindings` under
+`shell`, mutter's two under `mutter`, and the settings daemon's media keys under `media keys`. Each shortcut is
+described by its key's name (`switch-to-workspace-left` → `switch to workspace left`); a key can have several. Your
+custom shortcuts (Settings → Keyboard → Custom Shortcuts) are under `custom`, each by its name (else its command,
+which is never run), and the overlay key (`Super`, shown as `Super_L`) under `shell`. The media keys' fixed hardware
+keys (`*-static`) aren't listed. A schema that isn't installed is named in one line and the others are still listed;
+mutter's `Above_Tab` (the key above Tab, whatever it is on your layout) and a shortcut keybind-find can't send (as for
+[Xfce](#xfce)) are left out, counted in that line. Without `gsettings`, that is one line and the list goes on
+without GNOME's keys.
+
+On X11 the focused window is read as on any X11 window manager. On Wayland GNOME offers no way to read it (without
+an extension), so the list has GNOME's shortcuts and espanso. A pick there is not sent: Mutter doesn't offer the
+virtual-keyboard protocol that `wtype` needs, so keybind-find stops with an error naming the keys to press, as on
+[KDE](#kde-plasma); `--print` prints as anywhere else. The list opens in fzf in alacritty, an ordinary window
+(fuzzel needs layer-shell, which Mutter lacks), with key search off as on any Wayland; without fzf or alacritty it
+falls back to fuzzel, with one line saying to install them or set `[picker]` ([docs/picker.md](docs/picker.md)).
+
 ## Install
 
 From source, now:
@@ -348,7 +369,8 @@ Under xmonad, float the picker window: `className =? "keybind-find" --> doCenter
 On X11 the list opens in fzf, in **key search**: press a binding's keys (Super combinations included) and the list narrows to the
 bindings that start with them; Enter runs the highlighted one. **Escape** switches to typing to filter, `ctrl-k`
 goes back to pressing keys, and `ctrl-s` picks which column you search. Typing letters straight away presses keys; press Escape first
-to filter by text. On Wayland the list opens in fuzzel: type to filter. The bindings you pick most come first.
+to filter by text. On Wayland the list opens in fuzzel (on GNOME, in fzf with key search off): type to filter. The
+bindings you pick most come first.
 
 - [docs/picker.md](docs/picker.md): the picker, key search, and other pickers (`[picker]` in the config: rofi,
   kitty instead of alacritty, dmenu, fuzzel, or a JSON frontend of your own)
@@ -388,6 +410,7 @@ keybind-find keys            # grab the keyboard, print each key you press in bi
 | `swaymsg` | sway: the focused window | `sway` | `sway` |
 | `hyprctl` | Hyprland: its binds and the focused window | `hyprland` | `hyprland` |
 | `xfconf-query` | Xfce: its keyboard shortcuts | `xfconf` | `xfconf` |
+| `gsettings` | GNOME: its shortcuts | `glib2` | `libglib2.0-bin` |
 | `kdotool` | KDE Plasma 6 on Wayland: the focused window | AUR `kdotool`, or `cargo install kdotool` | not packaged: `cargo install kdotool` |
 | `notify-send` | errors shown when run from a hotkey | `libnotify` | `libnotify-bin` |
 
@@ -409,9 +432,9 @@ Each app's provider needs that app (`nvim`, `herdr`, `tmux`, `espanso`), and is 
   terminal to see those lines, or `keybind-find dump <provider>` to see one provider's error.
 - **Key search doesn't start.** The list opens in text search instead (type to filter), and the header says why:
   for example no `DISPLAY`, fzf older than 0.66, no `xmodmap`, or another program holding the keyboard.
-- **Wayland.** The fzf picker and key search are X11 only; on Wayland the list opens in fuzzel
-  (or `KEYBIND_FIND_PICKER`). The focused window is read under sway, Hyprland and KDE (with `kdotool`); under
-  other compositors no window is read, so no app's keys are listed.
+- **Wayland.** Key search is X11 only; on Wayland the list opens in fuzzel (or `KEYBIND_FIND_PICKER`), except under
+  GNOME, where it opens in fzf ([GNOME](#gnome)). The focused window is read under sway, Hyprland and KDE (with
+  `kdotool`); under other compositors no window is read, so no app's keys are listed.
 - **Another compositor set `XDG_CURRENT_DESKTOP` to KDE or GNOME.** On Wayland only a running Plasma or GNOME Shell
   counts as KDE or GNOME, so wayfire, river, labwc and the like no longer have their picks refused (they are sent with
   `wtype`); nor does a leftover `SWAYSOCK`, `NIRI_SOCKET` or Hyprland variable whose socket is gone name the session.

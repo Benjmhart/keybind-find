@@ -1,0 +1,12 @@
+<schemalist>
+  <schema id="org.gnome.mutter.wayland.keybindings" path="/org/gnome/mutter/wayland/keybindings/">
+    <key name="restore-shortcuts" type="as">
+      <default><![CDATA[['<Super>Escape']]]></default>
+      <summary>Re-enable shortcuts</summary>
+    </key>
+    <key name="switch-to-session-1" type="as">
+      <default><![CDATA[['<Primary><Alt>F1']]]></default>
+      <summary>Switch to VT 1</summary>
+    </key>
+  </schema>
+</schemalist>
