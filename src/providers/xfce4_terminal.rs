@@ -179,47 +179,66 @@ fn notation(accel: &str) -> Option<String> {
     })
 }
 
-/// The `(gtk_accel_path "<path>" "<accel>")` statements of a GTK accel map, in order; `;` starts a comment to the
-/// end of the line (GTK writes the unchanged defaults commented out). Anything else is skipped, as GTK's scanner does.
+/// The `(gtk_accel_path "<path>" "<accel>")` statements of a GTK accel map, in order, read as GTK's scanner reads
+/// them: tokens, so a statement may span lines; `;` starts a comment to the end of the line outside a string (GTK
+/// writes the unchanged defaults commented out). Anything else is skipped.
 fn accel_map(text: &str) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for line in text.lines() {
-        let line = line.trim_start();
-        if line.starts_with(';') {
-            continue;
-        }
-        let Some(rest) = line.strip_prefix('(') else {
-            continue;
-        };
-        let Some(rest) = rest.trim_start().strip_prefix("gtk_accel_path") else {
-            continue;
-        };
-        let Some((path, rest)) = string(rest) else {
-            continue;
-        };
-        let Some((accel, rest)) = string(rest) else {
-            continue;
-        };
-        if rest.trim_start().starts_with(')') {
-            out.push((path, accel));
-        }
+    #[derive(PartialEq)]
+    enum Token {
+        Open,
+        Close,
+        Word(String),
+        Str(String),
     }
-    out
-}
-
-/// A double-quoted string at the start of `s` (after spaces), `\"` and `\\` unescaped, and what follows it.
-fn string(s: &str) -> Option<(String, &str)> {
-    let s = s.trim_start().strip_prefix('"')?;
-    let mut out = String::new();
-    let mut chars = s.char_indices();
-    while let Some((i, c)) = chars.next() {
+    let mut tokens = Vec::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
         match c {
-            '"' => return Some((out, &s[i + 1..])),
-            '\\' => out.push(chars.next()?.1),
-            c => out.push(c),
+            ';' => {
+                for c in chars.by_ref() {
+                    if c == '\n' {
+                        break;
+                    }
+                }
+            }
+            '(' => tokens.push(Token::Open),
+            ')' => tokens.push(Token::Close),
+            '"' => {
+                let mut s = String::new();
+                while let Some(c) = chars.next() {
+                    match c {
+                        '"' => break,
+                        '\\' => s.extend(chars.next()),
+                        c => s.push(c),
+                    }
+                }
+                tokens.push(Token::Str(s));
+            }
+            c if c.is_whitespace() => {}
+            c => {
+                let mut w = c.to_string();
+                while let Some(&n) = chars.peek() {
+                    if n.is_whitespace() || "()\";".contains(n) {
+                        break;
+                    }
+                    w.push(n);
+                    chars.next();
+                }
+                tokens.push(Token::Word(w));
+            }
         }
     }
-    None
+    tokens
+        .windows(5)
+        .filter_map(|w| match w {
+            [Token::Open, Token::Word(name), Token::Str(path), Token::Str(accel), Token::Close]
+                if name == "gtk_accel_path" =>
+            {
+                Some((path.clone(), accel.clone()))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -262,6 +281,11 @@ mod tests {
         assert_eq!((s.binds["xfce4-terminal"].len(), left_out), (33, 0));
         assert_eq!(get(&s, "new-tab"), [("ctrl+shift+t", "Open Tab")]);
         assert_eq!(get(&s, "prev-tab"), [("ctrl+Prior", "Previous Tab")]);
+        assert_eq!(get(&s, "next-tab"), [("ctrl+Next", "Next Tab")]);
+        assert_eq!(
+            get(&s, "move-tab-right"),
+            [("ctrl+shift+Next", "Move Tab Right")]
+        );
         assert_eq!(get(&s, "zoom-in"), [("ctrl+plus", "Zoom In")]);
         assert_eq!(get(&s, "goto-tab-3"), [("alt+3", "Go to Tab 3")]);
         assert_eq!(get(&s, "contents"), [("F1", "Contents")]);
@@ -312,6 +336,86 @@ mod tests {
                 ("p\"x".to_string(), "<Alt>\\".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn a_statement_across_lines() {
+        let m = accel_map(
+            "(gtk_accel_path\n  \"<Actions>/terminal-window/copy\" ; why\n  \"<Alt>c\")\n",
+        );
+        assert_eq!(
+            m,
+            [(
+                "<Actions>/terminal-window/copy".to_string(),
+                "<Alt>c".to_string()
+            )]
+        );
+    }
+
+    /// A fake `xfce4-terminal` printing `version` for `--version`, in its own directory.
+    fn fake(name: &str, version: &str) -> PathBuf {
+        let bin = std::env::temp_dir().join(format!(
+            "kbf-xfce4-terminal-bin-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&bin).unwrap();
+        // Written by `sh`, not by this process (ETXTBSY: see `xfce.rs`'s `fake`).
+        let ok = Command::new("sh")
+            .args([
+                "-c",
+                "printf '#!/bin/sh\\necho \"%s\"\\n' \"$2\" > \"$1\" && chmod 755 \"$1\"",
+                "sh",
+            ])
+            .arg(bin.join("xfce4-terminal"))
+            .arg(version)
+            .status()
+            .unwrap();
+        assert!(ok.success());
+        bin
+    }
+
+    #[test]
+    fn the_whole_read() {
+        let home =
+            std::env::temp_dir().join(format!("kbf-xfce4-terminal-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join(".config/xfce4/terminal")).unwrap();
+        std::fs::copy(
+            fixture("accels.scm"),
+            home.join(".config/xfce4/terminal/accels.scm"),
+        )
+        .unwrap();
+        let h = home.display().to_string();
+        let env = |k: &str| (k == "HOME").then(|| h.clone());
+        for (version, note) in [
+            ("xfce4-terminal 1.2.0 (Xfce 4.20)", None),
+            (
+                "xfce4-terminal 1.1.4 (Xfce 4.20)",
+                Some("add data/xfce4_terminal/1.1.4.toml"),
+            ),
+        ] {
+            let bin = fake(&version[15..20], version);
+            let (s, notes) = sheet_with(
+                REGISTRY,
+                |c: &mut Command| {
+                    c.env("PATH", &bin);
+                },
+                &env,
+            )
+            .unwrap();
+            let _ = std::fs::remove_dir_all(&bin);
+            // The user's file reached the sheet; `<Hyper>f` counted in the notes.
+            assert_eq!(get(&s, "new-tab"), [("ctrl+shift+n", "Open Tab")]);
+            let left = "leaving out 1 key(s) keybind-find can't send";
+            match note {
+                None => assert!(notes.len() == 1 && notes[0].starts_with(left), "{notes:?}"),
+                Some(n) => assert!(
+                    notes.len() == 2 && notes[0].contains(n) && notes[1].starts_with(left),
+                    "{notes:?}"
+                ),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
@@ -376,6 +480,33 @@ mod tests {
                 ("XDG_CONFIG_DIRS", dirs.clone())
             ])),
             Some(file(&xdg))
+        );
+        // XDG_CONFIG_HOME set: ~/.config isn't looked in, even with nothing there; relative or empty: unset.
+        let empty = dir.join("empty");
+        assert_eq!(
+            accels_file(&env_of(vec![
+                ("HOME", h.clone()),
+                ("XDG_CONFIG_HOME", empty.display().to_string())
+            ])),
+            None
+        );
+        for rel in ["rel", ""] {
+            assert_eq!(
+                accels_file(&env_of(vec![
+                    ("HOME", h.clone()),
+                    ("XDG_CONFIG_HOME", rel.to_string())
+                ])),
+                Some(home.join(".config/xfce4/terminal/accels.scm"))
+            );
+        }
+        // A relative XDG_CONFIG_DIRS entry is skipped.
+        std::fs::remove_file(home.join(".config/xfce4/terminal/accels.scm")).unwrap();
+        assert_eq!(
+            accels_file(&env_of(vec![
+                ("HOME", h.clone()),
+                ("XDG_CONFIG_DIRS", format!("rel:{}", sys2.display()))
+            ])),
+            Some(file(&sys2))
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
