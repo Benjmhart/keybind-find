@@ -42,6 +42,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | mpv | the bindings of a headless mpv started with your config: built-ins, your `input.conf` and keys your scripts bind at load, with each one's comment | none; it starts mpv on every `Super+/` ([below](#mpv)) |
 | zathura | its keys: zathura's defaults for its version (0.5.2, 0.5.11 and 2026.10.23 built in) with your zathurarc's `map`/`unmap` on top | none ([below](#zathura)) |
 | VS Code, VSCodium, Code - OSS | the default keys (1.143.1's built in), your installed extensions' and your `keybindings.json` on top, each tagged with where it works; the file's language guessed from the title | none ([below](#vs-code)) |
+| Zed | its default keymaps (1.25.3's built in) for your base keymap and vim or helix mode, with your `keymap.json` on top, each tagged with its context; the file's extension guessed from the title | none ([below](#zed)) |
 | Obsidian | its default hotkeys (1.14.5's built in) with your vault's `.obsidian/hotkeys.json` on top, the vault picked by window title | none ([below](#obsidian)) |
 | st, surf, tabbed, dwm | their stock keys from `config.def.h` at st 0.9.3, surf 2.1, tabbed 0.9 and dwm 6.8 (dwm's in a dwm session, whatever window has focus); a patched `config.h` isn't read: replace the sheet with your own of the same name | none ([below](#suckless-st-surf-tabbed-dwm)) |
 | browsers | built-in sheets for Gmail, YouTube and GitHub; any web app you write a sheet for | none; GitHub's needs a URL-in-title extension ([docs/sheets.md](docs/sheets.md)) |
@@ -160,6 +161,27 @@ directory to themselves, so there keybind-find falls back to the window title. I
 rest of VS Code's context: no extension can read context keys, so focus keys (`editorTextFocus`, `terminalFocus`),
 the `resource*` keys and other extensions' keys (VSCodeVim's mode) stay tags. It isn't on the Marketplace or Open VSX
 yet.
+
+### Zed
+
+Over a Zed window (app id or X11 class `dev.zed.Zed`, or its `-Preview`, `-Nightly` and `-Dev` channels), keybind-find
+lists Zed's keys without running Zed: the Linux keymaps of Zed 1.25.3 built in
+([data/zed/1.25.3/](data/zed/1.25.3), GPL-3.0-or-later, as Zed's assets), loaded as Zed loads them. That is the
+default keymap, then your `base_keymap`'s (VS Code, JetBrains, Sublime Text, Atom, Emacs or Cursor; `Zed` and
+`TextMate` add none, `None` loads no defaults at all), then Zed's vim keymap when `vim_mode` or `helix_mode` is on,
+then your `keymap.json` on top. A bind of yours replaces the one before it with the same key and the same context, and
+`null` removes it. Both files are read from `~/.config/zed/` (`$XDG_CONFIG_HOME/zed/`), or the Flatpak's
+`~/.var/app/dev.zed.Zed/config/zed/` when the first doesn't exist; a file that doesn't parse is one line and is left
+out. Only one Zed version is built in, and Zed updates itself weekly: keys a newer Zed added or moved are missing
+until keybind-find's copy is updated. AI bindings that `disable_ai` would hide are listed.
+
+Each bind's `context` is shown as tags: `Editor` as `[Editor=true]`, `!menu` as `[menu=false]`, `extension == md` as
+`[extension=md]`, vim's `vim_mode == normal` as `[mode=normal]` and Zed's own `mode == full` as `[editor_mode=full]`;
+for `A > B` only `B`'s; an `||` keeps what both sides share, and `!=` or a negated group none. So a tag says where a
+bind works, never more narrowly than Zed. The only fact is the file's `extension`, taken from the window title in
+Zed's default format (`project — main.rs`), which hides the keys of other file types (`extension == md`); a custom
+`window_title_format` without ` — ` gives none. Keys Zed binds that keybind-find can't send (`fn-`, a lone `shift`,
+`shift-` with a non-letter, media keys such as `copy`) are left out with a count.
 
 ### Obsidian
 

@@ -1,0 +1,6 @@
+// A synthetic Zed settings.json: comments and trailing commas, as Zed allows.
+{
+  "base_keymap": "VSCode", // VS Code's keys over Zed's
+  "vim_mode": false,
+  "theme": "One Dark",
+}
