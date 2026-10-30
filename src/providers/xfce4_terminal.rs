@@ -54,12 +54,12 @@ fn sheet_with(
     setup: impl Fn(&mut Command),
     env: Env,
 ) -> anyhow::Result<(Sheet, Vec<String>)> {
+    // The display stays: `main` runs `gtk_init` (which exits without one) before it handles `--version`; it opens no
+    // window and asks no running instance.
     let mut cmd = Command::new("xfce4-terminal");
     cmd.arg("--version")
         .env("LC_ALL", "C")
-        .env("MISE_NOT_FOUND_AUTO_INSTALL", "0")
-        .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY");
+        .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
     setup(&mut cmd);
     let installed = run_for(cmd, VERSION_TIMEOUT)
         .ok()
@@ -94,7 +94,8 @@ fn version_of(text: &str) -> Option<String> {
 }
 
 /// The first `xfce4/terminal/accels.scm` in Xfce's config resource dirs (`xfce_resource_lookup`):
-/// `$XDG_CONFIG_HOME` (else `~/.config`), then each `$XDG_CONFIG_DIRS` entry (else `/etc/xdg`).
+/// `$XDG_CONFIG_HOME` (else `~/.config`), then each `$XDG_CONFIG_DIRS` entry (else `/etc/xdg`), then `/etc/xdg`
+/// (libxfce4util always adds its `SYSCONFDIR/xdg`).
 fn accels_file(env: Env) -> Option<PathBuf> {
     let set = |k: &str| env(k).filter(|v| !v.is_empty());
     let home = set("XDG_CONFIG_HOME")
@@ -102,14 +103,17 @@ fn accels_file(env: Env) -> Option<PathBuf> {
         .filter(|d| d.is_absolute())
         .or_else(|| set("HOME").map(|h| PathBuf::from(h).join(".config")));
     let dirs = set("XDG_CONFIG_DIRS").unwrap_or_else(|| "/etc/xdg".into());
-    home.into_iter()
+    let found = home
+        .into_iter()
         .chain(
             dirs.split(':')
+                .chain(["/etc/xdg"])
                 .map(PathBuf::from)
                 .filter(|d| d.is_absolute()),
         )
         .map(|d| d.join("xfce4/terminal/accels.scm"))
-        .find(|p| p.is_file())
+        .find(|p| p.is_file());
+    found
 }
 
 /// The sheet from the pinned actions with the accel map `accels` applied, and how many keys were left out.
@@ -540,15 +544,19 @@ mod tests {
     /// The real `xfce4-terminal --version`, when it is installed; skipped with a message otherwise.
     #[test]
     fn real_xfce4_terminal() {
-        let mut cmd = Command::new("xfce4-terminal");
-        cmd.arg("--version")
-            .env("LC_ALL", "C")
-            .env_remove("DISPLAY")
-            .env_remove("WAYLAND_DISPLAY");
-        let Ok(out) = run_for(cmd, VERSION_TIMEOUT) else {
-            eprintln!("skipping: xfce4-terminal is not installed");
+        let installed = Command::new("xfce4-terminal")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !installed {
+            eprintln!(
+                "skipping: xfce4-terminal is not installed (or has no display to start GTK on)"
+            );
             return;
-        };
+        }
+        let mut cmd = Command::new("xfce4-terminal");
+        cmd.arg("--version").env("LC_ALL", "C");
+        let out = run_for(cmd, VERSION_TIMEOUT).unwrap();
         assert!(version_of(&out).is_some(), "{out}");
     }
 }

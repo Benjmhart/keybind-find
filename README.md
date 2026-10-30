@@ -59,7 +59,7 @@ WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxv
 sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
 GNOME Terminal, Xfce Terminal, WezTerm, Ghostty and Terminator), keybind-find finds the focused one on X11 when the
-terminal puts the window's id in each shell's environment (`WINDOWID`: Xfce Terminal, kitty, urxvt, xterm) and that
+terminal puts the window's id in each shell's environment (`WINDOWID`: Xfce Terminal, kitty, urxvt, alacritty) and that
 window runs one shell; otherwise (tabs, or a Wayland window) it prints a one-line warning and shows the list without
 the program inside (the terminal's own keys, alacritty's, Ghostty's, kitty's, foot's, GNOME Terminal's or Xfce Terminal's, are still listed).
 kitty can say which tab has focus when its remote control is on ([below](#kitty)). espanso's `word: true` matches (they
