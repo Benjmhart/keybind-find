@@ -1,3 +1,5 @@
+# Midnight Commander 4.8.33's misc/mc.emacs.keymap, verbatim below this header, from
+# https://ftp.osuosl.org/pub/midnightcommander/mc-4.8.33.tar.xz (GPL-3.0-or-later, the mc authors).
 [filemanager]
 ChangePanel = tab; ctrl-i
 Help = f1
