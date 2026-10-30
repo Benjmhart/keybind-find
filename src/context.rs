@@ -608,6 +608,9 @@ const TERMINAL_KEYS: &[(&str, &str)] = &[
     ("kitty", "kitty"),
     ("foot", "foot"),
     ("footclient", "foot"),
+    // gnome-terminal's X11 class and its Wayland app id; one `gnome-terminal-server` serves every window.
+    ("Gnome-terminal", "gnome-terminal"),
+    ("org.gnome.Terminal", "gnome-terminal"),
 ];
 
 /// `child` is the terminal's foreground program (its group's leader), `group` every program in that group.
@@ -1412,6 +1415,31 @@ mod tests {
             assert!(crate::providers::KNOWN.contains(p), "{p}");
             assert!(is_terminal(class), "{class}");
         }
+        // gnome-terminal's own keys under X11 and Wayland compositors, in any case of either class, then the program
+        // inside it.
+        for class in [
+            "Gnome-terminal",
+            "gnome-terminal",
+            "org.gnome.Terminal",
+            "ORG.GNOME.TERMINAL",
+        ] {
+            for wm in ["xmonad", "sway", "hyprland"] {
+                assert_eq!(
+                    providers_for(Some(wm), Some(class), Some("zsh"), &[]),
+                    [wm, "espanso", "gnome-terminal", "zsh", "sheets"]
+                );
+            }
+        }
+        // On GNOME Xorg too.
+        assert_eq!(
+            providers_for(
+                wm_provider(Some("gnome")),
+                Some("Gnome-terminal"),
+                Some("bash"),
+                &[]
+            ),
+            ["gnome", "espanso", "gnome-terminal", "bash", "sheets"]
+        );
         // foot's own keys, standalone and in server mode, then the program inside it.
         for class in ["foot", "footclient"] {
             for wm in ["sway", "hyprland"] {
@@ -3171,6 +3199,41 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             let _ = self.0.kill();
             let _ = self.0.wait();
         }
+    }
+
+    #[test]
+    fn gnome_terminal_cannot_name_its_focused_tab() {
+        // A stand-in `/proc`: one gnome-terminal-server whose thread has two shells. `foreground` reports several
+        // children with no hint (kitty's arm would add one), and `settle` warns and keeps gnome-terminal's own keys.
+        let proc =
+            std::env::temp_dir().join(format!("kbf-gnome-terminal-proc-{}", std::process::id()));
+        std::fs::create_dir_all(proc.join("100/task/100")).unwrap();
+        std::fs::write(proc.join("100/task/100/children"), b"101 102 ").unwrap();
+        for child in ["101", "102"] {
+            std::fs::create_dir_all(proc.join(child)).unwrap();
+            std::fs::write(proc.join(child).join("environ"), b"SHELL=/bin/zsh\0").unwrap();
+        }
+        for class in ["Gnome-terminal", "org.gnome.Terminal"] {
+            let e = foreground(100, class, None, &|_| None, &proc).unwrap_err();
+            assert_eq!(
+                e.to_string(),
+                "pid 100 has 2 children (one process serving several windows or tabs?)",
+                "{class}"
+            );
+            let mut ctx = Context {
+                window_id: None,
+                class: Some(class.into()),
+                instance: None,
+                title: None,
+                providers: Vec::new(),
+            };
+            assert_eq!(settle(&mut ctx, Some("xmonad"), Err(e)), None);
+            assert_eq!(
+                ctx.providers,
+                ["xmonad", "espanso", "gnome-terminal", "sheets"]
+            );
+        }
+        let _ = std::fs::remove_dir_all(&proc);
     }
 
     #[test]
