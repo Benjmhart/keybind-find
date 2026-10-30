@@ -38,7 +38,14 @@ fn read(env: Env) -> anyhow::Result<(Sheet, Vec<String>)> {
     let files: Vec<(String, String)> = paths(env)
         .into_iter()
         // ncmpcpp opens each with `ifstream` and skips one it can't open.
-        .filter_map(|p| Some((p.display().to_string(), std::fs::read_to_string(&p).ok()?)))
+        // ncmpcpp reads bytes: a file that isn't UTF-8 is read lossily, not skipped.
+        .filter_map(|p| {
+            let bytes = std::fs::read(&p).ok()?;
+            Some((
+                p.display().to_string(),
+                String::from_utf8_lossy(&bytes).into_owned(),
+            ))
+        })
         .collect();
     let files: Vec<(&str, &str)> = files
         .iter()
@@ -83,9 +90,9 @@ struct Key {
 /// The sheet from the pinned `defaults` and the user's `files` (`(path, text)`, in order), and the notes.
 fn parse(defaults: &str, files: &[(&str, &str)]) -> anyhow::Result<(Sheet, Vec<String>)> {
     let mut notes = Vec::new();
-    let mut user: Vec<Key> = Vec::new();
+    let (mut user, mut commands) = (Vec::new(), Vec::new());
     for (path, text) in files {
-        if let Err((line, why)) = read_file(text, &mut user) {
+        if let Err((line, why)) = read_file(text, &mut user, &mut commands) {
             notes.push(format!(
                 "{path}:{line}: {why}; ncmpcpp stops reading its bindings there, and so does keybind-find"
             ));
@@ -161,7 +168,11 @@ fn describe(line: &str) -> String {
 
 /// Reads one bindings file into `keys` as ncmpcpp's `BindingsConfiguration::read` does: `Err((line, why))` where it
 /// stops; the keys bound before that stand, the one being defined is dropped.
-fn read_file(text: &str, keys: &mut Vec<Key>) -> Result<(), (usize, String)> {
+fn read_file(
+    text: &str,
+    keys: &mut Vec<Key>,
+    commands: &mut Vec<String>,
+) -> Result<(), (usize, String)> {
     #[derive(PartialEq)]
     enum InProgress {
         None,
@@ -172,63 +183,71 @@ fn read_file(text: &str, keys: &mut Vec<Key>) -> Result<(), (usize, String)> {
     let mut actions: Vec<String> = Vec::new();
     let (mut name, mut line_no) = (String::new(), 0);
     // `bind_in_progress`: ends the block being read; an empty one is an error.
-    let mut end =
-        |in_progress: &InProgress, name: &str, actions: &mut Vec<String>, line_no: usize| {
-            match in_progress {
-                InProgress::None => return Ok(()),
-                _ if actions.is_empty() => {
-                    let what = if *in_progress == InProgress::Key {
-                        "key"
-                    } else {
-                        "command"
-                    };
-                    return Err((
-                        line_no,
-                        format!("definition of {what} '{name}' cannot be empty"),
-                    ));
-                }
-                InProgress::Command => {}
-                InProgress::Key => {
-                    let notation = notation(name);
-                    let chain = std::mem::take(actions);
-                    match keys.iter_mut().find(|k| same(k, name, &notation)) {
-                        Some(k) => k.alternatives.push(chain),
-                        None => keys.push(Key {
-                            name: name.to_string(),
-                            notation,
-                            alternatives: vec![chain],
-                        }),
-                    }
+    let mut end = |in_progress: &InProgress,
+                   name: &str,
+                   actions: &mut Vec<String>,
+                   commands: &mut Vec<String>,
+                   line_no: usize| {
+        match in_progress {
+            InProgress::None => return Ok(()),
+            _ if actions.is_empty() => {
+                let what = if *in_progress == InProgress::Key {
+                    "key"
+                } else {
+                    "command"
+                };
+                return Err((
+                    line_no,
+                    format!("definition of {what} '{name}' cannot be empty"),
+                ));
+            }
+            InProgress::Command => commands.push(name.to_string()),
+            InProgress::Key => {
+                let notation = notation(name);
+                let chain = std::mem::take(actions);
+                match keys.iter_mut().find(|k| same(k, name, &notation)) {
+                    Some(k) => k.alternatives.push(chain),
+                    None => keys.push(Key {
+                        name: name.to_string(),
+                        notation,
+                        alternatives: vec![chain],
+                    }),
                 }
             }
-            actions.clear();
-            Ok(())
-        };
+        }
+        actions.clear();
+        Ok(())
+    };
     for line in text.split('\n') {
         line_no += 1;
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
         if line.starts_with("def_command") {
-            end(&in_progress, &name, &mut actions, line_no)?;
+            end(&in_progress, &name, &mut actions, commands, line_no)?;
             in_progress = InProgress::Command;
             name = enclosed(line, '"', '"');
             if name.is_empty() {
                 return Err((line_no, "command must have non-empty name".into()));
+            }
+            // ncmpcpp's commands are one map across its files.
+            if commands.contains(&name) {
+                return Err((line_no, format!("redefinition of command '{name}'")));
             }
             let kind = enclosed(line, '[', ']');
             if kind != "immediate" && kind != "deferred" {
                 return Err((line_no, format!("invalid type of command: '{kind}'")));
             }
         } else if line.starts_with("def_key") {
-            end(&in_progress, &name, &mut actions, line_no)?;
+            end(&in_progress, &name, &mut actions, commands, line_no)?;
             in_progress = InProgress::Key;
             name = enclosed(line, '"', '"');
             if !valid(&name) {
                 return Err((line_no, format!("invalid key: '{name}'")));
             }
-        } else if line.starts_with(char::is_whitespace) {
-            let action = line.trim();
+        // C's `isspace`: ASCII whitespace only.
+        } else if line.starts_with(|c: char| c.is_ascii_whitespace()) {
+            let action = line.trim_matches(|c: char| c.is_ascii_whitespace());
             // ncmpcpp checks the action's name; keybind-find doesn't know its list, but none is no action.
             if action.is_empty() {
                 return Err((line_no, "unknown action: ''".into()));
@@ -238,7 +257,7 @@ fn read_file(text: &str, keys: &mut Vec<Key>) -> Result<(), (usize, String)> {
             return Err((line_no, format!("invalid line: '{line}'")));
         }
     }
-    end(&in_progress, &name, &mut actions, line_no)
+    end(&in_progress, &name, &mut actions, commands, line_no)
 }
 
 /// `getEnclosedString`: the text between the first `open` and the next `close`, with `\\` and `\<close>` unescaped;
@@ -274,22 +293,35 @@ fn valid(name: &str) -> bool {
 /// `stringToSpecialKey` as key notation; `Some(None)` for a key ncmpcpp accepts but keybind-find can't send
 /// (`mouse`, or a modifier on one).
 fn special(s: &str) -> Option<Option<String>> {
+    Some(parts(s)?.map(|(mods, key)| crate::sheet::chord(&mods, &key)))
+}
+
+/// `stringToSpecialKey` as modifiers and a keysym, so nested prefixes (`shift-ctrl-a`, `shift-A`) come out canonical.
+fn parts(s: &str) -> Option<Option<(Vec<&'static str>, String)>> {
     let b = s.as_bytes();
+    let key = |k: &str| Some(Some((Vec::new(), k.to_string())));
     if s.starts_with("ctrl") && s.len() == 6 && b[4] == b'-' {
         let c = b[5] as char;
         return match c {
-            'a'..='z' => Some(Some(format!("ctrl+{c}"))),
-            '[' | '\\' | ']' | '^' | '_' => {
-                Some(super::nvim::single(c).map(|k| format!("ctrl+{k}")))
+            // The same key codes as tab, enter and escape in ncmpcpp (and in a terminal).
+            'i' => key("Tab"),
+            'm' => key("Return"),
+            '[' => key("Escape"),
+            'a'..='z' | '\\' | ']' | '^' | '_' => {
+                Some(super::nvim::single(c).map(|k| (vec!["ctrl"], k.to_string())))
             }
             _ => None,
         };
     }
     for (prefix, m) in [("alt-", "alt"), ("ctrl-", "ctrl"), ("shift-", "shift")] {
         if let Some(rest) = s.strip_prefix(prefix).filter(|r| !r.is_empty()) {
+            // `stringToKey`: a special name, else one character.
             let inner =
-                special(rest).or_else(|| (rest.chars().count() == 1).then(|| single(rest)))?;
-            return Some(inner.map(|k| crate::sheet::chord(&[m], &k)));
+                parts(rest).or_else(|| (rest.chars().count() == 1).then(|| single(rest)))?;
+            return Some(inner.map(|(mut mods, k)| {
+                mods.push(m);
+                (mods, k)
+            }));
         }
     }
     let named = match s {
@@ -313,29 +345,33 @@ fn special(s: &str) -> Option<Option<String>> {
             // `atoi`: the leading digits.
             let digits: String = f[1..].chars().take_while(char::is_ascii_digit).collect();
             let n: u8 = digits.parse().ok().filter(|n| (1..=12).contains(n))?;
-            return Some(Some(format!("F{n}")));
+            return key(&format!("F{n}"));
         }
         _ => return None,
     };
-    Some(Some(named.to_string()))
+    key(named)
 }
 
-/// One character as key notation: an upper-case letter is shift and the letter; none for one keybind-find can't send.
-fn single(c: &str) -> Option<String> {
+/// One character as modifiers and a keysym: an upper-case letter is shift and the letter; none for one keybind-find
+/// can't send.
+fn single(c: &str) -> Option<(Vec<&'static str>, String)> {
     let c = c.chars().next()?;
-    let key = super::nvim::single(c.to_ascii_lowercase())?;
-    Some(if c.is_ascii_uppercase() {
-        crate::sheet::chord(&["shift"], key)
-    } else {
-        key.to_string()
-    })
+    let key = super::nvim::single(c.to_ascii_lowercase())?.to_string();
+    Some((
+        if c.is_ascii_uppercase() {
+            vec!["shift"]
+        } else {
+            Vec::new()
+        },
+        key,
+    ))
 }
 
 /// A key name as key notation; `None` when it can't be sent or isn't a key.
 fn notation(name: &str) -> Option<String> {
     match special(name) {
         Some(k) => k,
-        None if name.chars().count() == 1 => single(name),
+        None if name.chars().count() == 1 => single(name).map(|(m, k)| crate::sheet::chord(&m, &k)),
         None => None,
     }
 }
@@ -367,6 +403,7 @@ mod tests {
             DEFAULTS.contains("tag 0.10.1")
                 && DEFAULTS.contains("3e6d992b938de9ba3019302027bd64dbcab6f8c6")
         );
+        assert!(DEFAULTS.contains("BindingsConfiguration::generateDefaults()"));
         let pinned: Pinned = toml::from_str(DEFAULTS).unwrap();
         assert_eq!(pinned.key.len(), 96);
         // Every key translates, but `mouse`.
@@ -461,6 +498,33 @@ mod tests {
             .starts_with("b:1: command must have non-empty name"));
         assert!(note("def_command \"c\" [later]\n  quit\n")
             .starts_with("b:1: invalid type of command: 'later'"));
+        let twice = "def_command \"c\" [deferred]\n  quit\ndef_command \"c\" [immediate]\n  quit\n";
+        assert!(note(twice).starts_with("b:3: redefinition of command 'c'"));
+        assert!(
+            note("def_command \"c\" [deferred]\ndef_key \"p\"\n  quit\n")
+                .starts_with("b:2: definition of command 'c' cannot be empty")
+        );
+        // A non-ASCII key is a key to ncmpcpp but can't be sent: counted.
+        let (_, notes) = parse(DEFAULTS, &[("b", "def_key \"é\"\n  quit\n")]).unwrap();
+        assert_eq!(
+            notes,
+            ["leaving out 2 key(s) keybind-find can't send (mouse, a non-ASCII key)"]
+        );
+        // Only the action's name gets `_` as a space; its argument is as written.
+        let (s, _) = parse(
+            DEFAULTS,
+            &[("b", "def_key \"p\"\n  push_characters \"a_b\"\n")],
+        )
+        .unwrap();
+        assert_eq!(get(&s, "p"), Some("push characters \"a_b\""));
+        // An action line must start with ASCII whitespace (C's `isspace`).
+        assert!(note("def_key \"p\"\n\u{a0}quit\n").starts_with("b:2: invalid line: "));
+        // `ctrl-m` is enter: binding it replaces enter's defaults; `tab` and `ctrl-i` are one key's alternatives.
+        let same =
+            "def_key \"ctrl-m\"\n  quit\ndef_key \"tab\"\n  stop\ndef_key \"ctrl-i\"\n  play\n";
+        let (s, _) = parse(DEFAULTS, &[("b", same)]).unwrap();
+        assert_eq!(get(&s, "Return"), Some("quit"));
+        assert_eq!(get(&s, "Tab"), Some("stop / play"));
         // What was read before the error stands; the key being defined is dropped.
         let (s, _) = parse(
             DEFAULTS,
@@ -515,6 +579,18 @@ mod tests {
             assert_eq!(paths(&env(pairs)), [PathBuf::from("/h/.ncmpcpp/bindings")]);
         }
         assert!(paths(&env(&[])).is_empty());
+        // A file that isn't UTF-8 is read (lossily), as ncmpcpp reads bytes.
+        let latin = std::env::temp_dir().join(format!("kbf-ncmpcpp-latin-{}", std::process::id()));
+        std::fs::create_dir_all(latin.join(".ncmpcpp")).unwrap();
+        std::fs::write(
+            latin.join(".ncmpcpp/bindings"),
+            b"# caf\xe9\ndef_key \"p\"\n  play\n",
+        )
+        .unwrap();
+        let home_l = latin.display().to_string();
+        let (s, _) = read(&|k: &str| (k == "HOME").then(|| home_l.clone())).unwrap();
+        let _ = std::fs::remove_dir_all(&latin);
+        assert_eq!(get(&s, "p"), Some("play"));
         // Missing and unreadable files: skipped silently.
         let dir = std::env::temp_dir().join(format!("kbf-ncmpcpp-{}", std::process::id()));
         std::fs::create_dir_all(dir.join(".ncmpcpp/bindings")).unwrap();
@@ -529,7 +605,11 @@ mod tests {
         for (name, want) in [
             ("ctrl-_", "ctrl+underscore"),
             ("ctrl-a", "ctrl+a"),
-            ("ctrl-[", "ctrl+bracketleft"),
+            ("ctrl-[", "Escape"),
+            ("ctrl-i", "Tab"),
+            ("ctrl-m", "Return"),
+            ("ctrl-]", "ctrl+bracketright"),
+            ("shift-a", "shift+a"),
             ("alt-l", "alt+l"),
             ("alt-L", "alt+shift+l"),
             ("ctrl-up", "ctrl+Up"),
@@ -544,9 +624,25 @@ mod tests {
             ("enter", "Return"),
             ("backspace", "BackSpace"),
             ("escape", "Escape"),
+            ("up", "Up"),
+            ("down", "Down"),
+            ("left", "Left"),
+            ("right", "Right"),
+            ("home", "Home"),
+            ("end", "End"),
+            ("insert", "Insert"),
+            ("delete", "Delete"),
+            ("space", "space"),
+            ("tab", "Tab"),
+            // Nested prefixes come out in canonical order, shift once.
+            ("shift-ctrl-a", "ctrl+shift+a"),
+            ("alt-ctrl-x", "ctrl+alt+x"),
+            ("shift-A", "shift+a"),
+            ("ctrl-\\", "ctrl+backslash"),
         ] {
             assert_eq!(notation(name).as_deref(), Some(want), "{name}");
             assert!(valid(name), "{name}");
+            assert!(want.parse::<keybind_find_sheet::Key>().is_ok(), "{want}");
         }
         // Valid to ncmpcpp, but not sent: counted.
         for name in ["mouse", "é", "alt-mouse"] {

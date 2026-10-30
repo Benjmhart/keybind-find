@@ -339,7 +339,8 @@ unchanged since 0.9.2, built in) with your bindings on top, read as ncmpcpp read
 `$XDG_CONFIG_HOME/ncmpcpp/bindings` (`~/.config/ncmpcpp/bindings`), then `~/.ncmpcpp/bindings`. A key you bind loses
 its defaults; several `def_key` blocks for one key are alternatives, shown in order (`play item / toggle output`), and a
 key bound only to `dummy` isn't listed. Where ncmpcpp would stop reading at an error (an invalid key, a line it doesn't
-know, a key with no actions), keybind-find stops too, with one line naming the file and line. Files given with
+know, a key with no actions), keybind-find stops too, with one line naming the file and line; action names aren't
+checked, so a misspelled one is listed as written. Files given with
 `-b`/`--bindings` on ncmpcpp's command line aren't read. One list for every screen: in ncmpcpp a key runs the first of
 its alternatives that can run where you are, so an alternative may do nothing on the current screen. `mouse` isn't listed.
 
