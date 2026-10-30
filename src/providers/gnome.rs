@@ -165,9 +165,14 @@ fn read(setup: impl Fn(&mut Command)) -> anyhow::Result<(Sheet, Vec<String>)> {
             }
             return false;
         }
-        failed.push(why.clone());
+        let hung = why.contains("did not answer within");
+        failed.push(if hung {
+            format!("{why} (stopped reading GNOME's settings there)")
+        } else {
+            why
+        });
         first_err.get_or_insert(e);
-        why.contains("did not answer within")
+        hung
     };
     let mut hung = false;
     'schemas: for (schema, category) in SCHEMAS {
@@ -308,7 +313,11 @@ fn accel_key(accel: &str) -> Option<Option<String>> {
         return Some(None);
     }
     gtk_accel(accel)
-        .filter(|k| k.rsplit('+').next() != Some("Above_Tab"))
+        .filter(|k| {
+            !k.rsplit('+')
+                .next()
+                .is_some_and(|k| k.eq_ignore_ascii_case("Above_Tab"))
+        })
         .map(Some)
 }
 
@@ -450,7 +459,7 @@ mod tests {
                 "'list-recursively {MEDIA}') printf '%s\\n' \"{media}\";;\n\
                  'list-recursively {CUSTOM}:{p}/custom0/') {}\n\
                  'list-recursively {CUSTOM}:{p}/custom1/') {}\n\
-                 'list-recursively {CUSTOM}:{p}/gone/') echo 'Path must end with a slash' >&2; exit 1;;\n\
+                 'list-recursively {CUSTOM}:{p}/gone/') echo 'dconf: boom' >&2; exit 1;;\n\
                  'list-recursively {CUSTOM}:{p}/hyper/') {}\n\
                  'list-recursively {CUSTOM}:{p}/unset/') {}\n\
                  'list-recursively {CUSTOM}:{p}/blank/') {}\n\
@@ -481,7 +490,7 @@ mod tests {
         // The path gsettings refused is a note with its reason; Above_Tab ×4, `bad`, `//` and `<Hyper>` are counted;
         // the repeated path is listed once, and an empty binding lists nothing.
         assert_eq!(notes.len(), 3, "{notes:?}");
-        assert!(notes[1].contains("Path must end with a slash"), "{notes:?}");
+        assert!(notes[1].contains("dconf: boom"), "{notes:?}");
         assert!(notes[2].starts_with("leaving out 7 shortcuts"), "{notes:?}");
         // The overlay key set to nothing lists nothing; another key is listed as itself.
         for (overlay, want) in [
@@ -542,6 +551,78 @@ mod tests {
         assert!(!rows(&s, "window manager").is_empty());
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert!(notes[0].contains("did not answer within"), "{notes:?}");
+        assert!(
+            notes[0].ends_with("(stopped reading GNOME's settings there)"),
+            "{notes:?}"
+        );
+        // A hang on a custom path stops it too: no wait for the next path or the overlay key.
+        let p = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
+        let bin = answers(
+            "hangcustom",
+            "list-wm.txt",
+            &format!(
+                "'list-recursively {MEDIA}') echo \"{MEDIA} custom-keybindings ['{p}/a/', '{p}/b/']\";;\n\
+                 'list-recursively {CUSTOM}:'*) exec /bin/sleep 10;;\n\
+                 'get org.gnome.mutter overlay-key') echo \"'Super'\";;"
+            ),
+        );
+        let start = std::time::Instant::now();
+        let (s, notes) = read(path(&bin)).unwrap();
+        let _ = std::fs::remove_dir_all(&bin);
+        assert!(start.elapsed() >= TIMEOUT && start.elapsed() < TIMEOUT * 2);
+        assert!(rows(&s, "shell").is_empty(), "{notes:?}");
+        // The relocatable schema missing for two paths: named once.
+        let bin = answers(
+            "nocustom",
+            "list-wm.txt",
+            &format!(
+                "'list-recursively {MEDIA}') echo \"{MEDIA} custom-keybindings ['{p}/a/', '{p}/b/']\";;\n\
+                 'list-recursively {CUSTOM}:'*) echo \"No such schema “{CUSTOM}”\" >&2; exit 1;;"
+            ),
+        );
+        let (_, notes) = read(path(&bin)).unwrap();
+        let _ = std::fs::remove_dir_all(&bin);
+        assert_eq!(notes[0].matches(CUSTOM).count(), 1, "{notes:?}");
+    }
+
+    #[test]
+    fn each_schema_has_its_category() {
+        let line = |schema: &str, key: &str, value: &str| {
+            format!("'list-recursively {schema}') echo \"{schema} {key} {value}\";;")
+        };
+        let bin = answers(
+            "categories",
+            "list-wm.txt",
+            &[
+                line(
+                    "org.gnome.shell.keybindings",
+                    "toggle-application-view",
+                    "['<Super>a']",
+                ),
+                line(
+                    "org.gnome.mutter.keybindings",
+                    "toggle-tiled-left",
+                    "['<Super>Left']",
+                ),
+                line(
+                    "org.gnome.mutter.wayland.keybindings",
+                    "restore-shortcuts",
+                    "['<Super>Escape']",
+                ),
+            ]
+            .join("\n"),
+        );
+        let (s, _) = read(path(&bin)).unwrap();
+        let _ = std::fs::remove_dir_all(&bin);
+        assert_eq!(rows(&s, "shell"), [("super+a", "toggle application view")]);
+        assert_eq!(
+            rows(&s, "mutter"),
+            [
+                ("super+Left", "toggle tiled left"),
+                ("super+Escape", "restore shortcuts")
+            ]
+        );
+        assert!(rows(&s, "window manager").contains(&("alt+F4", "close")));
     }
 
     #[test]
@@ -554,6 +635,8 @@ mod tests {
             ("'a\\\\b'", Some("a\\b")),
             ("'tab\\there'", Some("tab\there")),
             ("'\\u00e9'", Some("é")),
+            ("\"a\\\"b\"", Some("a\"b")),
+            ("\"it\\'s\"", Some("it's")),
             ("['<Super>a', '<Alt>F4']", Some("<Super>a|<Alt>F4")),
             ("['']", Some("")),
             ("@as []", Some("")),

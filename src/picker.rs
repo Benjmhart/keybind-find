@@ -75,6 +75,15 @@ fn choose(
     let terminal = cfg.terminal.clone().unwrap_or_else(default_terminal);
     let have_fzf = || on_path("fzf") && terminal.first().is_some_and(|t| on_path(t));
     let gnome_wayland = session == Some("gnome") && wayland.is_some_and(|w| !w.is_empty());
+    // The default dmenu-style picker there is fuzzel, which can't show on Mutter.
+    let gnome_note = || {
+        (gnome_wayland && cfg.command.is_none()).then(|| {
+            format!(
+                "GNOME on Wayland has no layer-shell for fuzzel: install fzf and {}, or set [picker]",
+                terminal.first().map_or("a terminal", String::as_str)
+            )
+        })
+    };
     let dmenu = || {
         Choice::Dmenu(
             cfg.command
@@ -89,7 +98,7 @@ fn choose(
         Some(config::PickerKind::Json) => {
             (Choice::Json(cfg.command.clone().unwrap_or_default()), None)
         }
-        Some(config::PickerKind::Dmenu) => (dmenu(), None),
+        Some(config::PickerKind::Dmenu) => (dmenu(), gnome_note()),
         Some(config::PickerKind::Fzf) if have_fzf() => (Choice::Fzf(terminal), None),
         Some(config::PickerKind::Fzf) => (
             dmenu(),
@@ -101,14 +110,7 @@ fn choose(
         None if use_fzf(None, wayland, have_fzf()) => (Choice::Fzf(terminal), None),
         None if gnome_wayland && have_fzf() => (Choice::Fzf(terminal), None),
         // Without fzf, a dmenu-style command of the user's runs as given; only the default fuzzel gets the note.
-        None if gnome_wayland && cfg.command.is_none() => (
-            dmenu(),
-            Some(format!(
-                "GNOME on Wayland has no layer-shell for fuzzel: install fzf and {}, or set [picker]",
-                terminal.first().map_or("a terminal", String::as_str)
-            )),
-        ),
-        None => (dmenu(), None),
+        None => (dmenu(), gnome_note()),
     }
 }
 
@@ -1388,9 +1390,15 @@ mod tests {
             choose(&default, Some("bemenu -i"), Some("w"), gnome, all),
             dmenu(&["bemenu", "-i"])
         );
+        // `kind = "dmenu"` with no command is fuzzel there too: it still wins, with the note.
+        let (choice, why) = choose(&dm_default, None, Some("w"), gnome, all);
+        assert_eq!(choice, Choice::Dmenu(strings(&["fuzzel", "--dmenu"])));
+        assert!(why
+            .unwrap()
+            .starts_with("GNOME on Wayland has no layer-shell"));
         assert_eq!(
-            choose(&dm_default, None, Some("w"), gnome, all),
-            dmenu(&["fuzzel", "--dmenu"])
+            choose(&dm, None, Some("w"), gnome, all),
+            (Choice::Dmenu(rofi.clone()), None)
         );
         assert_eq!(
             choose(&json, None, Some("w"), gnome, all).0,

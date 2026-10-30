@@ -523,7 +523,7 @@ fn session_file_name(d: &str) -> &str {
     name.strip_suffix(".desktop").unwrap_or(name)
 }
 
-/// The window-manager provider for a session: only sway, Hyprland, xmonad, KDE, Xfce and i3 have one. Nothing falls back to
+/// The window-manager provider for a session: only sway, Hyprland, xmonad, KDE, Xfce, i3 and GNOME have one. Nothing falls back to
 /// xmonad: a leftover `xmonad.keys` under i3 must not show.
 fn wm_provider(session: Option<&'static str>) -> Option<&'static str> {
     session.filter(|s| {
@@ -2716,7 +2716,7 @@ mod tests {
                 |p, _| panic!("{p} asked outside sway, Hyprland and KDE"),
             );
             assert_eq!((ctx.window_id, ctx.class, ctx.title), (None, None, None));
-            // GNOME's own shortcuts still apply (6.20).
+            // GNOME's own shortcuts still apply.
             let want: &[&str] = if session == Some("gnome") {
                 &["gnome", "espanso"]
             } else {
