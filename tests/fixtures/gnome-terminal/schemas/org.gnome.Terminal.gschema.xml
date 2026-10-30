@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  org.gnome.Terminal.Legacy.Keybindings verbatim from gnome-terminal 3.60.0, src/org.gnome.Terminal.gschema.xml
+  (https://gitlab.gnome.org/GNOME/gnome-terminal/-/blob/3.60.0/src/org.gnome.Terminal.gschema.xml, GPL-3.0-or-later,
+  copyright the gnome-terminal authors), with a Legacy.Settings trimmed to shortcuts-enabled and the keybindings child
+  (the full file needs enums generated at build time).
+-->
+<schemalist gettext-domain="gnome-terminal">
+
+  <schema id="org.gnome.Terminal.Legacy.Keybindings">
+    <key name="new-tab" type="s">
+      <default>'&lt;Control&gt;&lt;Shift&gt;t'</default>
+      <summary>Keyboard shortcut to open a new tab</summary>
+    </key>
+    <key name="new-window" type="s">
+      <default>'&lt;Control&gt;&lt;Shift&gt;n'</default>
+      <summary>Keyboard shortcut to open a new window</summary>
+    </key>
+    <key name="save-contents" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to save the current tab contents to file</summary>
+    </key>
+    <key name="export" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to export the current tab contents to file in various formats</summary>
+    </key>
+    <key name="print" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to print the current tab contents to printer or file</summary>
+    </key>
+    <key name="close-tab" type="s">
+      <default>'&lt;Control&gt;&lt;Shift&gt;w'</default>
+      <summary>Keyboard shortcut to close a tab</summary>
+    </key>
+    <key name="close-window" type="s">
+      <default>'&lt;Control&gt;&lt;Shift&gt;q'</default>
+      <summary>Keyboard shortcut to close a window</summary>
+    </key>
+    <key name="copy" type="s">
+      <default>'&lt;Control&gt;&lt;Shift&gt;c'</default>
+      <summary>Keyboard shortcut to copy text</summary>
+    </key>
+    <key name="copy-html" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to copy text as HTML</summary>
+    </key>
+    <key name="paste" type="s">
+      <default>'&lt;Control&gt;&lt;Shift&gt;v'</default>
+      <summary>Keyboard shortcut to paste text</summary>
+    </key>
+    <key name="select-all" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to select all text</summary>
+    </key>
+    <key name="preferences" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to open the Preferences dialog</summary>
+    </key>
+    <key name="full-screen" type="s">
+      <default>'F11'</default>
+      <summary>Keyboard shortcut to toggle full screen mode</summary>
+    </key>
+    <key name="toggle-menubar" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to toggle the visibility of the menubar</summary>
+    </key>
+    <key name="read-only" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to toggle the read-only state</summary>
+    </key>
+    <key name="reset" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to reset the terminal</summary>
+    </key>
+    <key name="reset-and-clear" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to reset and clear the terminal</summary>
+    </key>
+    <key name="find" type="s">
+      <default>'&lt;Control&gt;&lt;Shift&gt;F'</default>
+      <summary>Keyboard shortcut to open the search dialog</summary>
+    </key>
+    <key name="find-next" type="s">
+      <default>'&lt;Control&gt;&lt;Shift&gt;G'</default>
+      <summary>Keyboard shortcut to find the next occurrence of the search term</summary>
+    </key>
+    <key name="find-previous" type="s">
+      <default>'&lt;Control&gt;&lt;Shift&gt;H'</default>
+      <summary>Keyboard shortcut to find the previous occurrence of the search term</summary>
+    </key>
+    <key name="find-clear" type="s">
+      <default>'&lt;Control&gt;&lt;Shift&gt;J'</default>
+      <summary>Keyboard shortcut to clear the find highlighting</summary>
+    </key>
+    <key name="prev-tab" type="s">
+      <default>'&lt;Control&gt;Page_Up'</default>
+      <summary>Keyboard shortcut to switch to the previous tab</summary>
+    </key>
+    <key name="next-tab" type="s">
+      <default>'&lt;Control&gt;Page_Down'</default>
+      <summary>Keyboard shortcut to switch to the next tab</summary>
+    </key>
+    <key name="move-tab-left" type="s">
+      <default>'&lt;Control&gt;&lt;Shift&gt;Page_Up'</default>
+      <summary>Keyboard shortcut to move the current tab to the left</summary>
+    </key>
+    <key name="move-tab-right" type="s">
+      <default>'&lt;Control&gt;&lt;Shift&gt;Page_Down'</default>
+      <summary>Keyboard shortcut to move the current tab to the right</summary>
+    </key>
+    <key name="detach-tab" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to detach current tab</summary>
+    </key>
+    <key name="switch-to-tab-1" type="s">
+      <default>'&lt;Alt&gt;1'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-2" type="s">
+      <default>'&lt;Alt&gt;2'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-3" type="s">
+      <default>'&lt;Alt&gt;3'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-4" type="s">
+      <default>'&lt;Alt&gt;4'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-5" type="s">
+      <default>'&lt;Alt&gt;5'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-6" type="s">
+      <default>'&lt;Alt&gt;6'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-7" type="s">
+      <default>'&lt;Alt&gt;7'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-8" type="s">
+      <default>'&lt;Alt&gt;8'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-9" type="s">
+      <default>'&lt;Alt&gt;9'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-10" type="s">
+      <default>'&lt;Alt&gt;0'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-11" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-12" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-13" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-14" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-15" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-16" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-17" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-18" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-19" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-20" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-21" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-22" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-23" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-24" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-25" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-26" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-27" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-28" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-29" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-30" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-31" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-32" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-33" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-34" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-35" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the numbered tab</summary>
+    </key>
+    <key name="switch-to-tab-last" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to switch to the last tab</summary>
+    </key>
+    <key name="help" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to launch help</summary>
+    </key>
+    <key name="zoom-in" type="s">
+      <default>'&lt;Control&gt;plus'</default>
+      <summary>Keyboard shortcut to make font larger</summary>
+    </key>
+    <key name="zoom-out" type="s">
+      <default>'&lt;Control&gt;minus'</default>
+      <summary>Keyboard shortcut to make font smaller</summary>
+    </key>
+    <key name="zoom-normal" type="s">
+      <default>'&lt;Control&gt;0'</default>
+      <summary>Keyboard shortcut to make font normal-size</summary>
+    </key>
+    <key name="header-menu" type="s">
+      <default>'disabled'</default>
+      <summary>Keyboard shortcut to show the primary menu</summary>
+    </key>
+  </schema>
+
+  <schema id="org.gnome.Terminal.Legacy.Settings" path="/org/gnome/terminal/legacy/">
+    <key name="shortcuts-enabled" type="b">
+      <default>true</default>
+      <summary>Whether shortcuts are enabled</summary>
+    </key>
+    <child name="keybindings" schema="org.gnome.Terminal.Legacy.Keybindings" />
+  </schema>
+
+</schemalist>

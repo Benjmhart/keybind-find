@@ -9,6 +9,7 @@ mod espanso;
 mod foot;
 mod ghostty;
 mod gnome;
+mod gnome_terminal;
 mod herdr;
 mod hyprland;
 mod i3;
@@ -68,6 +69,7 @@ pub const KNOWN: &[&str] = &[
     "gnome",
     "foot",
     "obsidian",
+    "gnome-terminal",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -78,6 +80,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "kde" => kde::sheet(ctx),
         "xfce" => xfce::sheet(),
         "gnome" => gnome::sheet(),
+        "gnome-terminal" => gnome_terminal::sheet(),
         "i3" => i3::sheet(ctx),
         "espanso" => espanso::sheet(ctx),
         "nvim" => nvim::sheet(ctx),

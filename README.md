@@ -26,6 +26,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | Ghostty | its keys from `ghostty +list-keybinds`, as your config sets them | none ([below](#ghostty)) |
 | kitty | its default shortcuts for its version (0.49.2 built in) with your `kitty.conf` maps on top | none; the program in a tab needs remote control ([below](#kitty)) |
 | foot | its default key, search and URL bindings for its version (1.28.0 built in) with your `foot.ini` on top, and its text bindings | none ([below](#foot)) |
+| GNOME Terminal | its keyboard shortcuts as its preferences set them, from `gsettings` | `gsettings` ([below](#gnome-terminal)) |
 | nvim | your maps from a headless nvim with your config, with each map's `desc` | none |
 | vim | your maps (`:map`, `:map!`, `:tmap`, `:lmap`) from a headless vim with your vimrc; not vim's built-in keys | none; it runs your vimrc ([below](#vim)) |
 | nano | its main-menu keys: nano's defaults for its version (7.2, 8.4 and 9.2 built in) with your nanorc's `bind`/`unbind` on top | none ([below](#nano)) |
@@ -50,7 +51,7 @@ WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxv
 sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
 GNOME Terminal, Xfce Terminal, WezTerm, Ghostty and Terminator), keybind-find can't tell which is the focused one: it prints a one-line warning
-and shows the list without the program inside (the terminal's own keys, alacritty's, Ghostty's, kitty's or foot's, are still listed).
+and shows the list without the program inside (the terminal's own keys, alacritty's, Ghostty's, kitty's, foot's or GNOME Terminal's, are still listed).
 kitty can say which tab has focus when its remote control is on ([below](#kitty)). espanso's `word: true` matches (they
 wait for a space or punctuation after the trigger) and regex matches (no literal trigger) can't be typed, picks do nothing while the espanso service is stopped, and matches limited by `filter_exec` aren't
 listed.
@@ -308,6 +309,18 @@ the program inside is found as in any terminal; `foot --server` serves every `fo
 foot can't say which shell belongs to which window, so there you get the one-line warning and foot's own keys without
 the program inside.
 
+### gnome-terminal
+
+In a GNOME Terminal window (class `Gnome-terminal` on X11, app id `org.gnome.Terminal` under sway and Hyprland),
+keybind-find lists its keyboard shortcuts, read with `gsettings list-recursively org.gnome.Terminal.Legacy.Settings`:
+your changes from Preferences → Shortcuts over the installed defaults. Shortcuts set to disabled aren't listed, and
+when shortcuts are turned off altogether the list has none of them and a one-line note says so. Not listed: keys that
+aren't settings (the terminal widget's own, such as `shift+Page_Up` scrolling, and F10 for the menu). On GNOME under
+Wayland the focused window can't be read, so GNOME Terminal's keys aren't shown there. One `gnome-terminal-server` runs
+every window and tab and can't say which is focused, so with more than one tab or window open you get the one-line
+warning and GNOME Terminal's own keys, without the program inside; with a single tab the program inside is found as
+in any terminal.
+
 ### KDE Plasma
 
 On Plasma, keybind-find reads the shortcuts kglobalacceld saves in `~/.config/kglobalshortcutsrc` (or under
@@ -451,7 +464,7 @@ keybind-find keys            # grab the keyboard, print each key you press in bi
 | `swaymsg` | sway: the focused window | `sway` | `sway` |
 | `hyprctl` | Hyprland: its binds and the focused window | `hyprland` | `hyprland` |
 | `xfconf-query` | Xfce: its keyboard shortcuts | `xfconf` | `xfconf` |
-| `gsettings` | GNOME: its shortcuts | `glib2` | `libglib2.0-bin` |
+| `gsettings` | GNOME and GNOME Terminal: their shortcuts | `glib2` | `libglib2.0-bin` |
 | `kdotool` | KDE Plasma 6 on Wayland: the focused window | AUR `kdotool`, or `cargo install kdotool` | not packaged: `cargo install kdotool` |
 | `notify-send` | errors shown when run from a hotkey | `libnotify` | `libnotify-bin` |
 
