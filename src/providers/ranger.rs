@@ -70,7 +70,8 @@ fn user_conf(env: Env) -> Option<PathBuf> {
 /// they were first bound.
 #[derive(Clone, Debug)]
 enum Node {
-    Command(String),
+    /// The command, and whether its keys were written with a `<number>` code (bound, but not listed).
+    Command(String, bool),
     Keys(Vec<(i64, Node)>),
 }
 
@@ -117,16 +118,24 @@ impl State<'_> {
         }
         match name {
             "map" if words.len() >= 3 => {
-                let node = Node::Command(rest(line, 2).to_string());
-                bind(&mut self.tree, &codes(words[1]), node);
+                let (keys, numbered) = codes_marked(words[1]);
+                bind(
+                    &mut self.tree,
+                    &keys,
+                    Node::Command(rest(line, 2).to_string(), numbered),
+                );
                 true
             }
             // Each target in turn; a source that isn't bound stops the line (ranger's `KeyError`).
             "copymap" if words.len() >= 3 => words[2..].iter().all(|target| {
-                let Some(node) = find(&self.tree, &codes(words[1])).cloned() else {
+                let Some(mut node) = find(&self.tree, &codes(words[1])).cloned() else {
                     return false;
                 };
-                bind(&mut self.tree, &codes(target), node);
+                let (keys, numbered) = codes_marked(target);
+                if numbered {
+                    hide(&mut node);
+                }
+                bind(&mut self.tree, &keys, node);
                 true
             }),
             "unmap" => words[1..]
@@ -182,8 +191,8 @@ fn parse(texts: &[&str], load: Load) -> (Sheet, Vec<String>) {
     };
     let mut left_out = 0;
     let mut path = Vec::new();
-    walk(&tree, &mut path, &mut |keys, command| {
-        let Some(key) = notation(keys) else {
+    walk(&tree, &mut path, &mut |keys, command, hidden| {
+        let Some(key) = notation(keys).filter(|_| !hidden) else {
             left_out += 1;
             return;
         };
@@ -245,7 +254,7 @@ fn bind(map: &mut Vec<(i64, Node)>, keys: &[i64], node: Node) {
     }
     let i = match at {
         Some(i) => {
-            if matches!(map[i].1, Node::Command(_)) {
+            if matches!(map[i].1, Node::Command(..)) {
                 map[i].1 = Node::Keys(Vec::new());
             }
             i
@@ -267,7 +276,7 @@ fn find<'a>(map: &'a [(i64, Node)], keys: &[i64]) -> Option<&'a Node> {
     match (more.is_empty(), node) {
         (true, n) => Some(n),
         (false, Node::Keys(inner)) => find(inner, more),
-        (false, Node::Command(_)) => None,
+        (false, Node::Command(..)) => None,
     }
 }
 
@@ -294,11 +303,19 @@ fn unbind(map: &mut Vec<(i64, Node)>, keys: &[i64]) -> bool {
     ok
 }
 
-fn walk(map: &[(i64, Node)], path: &mut Vec<i64>, each: &mut dyn FnMut(&[i64], &str)) {
+/// Marks every command under `node` as bound with a `<number>` code.
+fn hide(node: &mut Node) {
+    match node {
+        Node::Command(_, hidden) => *hidden = true,
+        Node::Keys(inner) => inner.iter_mut().for_each(|(_, n)| hide(n)),
+    }
+}
+
+fn walk(map: &[(i64, Node)], path: &mut Vec<i64>, each: &mut dyn FnMut(&[i64], &str, bool)) {
     for (key, node) in map {
         path.push(*key);
         match node {
-            Node::Command(c) => each(path, c),
+            Node::Command(c, hidden) => each(path, c, *hidden),
             Node::Keys(inner) => walk(inner, path, each),
         }
         path.pop();
@@ -310,13 +327,18 @@ const ANY: i64 = 9001;
 const PASSIVE: i64 = 9002;
 const ALT: i64 = 9003;
 const QUANTIFIER: i64 = 9004;
-/// A `<number>` in a key, offset so it never reads as a key.
-const CODE: i64 = 1 << 32;
 
 /// `parse_keybinding`: a key sequence as key codes. `<name>` is looked up lower-cased; a number in brackets is that
 /// code (marked, and never sent); any other `<…>` is its characters. `_clean_input` first turns the text into its
 /// UTF-8 bytes (`encode('utf-8').decode('latin-1')`), so a non-ASCII character is several codes.
 fn codes(keys: &str) -> Vec<i64> {
+    codes_marked(keys).0
+}
+
+/// `codes`, and whether a `<number>` was among them: that code is the key itself in ranger's tree (`<10>` is
+/// Return), but the binding isn't listed.
+fn codes_marked(keys: &str) -> (Vec<i64>, bool) {
+    let mut numbered = false;
     let bytes = keys.as_bytes();
     let mut out = Vec::new();
     let mut i = 0;
@@ -324,12 +346,14 @@ fn codes(keys: &str) -> Vec<i64> {
         if bytes[i] == b'<' {
             if let Some(end) = bytes[i + 1..].iter().position(|b| *b == b'>') {
                 let inner = &bytes[i + 1..i + 1 + end];
-                let name = String::from_utf8_lossy(inner).to_lowercase();
+                // ranger lower-cases the bytes as Latin-1 text: ASCII only matters for the names.
+                let name = String::from_utf8_lossy(inner).to_ascii_lowercase();
                 match special(&name) {
                     Some(k) => out.extend(k),
-                    // A key code: left out (the AC), so kept apart from the character it may be.
+                    // A key code: that key in the tree, but its binding left out (the AC).
                     None if !name.is_empty() && name.bytes().all(|b| b.is_ascii_digit()) => {
-                        out.push(CODE + name.parse::<u32>().map_or(-1, i64::from));
+                        numbered = true;
+                        out.push(name.parse::<u32>().map_or(-2, i64::from));
                     }
                     None => {
                         out.push(b'<' as i64);
@@ -344,7 +368,7 @@ fn codes(keys: &str) -> Vec<i64> {
         out.push(bytes[i] as i64);
         i += 1;
     }
-    out
+    (out, numbered)
 }
 
 /// `special_keys`, by lower-cased name.
@@ -609,6 +633,13 @@ mod tests {
         let me = |_: &str| Some("map x y\nsource /me\n".to_string());
         let (s, _) = parse(&["source /me\n"], &me);
         assert_eq!(get(&s, "x"), ["y"]);
+        // A `<number>` is that key in the tree (`<10>` is Return, `<100>` is `d`), but its binding isn't listed.
+        let (s, notes) =
+            parse_t(&["map <CR> open\nmap <10> run\nmap <100> x\ncopymap <CR> <101>\n"]);
+        assert!(get(&s, "Return").is_empty() && get(&s, "d").is_empty() && get(&s, "e").is_empty());
+        assert!(notes[0].starts_with("leaving out 3 key(s)"), "{notes:?}");
+        let (s, _) = parse_t(&["map <100> x\nmap d shown\n"]);
+        assert_eq!(get(&s, "d"), ["shown"]);
         // Two names for one code are one key: `<C-j>` is `<CR>`.
         let (s, _) = parse_t(&["map <CR> open\nmap <C-j> down\n"]);
         assert_eq!(get(&s, "Return"), ["down"]);
@@ -740,7 +771,6 @@ mod tests {
             "p`<any>",
             "<allow_quantifiers>",
             "m<bg>",
-            "<100>",
             "<f0>",
             "<f40>",
             "<c-_>",
