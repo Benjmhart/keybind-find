@@ -1055,7 +1055,7 @@ mod tests {
         while !socket.exists() && start.elapsed() < Duration::from_secs(20) {
             std::thread::sleep(Duration::from_millis(50));
         }
-        let live = ask(&[socket.clone()], Some(daemon.0.id()), env);
+        let live = ask(std::slice::from_ref(&socket), Some(daemon.0.id()), env);
         let batch = batch(None, env);
         drop(daemon);
         let _ = std::fs::remove_dir_all(&tmp);
