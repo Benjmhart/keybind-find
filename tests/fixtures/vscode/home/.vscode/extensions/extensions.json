@@ -1,0 +1,3 @@
+[{"identifier":{"id":"sample.hello"},"version":"1.0.0","location":{"$mid":1,"path":"/home/user/.vscode/extensions/sample.hello-1.0.0","scheme":"file"},"relativeLocation":"sample.hello-1.0.0"},
+ {"identifier":{"id":"other.single"},"version":"2.0.0","location":{"$mid":1,"path":"/home/user/.vscode/extensions/other.single-2.0.0","scheme":"file"}},
+ {"identifier":{"id":"broken.pkg"},"version":"1.0.0","relativeLocation":"broken.pkg-1.0.0"}]

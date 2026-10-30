@@ -1,0 +1,28 @@
+// Synthetic: a user's keybindings.json over VS Code's defaults.
+[
+  // Removal with a key and a `when`: commentLine's ctrl+/ goes.
+  { "key": "ctrl+/", "command": "-editor.action.commentLine", "when": "editorTextFocus && !editorReadonly" },
+  /* Removal with a key only: showCommands' f1 goes, its ctrl+shift+p stays. */
+  { "key": "f1", "command": "-workbench.action.showCommands" },
+  // Removal with neither: every quickOpen default goes.
+  { "command": "-workbench.action.quickOpen" },
+  // A `when` other than the default's: rename's f2 stays.
+  { "key": "f2", "command": "-editor.action.rename", "when": "editorTextFocus" },
+  // An empty command: not listed.
+  { "key": "ctrl+alt+0", "command": "" },
+  // The same key and `when` as the default save (none): replaces it.
+  { "key": "ctrl+s", "command": "workbench.action.files.saveAll" },
+  // `args` in the description, and a "// not a comment" inside a string.
+  {
+    "key": "ctrl+alt+t",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "echo // hi\n" },
+    "when": "editorLangId == rust",
+  },
+  // A later rule with the same key and `when` as an earlier user rule replaces it.
+  { "key": "ctrl+alt+y", "command": "first.command" },
+  { "key": "ctrl+alt+y", "command": "second.command" },
+  // Removes an installed extension's bind.
+  { "key": "ctrl+alt+e", "command": "-sample.hello" },
+  "not a rule",
+]

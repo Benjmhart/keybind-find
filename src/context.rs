@@ -150,6 +150,17 @@ pub(crate) fn set_facts(facts: crate::scope::Facts) {
     let _ = FACTS.set(facts);
 }
 
+/// The extension of a file name taken from a window title (`main.rs` → `rs`, `foo.test.ts` → `ts`), as written; none
+/// for a name without one (`Makefile`, `Untitled-1`), a dot file (`.bashrc`), or one that isn't a `Name` or is longer
+/// than 16 characters. Each editor knows which part of its title is the file name.
+pub(crate) fn title_extension(file_name: &str) -> Option<crate::sheet::Name> {
+    let (stem, extension) = file_name.trim().rsplit_once('.')?;
+    if stem.is_empty() || extension.len() > 16 {
+        return None;
+    }
+    extension.parse().ok()
+}
+
 /// The facts reported this run; none if no provider learned any.
 pub fn facts() -> crate::scope::Facts {
     FACTS.get().cloned().unwrap_or_default()
@@ -674,6 +685,10 @@ fn providers_for(
             .any(|m| m.eq_ignore_ascii_case(c))
     }) {
         providers.push("zathura");
+    }
+    // VS Code, Insiders, VSCodium and Code - OSS: the window itself, by class or app id.
+    if class.is_some_and(crate::providers::is_vscode) {
+        providers.push("vscode");
     }
     // Obsidian too: its package name, or its `desktopName` (`md.obsidian.Obsidian`, also the Flatpak's app id).
     if class.is_some_and(|c| {
@@ -1644,6 +1659,42 @@ mod tests {
         ] {
             assert!(
                 !providers_for(Some("xmonad"), Some(class), child, &[]).contains(&"obsidian"),
+                "{class}"
+            );
+        }
+    }
+
+    #[test]
+    fn vscode_by_window_class() {
+        for wm in ["xmonad", "sway"] {
+            for class in [
+                "Code",
+                "code",
+                "code-oss",
+                "com.visualstudio.CodeOSS",
+                "Code - Insiders",
+                "code-insiders",
+                "VSCodium",
+                "codium",
+                "com.visualstudio.code",
+                "com.vscodium.codium",
+                "code_code",
+            ] {
+                assert_eq!(
+                    providers_for(Some(wm), Some(class), None, &[]),
+                    [wm, "espanso", "vscode", "sheets"],
+                    "{class}"
+                );
+            }
+        }
+        // A terminal running `code` isn't a VS Code window; nor are look-alike classes.
+        for (class, child) in [
+            ("Alacritty", Some("code")),
+            ("codex", None),
+            ("code-cb", None),
+        ] {
+            assert!(
+                !providers_for(Some("xmonad"), Some(class), child, &[]).contains(&"vscode"),
                 "{class}"
             );
         }

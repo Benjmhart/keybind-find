@@ -40,6 +40,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | less | its keys from `less --help`, with your lesskey file's `#command` binds on top; also under `man`, `git log`, `systemctl status` | none; your keys need less 582+ and the lesskey source file ([below](#less)) |
 | mpv | the bindings of a headless mpv started with your config: built-ins, your `input.conf` and keys your scripts bind at load, with each one's comment | none; it starts mpv on every `Super+/` ([below](#mpv)) |
 | zathura | its keys: zathura's defaults for its version (0.5.2, 0.5.11 and 2026.10.23 built in) with your zathurarc's `map`/`unmap` on top | none ([below](#zathura)) |
+| VS Code, VSCodium, Code - OSS | the default keys (1.143.1's built in), your installed extensions' and your `keybindings.json` on top, each tagged with where it works; the file's language guessed from the title | none ([below](#vs-code)) |
 | Obsidian | its default hotkeys (1.14.5's built in) with your vault's `.obsidian/hotkeys.json` on top, the vault picked by window title | none ([below](#obsidian)) |
 | browsers | built-in sheets for Gmail, YouTube and GitHub; any web app you write a sheet for | none; GitHub's needs a URL-in-title extension ([docs/sheets.md](docs/sheets.md)) |
 | Firefox / Chromium keys | the browser's own shortcuts (tabs, navigation, find, dev tools) in Firefox, LibreWolf, Zen, Chromium, Chrome, Brave and Edge, from built-in sheets | none ([below](#firefox-and-chromium)) |
@@ -117,6 +118,23 @@ listed once, under `normal`. Each key shows its function and argument as a zathu
 `focus_inputbar :open`; a default's argument with no zathurarc name in brackets: `zoom (original)`). Not listed: mouse
 binds (yours are counted in one line, as are keys girara refuses, such as two modifiers in `<C-S-x>`). Not read: a
 config dir given with `zathura -c`/`--config-dir`, and for the Flatpak, its runtime's `/etc` (the host's is read).
+
+### VS Code
+
+In a VS Code window (Visual Studio Code, Insiders, VSCodium or Code - OSS, by window title, else by class), keybind-find
+lists VS Code's default keybindings for Linux, pinned for 1.143.1 (one version, not checked against yours, since that
+would mean running VS Code's CLI on every press), then the keybindings your installed extensions contribute, then your
+`keybindings.json` (`~/.config/<Code|Code - Insiders|VSCodium|Code - OSS>/User/`, or under `$XDG_CONFIG_HOME`, or the
+Flatpak's), applied as VS Code applies it: a `-command` rule removes that command's binds (matching its key and its
+`when`, as written), and a rule with the same key and `when` as an earlier one replaces it. Each bind's `when` clause
+becomes scopes: `editorTextFocus` shows as `[editorTextFocus=true]`, `!editorReadonly` as `[editorReadonly=false]`,
+`editorLangId == rust` as `[filetype=rust]`; parts that can't be a scope (`!=`, regexes, `in`, comparisons) are dropped,
+so a bind is shown in more places, never fewer. The file's extension and language are guessed from the window title,
+which needs VS Code's default `window.title` (the file first, the product name last). Only the default profile's
+`keybindings.json` is read. Extensions come from `~/.vscode/extensions` (Insiders `~/.vscode-insiders`, VSCodium and
+Code - OSS `~/.vscode-oss`, or the Flatpak's), those its `extensions.json` lists; disabled ones are still listed (VS
+Code keeps that in a database). Keys keybind-find can't name (`[IntlBackslash]`, the browser keys) and `when` clauses
+it can't read are counted in one line.
 
 ### Obsidian
 

@@ -33,12 +33,14 @@ mod sway;
 mod tmux;
 mod vim;
 mod vimium;
+mod vscode;
 mod xfce;
 mod xmonad;
 mod yazi;
 mod zathura;
 
 pub(crate) use sheets::is_browser;
+pub(crate) use vscode::is_vscode;
 
 pub const KNOWN: &[&str] = &[
     "xmonad",
@@ -72,6 +74,7 @@ pub const KNOWN: &[&str] = &[
     "obsidian",
     "gnome-terminal",
     "mc",
+    "vscode",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -104,6 +107,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "zathura" => zathura::sheet(ctx),
         "micro" => micro::sheet(),
         "mc" => mc::sheet(),
+        "vscode" => vscode::sheet(ctx),
         "obsidian" => obsidian::sheet(ctx),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(

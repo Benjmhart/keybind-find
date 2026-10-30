@@ -1,0 +1,1 @@
+{"name":"hello","displayName":"Sample Hello","contributes":{"keybindings":[{"key":"ctrl+alt+o","command":"sample.old"}]}}

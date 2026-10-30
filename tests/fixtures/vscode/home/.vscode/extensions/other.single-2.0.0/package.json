@@ -1,0 +1,1 @@
+{"name":"single","contributes":{"keybindings":{"key":"ctrl+alt+g","linux":"ctrl+alt+l","command":"single.go"}}}
