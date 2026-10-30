@@ -1,7 +1,7 @@
 // Synthetic: a user's keybindings.json over VS Code's defaults.
 [
   // Removal with a key and a `when`: commentLine's ctrl+/ goes.
-  { "key": "ctrl+/", "command": "-editor.action.commentLine", "when": "editorTextFocus && !editorReadonly" },
+  { "key": "ctrl+/", "command": "-editor.action.commentLine", "when": "editorTextFocus&&!editorReadonly" },
   /* Removal with a key only: showCommands' f1 goes, its ctrl+shift+p stays. */
   { "key": "f1", "command": "-workbench.action.showCommands" },
   // Removal with neither: every quickOpen default goes.
@@ -24,5 +24,14 @@
   { "key": "ctrl+alt+y", "command": "second.command" },
   // Removes an installed extension's bind.
   { "key": "ctrl+alt+e", "command": "-sample.hello" },
+  // Replaces an installed extension's bind (same key, no `when`).
+  { "key": "ctrl+alt+r", "command": "my.run" },
+  // A user bind, then a removal of the same command after it: removals never touch the user's own.
+  { "key": "ctrl+alt+k", "command": "workbench.action.toggleSidebarVisibility", "when": "editorTextFocus" },
+  { "key": "ctrl+b", "command": "-workbench.action.toggleSidebarVisibility" },
+  // A `when` keybind-find can't read: shown everywhere, counted.
+  { "key": "ctrl+alt+w", "command": "my.broken", "when": "a && (b" },
+  // No key: VS Code binds nothing, so nothing is listed or counted.
+  { "command": "my.keyless" },
   "not a rule",
 ]

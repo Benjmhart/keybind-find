@@ -1,0 +1,1 @@
+{"name":"local","displayName":"%displayName%","contributes":{"keybindings":[{"key":"ctrl+alt+n","command":"local.go"},{"mac":"cmd+alt+m","command":"local.maconly"}]}}

@@ -39,7 +39,7 @@ struct Variant {
 
 /// Classes: Electron names a window after `app.setDesktopName(<linuxDesktopName>.desktop)` when that desktop file is
 /// installed (`src/mainImpl.ts`), after `<snap>_<applicationName>` under snap, else after the product (`Code`).
-const VARIANTS: [Variant; 4] = [
+const VARIANTS: [Variant; 5] = [
     Variant {
         name_long: "Visual Studio Code",
         name_short: "Code",
@@ -66,10 +66,22 @@ const VARIANTS: [Variant; 4] = [
         flatpak: Some(("com.vscodium.codium", "codium/extensions")),
     },
     Variant {
+        name_long: "VSCodium - Insiders",
+        name_short: "VSCodium - Insiders",
+        data_folder: ".vscodium-insiders",
+        classes: &["codium-insiders", "vscodium - insiders"],
+        flatpak: None,
+    },
+    Variant {
         name_long: "Code - OSS",
         name_short: "Code - OSS",
         data_folder: ".vscode-oss",
-        classes: &["code-oss", "code - oss", "com.visualstudio.codeoss"],
+        classes: &[
+            "code-oss",
+            "code - oss",
+            "com.visualstudio.codeoss",
+            "com.visualstudio.code-oss",
+        ],
         flatpak: None,
     },
 ];
@@ -90,16 +102,23 @@ struct Rule {
     linux: Option<String>,
     #[serde(default)]
     command: String,
-    #[serde(default)]
+    /// A `when` that isn't a string is ignored, as VS Code ignores it.
+    #[serde(default, deserialize_with = "string_or_none")]
     when: Option<String>,
     #[serde(default)]
     args: Option<Value>,
 }
 
-/// A rule placed in the list, with the category it shows under.
+fn string_or_none<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Ok(Value::deserialize(d)?.as_str().map(str::to_string))
+}
+
+/// A rule placed in the list, with the category it shows under; `user` for the user's own (removals never apply to
+/// those).
 struct Entry {
     rule: Rule,
     category: Option<String>,
+    user: bool,
 }
 
 pub fn sheet(ctx: &Context) -> anyhow::Result<Sheet> {
@@ -131,6 +150,7 @@ fn sheet_with(
         .map(|rule| Entry {
             rule,
             category: None,
+            user: false,
         })
         .collect();
     let mut broken = 0;
@@ -181,12 +201,9 @@ fn facts(title: &str) -> Facts {
     };
     let rest = title.strip_suffix(v.name_long).unwrap_or(title);
     let rest = rest.strip_prefix('\u{25cf}').map_or(rest, str::trim_start);
-    let file = rest.split(" - ").next().unwrap_or_default();
-    let Some(extension) = title_extension(file) else {
-        return facts;
-    };
-    let language = language(extension.as_str()).and_then(|l| l.parse::<Name>().ok());
-    for (fact, value) in [("filetype", language), ("extension", Some(extension))] {
+    let file = rest.split(" - ").next().unwrap_or_default().trim();
+    let language = language(file).and_then(|l| l.parse::<Name>().ok());
+    for (fact, value) in [("filetype", language), ("extension", title_extension(file))] {
         if let (Ok(fact), Some(value)) = (fact.parse::<Name>(), value) {
             facts.insert(fact, value);
         }
@@ -194,71 +211,120 @@ fn facts(title: &str) -> Facts {
     facts
 }
 
-/// VS Code's language id for a file extension: the built-in extensions' `contributes.languages[].extensions` at
-/// 1.143.1, ignoring case.
-// ponytail: the common languages only; add a row when one is missing.
-fn language(extension: &str) -> Option<&'static str> {
-    const TABLE: &[(&str, &str)] = &[
-        ("bash", "shellscript"),
-        ("bat", "bat"),
-        ("c", "c"),
-        ("cc", "cpp"),
-        ("cjs", "javascript"),
-        ("clj", "clojure"),
-        ("coffee", "coffeescript"),
-        ("cpp", "cpp"),
-        ("cs", "csharp"),
-        ("css", "css"),
-        ("cts", "typescript"),
-        ("cxx", "cpp"),
-        ("dart", "dart"),
-        ("diff", "diff"),
-        ("fs", "fsharp"),
-        ("go", "go"),
-        ("groovy", "groovy"),
-        ("h", "cpp"),
-        ("hh", "cpp"),
-        ("hpp", "cpp"),
-        ("htm", "html"),
-        ("html", "html"),
-        ("ini", "ini"),
-        ("java", "java"),
-        ("jl", "julia"),
-        ("js", "javascript"),
-        ("json", "json"),
-        ("jsonc", "jsonc"),
-        ("jsx", "javascriptreact"),
-        ("less", "less"),
-        ("lua", "lua"),
-        ("markdown", "markdown"),
-        ("md", "markdown"),
-        ("mjs", "javascript"),
-        ("mk", "makefile"),
-        ("mts", "typescript"),
-        ("php", "php"),
-        ("pl", "perl"),
-        ("ps1", "powershell"),
-        ("py", "python"),
-        ("r", "r"),
-        ("rb", "ruby"),
-        ("rs", "rust"),
-        ("rst", "restructuredtext"),
-        ("scss", "scss"),
-        ("sh", "shellscript"),
-        ("sql", "sql"),
-        ("swift", "swift"),
-        ("tex", "latex"),
-        ("ts", "typescript"),
-        ("tsx", "typescriptreact"),
-        ("vb", "vb"),
-        ("xml", "xml"),
-        ("yaml", "yaml"),
-        ("yml", "yaml"),
-        ("zsh", "shellscript"),
+/// VS Code's language id for a file name, from the built-in extensions' `contributes.languages` at 1.143.1: a
+/// `filenames` entry first (`keybindings.json` is `jsonc`), then the longest `extensions` suffix that ends it, ignoring
+/// case (`.prompt.md` before `.md`).
+// ponytail: the common languages and the names that would otherwise get the wrong one; add a row when one is missing.
+// `files.associations` isn't read.
+fn language(file: &str) -> Option<&'static str> {
+    const FILENAMES: &[(&str, &str)] = &[
+        (".devcontainer.json", "jsonc"),
+        ("argv.json", "jsonc"),
+        ("babel.config.json", "jsonc"),
+        ("composer.lock", "json"),
+        ("Containerfile", "dockerfile"),
+        ("devcontainer.json", "jsonc"),
+        ("Dockerfile", "dockerfile"),
+        ("extensions.json", "jsonc"),
+        ("GNUmakefile", "makefile"),
+        ("jsconfig.json", "jsonc"),
+        ("keybindings.json", "jsonc"),
+        ("launch.json", "jsonc"),
+        ("Makefile", "makefile"),
+        ("makefile", "makefile"),
+        ("mcp.json", "jsonc"),
+        ("profiles.json", "jsonc"),
+        ("settings.json", "jsonc"),
+        ("tasks.json", "jsonc"),
+        ("tsconfig.json", "jsonc"),
+        ("typedoc.json", "jsonc"),
     ];
-    TABLE
+    const SUFFIXES: &[(&str, &str)] = &[
+        (".bash", "shellscript"),
+        (".bat", "bat"),
+        (".c", "c"),
+        (".cc", "cpp"),
+        (".cjs", "javascript"),
+        (".clj", "clojure"),
+        (".code-snippets", "snippets"),
+        (".code-workspace", "jsonc"),
+        (".coffee", "coffeescript"),
+        (".cpp", "cpp"),
+        (".cs", "csharp"),
+        (".css", "css"),
+        (".cts", "typescript"),
+        (".cxx", "cpp"),
+        (".dart", "dart"),
+        (".diff", "diff"),
+        (".dockerfile", "dockerfile"),
+        (".eslintrc.json", "jsonc"),
+        (".fs", "fsharp"),
+        (".go", "go"),
+        (".groovy", "groovy"),
+        (".h", "cpp"),
+        (".hh", "cpp"),
+        (".hpp", "cpp"),
+        (".htm", "html"),
+        (".html", "html"),
+        (".ini", "ini"),
+        (".instructions.md", "instructions"),
+        (".java", "java"),
+        (".jl", "julia"),
+        (".js", "javascript"),
+        (".json", "json"),
+        (".jsonc", "jsonc"),
+        (".jsx", "javascriptreact"),
+        (".less", "less"),
+        (".lua", "lua"),
+        (".mak", "makefile"),
+        (".markdown", "markdown"),
+        (".md", "markdown"),
+        (".mjs", "javascript"),
+        (".mk", "makefile"),
+        (".mts", "typescript"),
+        (".php", "php"),
+        (".pl", "perl"),
+        (".prompt.md", "prompt"),
+        (".ps1", "powershell"),
+        (".py", "python"),
+        (".r", "r"),
+        (".rb", "ruby"),
+        (".rs", "rust"),
+        (".rst", "restructuredtext"),
+        (".scss", "scss"),
+        (".sh", "shellscript"),
+        (".sql", "sql"),
+        (".swift", "swift"),
+        (".tex", "latex"),
+        (".ts", "typescript"),
+        (".tsx", "typescriptreact"),
+        (".vb", "vb"),
+        (".xml", "xml"),
+        (".yaml", "yaml"),
+        (".yml", "yaml"),
+        (".zsh", "shellscript"),
+        ("color-theme.json", "jsonc"),
+        ("icon-theme.json", "jsonc"),
+        ("language-configuration.json", "jsonc"),
+    ];
+    if let Some((_, l)) = FILENAMES.iter().find(|(n, _)| *n == file) {
+        return Some(l);
+    }
+    // `filenamePatterns` `tsconfig.*.json` and the like.
+    let lower = file.to_ascii_lowercase();
+    if ["tsconfig.", "tsconfig-", "jsconfig.", "jsconfig-"]
         .iter()
-        .find(|(e, _)| e.eq_ignore_ascii_case(extension))
+        .any(|p| lower.starts_with(p))
+        && lower.ends_with(".json")
+    {
+        return Some("jsonc");
+    }
+    SUFFIXES
+        .iter()
+        .filter(|(suffix, _)| {
+            lower.ends_with(suffix) && (lower.len() > suffix.len() || !suffix.starts_with('.'))
+        })
+        .max_by_key(|(suffix, _)| suffix.len())
         .map(|(_, l)| *l)
 }
 
@@ -291,12 +357,21 @@ fn user_rules(v: &Variant, env: Env, notes: &mut Vec<String>) -> Option<Vec<Rule
         }
         Ok(t) => t,
     };
-    match serde_json::from_str::<Vec<Value>>(&strip_jsonc(&text)) {
-        // An entry that isn't a rule (not an object) is skipped, as VS Code skips it.
+    let text = strip_jsonc(text.trim_start_matches('\u{feff}'));
+    if text.trim().is_empty() {
+        return None;
+    }
+    match serde_json::from_str::<Vec<Value>>(&text) {
+        // An entry that isn't a rule (not an object) is skipped, as VS Code skips it; `keybindings.json` has no
+        // per-platform keys (`keybindingIO` reads `key` only).
         Ok(values) => Some(
             values
                 .into_iter()
-                .filter_map(|v| serde_json::from_value(v).ok())
+                .filter_map(|v| serde_json::from_value::<Rule>(v).ok())
+                .map(|rule| Rule {
+                    linux: None,
+                    ..rule
+                })
                 .collect(),
         ),
         Err(e) => {
@@ -319,7 +394,7 @@ fn extension_rules(v: &Variant, env: Env, broken: &mut usize) -> Vec<Entry> {
     };
     let listed: Option<Vec<String>> = std::fs::read_to_string(dir.join("extensions.json"))
         .ok()
-        .and_then(|t| serde_json::from_str::<Vec<Value>>(&t).ok())
+        .and_then(|t| serde_json::from_str::<Vec<Value>>(&strip_jsonc(&t)).ok())
         .map(|list| list.iter().filter_map(folder).collect());
     let mut folders: Vec<String> = match listed {
         Some(listed) => listed,
@@ -337,15 +412,26 @@ fn extension_rules(v: &Variant, env: Env, broken: &mut usize) -> Vec<Entry> {
         let Ok(text) = std::fs::read_to_string(dir.join(&folder).join("package.json")) else {
             continue;
         };
-        let Ok(package) = serde_json::from_str::<Value>(&text) else {
+        let Ok(package) = serde_json::from_str::<Value>(&strip_jsonc(&text)) else {
             *broken += 1;
             continue;
         };
-        let category = ["displayName", "name"]
-            .iter()
-            .find_map(|k| package[k].as_str().filter(|s| !s.is_empty()))
-            .unwrap_or(&folder)
-            .to_string();
+        // A `%key%` display name is looked up in `package.nls.json`, as VS Code localises it (English).
+        let nls = || {
+            let text = std::fs::read_to_string(dir.join(&folder).join("package.nls.json")).ok()?;
+            serde_json::from_str::<Value>(&strip_jsonc(&text)).ok()
+        };
+        let display = package["displayName"].as_str().and_then(|d| {
+            match d.strip_prefix('%').and_then(|d| d.strip_suffix('%')) {
+                None => Some(d.to_string()),
+                Some(key) => nls()?[key].as_str().map(str::to_string),
+            }
+        });
+        let category = display
+            .into_iter()
+            .chain(package["name"].as_str().map(str::to_string))
+            .find(|s| !s.is_empty())
+            .unwrap_or_else(|| folder.clone());
         let rules = match &package["contributes"]["keybindings"] {
             Value::Array(list) => list.clone(),
             one @ Value::Object(_) => vec![one.clone()],
@@ -358,6 +444,7 @@ fn extension_rules(v: &Variant, env: Env, broken: &mut usize) -> Vec<Entry> {
             entries.push(Entry {
                 rule,
                 category: Some(category.clone()),
+                user: false,
             });
         }
     }
@@ -391,51 +478,73 @@ fn extensions_dir(v: &Variant, env: Env) -> Option<PathBuf> {
         .find(|d| d.is_dir())
 }
 
-/// The user's rules laid over `entries`: a `-command` removes the earlier rules for that command whose key (when
-/// given) and `when` text (when given; spaces ignored) match; an empty command is skipped; a rule with the same key and
-/// `when` as an earlier one replaces it; the rest are appended.
-// ponytail: `when` compared as text, not by implication as VS Code's `whenIsEntirelyIncluded` does: a removal whose
-// `when` is narrower than the default's but not equal leaves the default listed.
+/// The user's rules laid over `entries`: a `-command` removes the defaults' and extensions' rules (never the user's)
+/// for that command whose key starts with the removal's chords (when it gives a key) and whose `when` text matches
+/// (when it gives one that isn't `true`), wherever it stands in the file, as VS Code's `handleRemovals` does. An empty
+/// command is skipped; a rule with the same key and `when` as earlier ones takes their place; the rest are appended.
+// ponytail: `when` compared as text (whitespace ignored), not by implication as VS Code's `whenIsEntirelyIncluded`
+// does: a removal whose `when` is broader than the default's leaves it listed. And a later rule hides an earlier one
+// only with the same `when` text; VS Code also shadows one whose `when` is implied.
 fn apply_user(entries: &mut Vec<Entry>, user: Vec<Rule>) {
-    let when = |w: &Option<String>| w.as_deref().map(|w| w.replace(' ', "")).unwrap_or_default();
-    for rule in user {
-        if rule.command.is_empty() {
-            continue;
-        }
-        if let Some(command) = rule.command.strip_prefix('-') {
-            entries.retain(|e| {
-                !(e.rule.command == command
-                    && rule
+    let when = |w: &Option<String>| {
+        w.as_deref()
+            .map(|w| w.split_whitespace().collect::<String>())
+            .unwrap_or_default()
+    };
+    let (removals, rules): (Vec<Rule>, Vec<Rule>) = user
+        .into_iter()
+        .filter(|r| !r.command.is_empty())
+        .partition(|r| r.command.starts_with('-'));
+    for removal in &removals {
+        let command = &removal.command[1..];
+        let any_when = matches!(when(&removal.when).as_str(), "" | "true");
+        entries.retain(|e| {
+            e.user
+                || !(e.rule.command == command
+                    && removal
                         .key
-                        .as_ref()
-                        .is_none_or(|k| same_key(k, key_of(&e.rule)))
-                    && rule
-                        .when
-                        .as_ref()
-                        .is_none_or(|_| when(&rule.when) == when(&e.rule.when)))
-            });
-            continue;
-        }
-        let place = entries.iter().position(|e| {
+                        .as_deref()
+                        .is_none_or(|k| key_starts(key_of(&e.rule), k))
+                    && (any_when || when(&removal.when) == when(&e.rule.when)))
+        });
+    }
+    for rule in rules {
+        let alike = |e: &Entry| {
             rule.key.is_some()
-                && same_key(rule.key.as_deref().unwrap_or_default(), key_of(&e.rule))
+                && same_key(key_of(&rule), key_of(&e.rule))
                 && when(&rule.when) == when(&e.rule.when)
+        };
+        let first = entries.iter().position(alike);
+        let mut i = 0;
+        entries.retain(|e| {
+            i += 1;
+            first.is_none_or(|f| i - 1 <= f) || !alike(e)
         });
         let entry = Entry {
             rule,
             category: None,
+            user: true,
         };
-        match place {
-            Some(i) => entries[i] = entry,
+        match first {
+            Some(f) => entries[f] = entry,
             None => entries.push(entry),
         }
     }
 }
 
-/// A rule's key on Linux: `linux` when given, else `key`.
+/// Does `key` start with the chords of `prefix` (`ctrl+k` starts `ctrl+k ctrl+s`), as a removal's key matches?
+fn key_starts(key: &str, prefix: &str) -> bool {
+    match (notation(key), notation(prefix)) {
+        (Some(k), Some(p)) => k == p || k.starts_with(&format!("{p} ")),
+        _ => key.trim().eq_ignore_ascii_case(prefix.trim()),
+    }
+}
+
+/// A rule's key on Linux: `linux` when given and not empty, else `key`.
 fn key_of(rule: &Rule) -> &str {
     rule.linux
         .as_deref()
+        .filter(|k| !k.is_empty())
         .or(rule.key.as_deref())
         .unwrap_or_default()
 }
@@ -457,28 +566,38 @@ fn build(name: &str, entries: &[Entry]) -> (Sheet, usize, usize) {
         binds: Default::default(),
     };
     let (mut keys_left, mut whens_left) = (0, 0);
-    for Entry { rule, category } in entries {
-        if rule.command.is_empty() || rule.command.starts_with('-') {
+    for Entry { rule, category, .. } in entries {
+        // No key on Linux (a `mac`- or `win`-only rule): VS Code binds nothing here.
+        if rule.command.is_empty()
+            || rule.command.starts_with('-')
+            || key_of(rule).trim().is_empty()
+        {
+            continue;
+        }
+        let parsed = rule
+            .when
+            .as_deref()
+            .map(str::trim)
+            .filter(|w| !w.is_empty())
+            .map(parse_when);
+        // A `when` that is always false (`false`): VS Code drops the bind.
+        if parsed
+            .as_ref()
+            .is_some_and(|p| p.as_ref().is_some_and(never))
+        {
             continue;
         }
         let Some(key) = notation(key_of(rule)) else {
             keys_left += 1;
             continue;
         };
-        let when = match rule
-            .when
-            .as_deref()
-            .map(str::trim)
-            .filter(|w| !w.is_empty())
-        {
+        let when = match parsed {
             None => BTreeMap::new(),
-            Some(w) => match parse_when(w) {
-                Some(expr) => scopes_of(&scopes(&expr)),
-                None => {
-                    whens_left += 1;
-                    BTreeMap::new()
-                }
-            },
+            Some(Some(expr)) => scopes_of(&scopes(&expr)),
+            Some(None) => {
+                whens_left += 1;
+                BTreeMap::new()
+            }
         };
         let category = category.clone().unwrap_or_else(|| {
             rule.command
@@ -506,28 +625,27 @@ fn notation(key: &str) -> Option<String> {
     chords.filter(|c| !c.is_empty()).map(|c| c.join(" "))
 }
 
+/// One chord, as VS Code's `keybindingParser` reads it: modifiers `ctrl`, `shift`, `alt`, `meta`, `win` (and `cmd`,
+/// which has no key here) each followed by `+` or `-`, then the key.
 fn chord_of(text: &str) -> Option<String> {
-    let lower = text.to_ascii_lowercase();
-    // The key is the part after the last `+`, unless the key is `+` itself.
-    let (mods, key) = if lower == "+" {
-        ("", "+")
-    } else if let Some(m) = lower.strip_suffix("++") {
-        (m, "+")
-    } else {
-        lower.rsplit_once('+').unwrap_or(("", lower.as_str()))
-    };
-    let mods = mods
-        .split('+')
-        .filter(|m| !m.is_empty())
-        .map(|m| match m {
-            "ctrl" => Some("ctrl"),
-            "shift" => Some("shift"),
-            "alt" => Some("alt"),
-            "meta" | "win" | "super" => Some("super"),
-            _ => None,
-        })
-        .collect::<Option<Vec<_>>>()?;
-    Some(chord(&mods, &keysym(key)?))
+    let mut rest = text.to_ascii_lowercase();
+    let mut mods = Vec::new();
+    loop {
+        let found = ["ctrl", "shift", "alt", "meta", "win", "cmd"]
+            .into_iter()
+            .find(|m| {
+                rest.strip_prefix(m)
+                    .is_some_and(|r| r.len() > 1 && (r.starts_with('+') || r.starts_with('-')))
+            });
+        let Some(m) = found else { break };
+        mods.push(match m {
+            "meta" | "win" => "super",
+            "cmd" => return None,
+            m => m,
+        });
+        rest = rest[m.len() + 1..].to_string();
+    }
+    Some(chord(&mods, &keysym(&rest)?))
 }
 
 /// A VS Code key name (lower case) as a keysym.
@@ -593,6 +711,8 @@ fn keysym(key: &str) -> Option<String> {
 /// A parsed `when` clause.
 #[derive(Debug, PartialEq)]
 enum When {
+    /// `true` or `false`.
+    Const(bool),
     Key(String),
     Not(Box<When>),
     Eq(String, String),
@@ -661,23 +781,38 @@ impl Parser<'_> {
             return self.eat(")").then_some(inner);
         }
         let key = self.word()?;
-        for op in ["==", "!=", "=~", "<=", ">=", "<", ">", "not in", "in "] {
+        for op in [
+            "===", "!==", "==", "!=", "=~", "<=", ">=", "<", ">", "not", "in",
+        ] {
             let save = self.i;
-            if self.eat(op) {
-                if op == "=~" {
-                    self.regex()?;
-                    return Some(When::Other);
-                }
-                let value = self.value()?;
-                return Some(if op == "==" {
-                    When::Eq(key, value)
-                } else {
-                    When::Other
-                });
+            if !self.eat(op) {
+                continue;
             }
-            self.i = save;
+            // `in` and `not in` are words: not the start of a longer one.
+            if (op == "in" || op == "not") && !self.rest().starts_with(char::is_whitespace) {
+                self.i = save;
+                continue;
+            }
+            if op == "not" && !self.eat("in") {
+                self.i = save;
+                continue;
+            }
+            if op == "=~" {
+                self.regex()?;
+                return Some(When::Other);
+            }
+            let value = self.value()?;
+            return Some(if op == "==" || op == "===" {
+                When::Eq(key, value)
+            } else {
+                When::Other
+            });
         }
-        Some(When::Key(key))
+        Some(match key.as_str() {
+            "true" => When::Const(true),
+            "false" => When::Const(false),
+            _ => When::Key(key),
+        })
     }
 
     /// A key or a bare value: up to whitespace or an operator character.
@@ -685,7 +820,7 @@ impl Parser<'_> {
         self.ws();
         let len = self
             .rest()
-            .find(|c: char| c.is_whitespace() || "()!=<>&|~'\"".contains(c))
+            .find(|c: char| c.is_whitespace() || "()!=<>&|~'".contains(c))
             .unwrap_or(self.rest().len());
         if len == 0 {
             return None;
@@ -695,16 +830,13 @@ impl Parser<'_> {
         Some(word)
     }
 
+    /// A value: `'quoted'`, a bare word, or nothing (`a == ` compares with the empty string).
     fn value(&mut self) -> Option<String> {
         self.ws();
-        let quote = self
-            .rest()
-            .chars()
-            .next()
-            .filter(|c| *c == '\'' || *c == '"');
-        let Some(q) = quote else {
-            return self.word();
-        };
+        if !self.rest().starts_with('\'') {
+            return Some(self.word().unwrap_or_default());
+        }
+        let q = '\'';
         let end = self.rest()[1..].find(q)? + 1;
         let value = self.rest()[1..end].to_string();
         self.i += end + 1;
@@ -717,9 +849,12 @@ impl Parser<'_> {
         if !self.rest().starts_with('/') {
             return self.value().map(|_| ());
         }
-        let mut escaped = false;
+        let (mut escaped, mut class) = (false, false);
         let end = self.rest()[1..].char_indices().find_map(|(i, c)| {
-            let close = c == '/' && !escaped;
+            let close = c == '/' && !escaped && !class;
+            if !escaped {
+                class = (class || c == '[') && c != ']';
+            }
             escaped = c == '\\' && !escaped;
             close.then_some(i + 1)
         })?;
@@ -741,6 +876,7 @@ type Scopes = BTreeMap<String, BTreeSet<String>>;
 fn scopes(when: &When) -> Scopes {
     let one = |k: &str, v: &str| Scopes::from([(k.to_string(), BTreeSet::from([v.to_string()]))]);
     match when {
+        When::Const(_) => Scopes::new(),
         When::Key(k) => one(k, "true"),
         When::Not(inner) => match inner.as_ref() {
             When::Key(k) => one(k, "false"),
@@ -781,6 +917,17 @@ fn scopes(when: &When) -> Scopes {
                 })
                 .collect()
         }
+    }
+}
+
+/// Is a clause always false (`false`, `!true`, `a && false`)?
+fn never(when: &When) -> bool {
+    match when {
+        When::Const(b) => !b,
+        When::Not(inner) => matches!(inner.as_ref(), When::Const(true)),
+        When::And(a, b) => never(a) || never(b),
+        When::Or(a, b) => never(a) && never(b),
+        _ => false,
     }
 }
 
@@ -849,6 +996,7 @@ mod tests {
             .map(|rule| Entry {
                 rule,
                 category: None,
+                user: false,
             })
             .collect()
     }
@@ -865,7 +1013,16 @@ mod tests {
         // `[IntlBackslash]` (6) and the browser back and forward keys (2 each).
         assert_eq!(keys_left, 10);
         assert_eq!(whens_left, 0, "every default `when` parses");
-        assert_eq!(s.binds.values().map(Vec::len).sum::<usize>(), 1202 - 10);
+        // The 40 `"when": "false"` binds VS Code never runs aren't listed (nor counted).
+        assert_eq!(
+            s.binds.values().map(Vec::len).sum::<usize>(),
+            1202 - 10 - 40
+        );
+        assert!(s
+            .binds
+            .values()
+            .flatten()
+            .all(|b| !b.when.contains_key("false")));
         let mods = ["super", "ctrl", "alt", "shift"];
         for b in s.binds.values().flatten() {
             for chord in b.key.split(' ') {
@@ -935,17 +1092,28 @@ mod tests {
             r#"workbench.action.terminal.sendSequence {"text":"echo // hi\n"}"#
         );
         assert_eq!(when_text(&send.when), "filetype=rust");
-        // The user removed an extension's bind; the rest of the extensions' are there.
+        // The user removed an extension's bind, and replaced another.
         assert!(keys(&s, "sample.hello").is_empty());
-        assert_eq!(keys(&s, "sample.run"), ["ctrl+alt+r"]);
+        assert!(keys(&s, "sample.run").is_empty());
+        assert_eq!(keys(&s, "my.run"), ["ctrl+alt+r"]);
+        // A removal takes the default (ctrl+b) but never the user's own bind of that command, before or after it.
+        assert_eq!(
+            keys(&s, "workbench.action.toggleSidebarVisibility"),
+            ["ctrl+alt+k"]
+        );
+        // An unreadable `when` is shown everywhere; a rule without a key isn't listed.
+        let broken = &binds(&s, "my.broken")[0];
+        assert!(broken.when.is_empty());
+        assert!(keys(&s, "my.keyless").is_empty());
         // The title's file: `extension` and `filetype`.
         assert_eq!(facts.get("extension").map(Name::as_str), Some("rs"));
         assert_eq!(facts.get("filetype").map(Name::as_str), Some("rust"));
         // The broken extension and the defaults' untranslatable keys, in one line.
         assert_eq!(notes.len(), 1, "{notes:?}");
-        assert!(
-            notes[0].contains("leaving out 10 key(s)") && notes[0].contains("1 extension"),
-            "{notes:?}"
+        assert_eq!(
+            notes[0],
+            "leaving out 10 key(s) keybind-find can't name; 1 `when` clause(s) not understood (shown everywhere); \
+             1 extension package.json file(s) not read"
         );
         // No user file, no extensions: the defaults, silently except the count.
         let (s, _, notes) = sheet_with(PINNED, Some("Visual Studio Code"), None, &env).unwrap();
@@ -971,6 +1139,16 @@ mod tests {
 
     #[test]
     fn when_table() {
+        // `false` (and `!true`, `a && false`) never holds; the rest can.
+        for (when, want) in [
+            ("false", true),
+            ("!true", true),
+            ("a && false", true),
+            ("a || false", false),
+            ("true", false),
+        ] {
+            assert_eq!(never(&parse_when(when).unwrap()), want, "{when}");
+        }
         for (when, want) in [
             ("editorTextFocus", Some("editorTextFocus=true")),
             ("!editorReadonly", Some("editorReadonly=false")),
@@ -993,10 +1171,19 @@ mod tests {
             ("a <= 2 && c", Some("c=true")),
             ("a == x && a == y", Some("")),
             ("a == 'has space'", Some("")),
+            ("true", Some("")),
+            ("false", Some("")),
+            ("a === b", Some("a=b")),
+            ("a !== b && c", Some("c=true")),
+            ("a not \t in b && c", Some("c=true")),
+            // Only `'` quotes: a `"` is part of the value.
+            ("a == \"x\"", Some("a=\"x\"")),
+            ("resourceFilename =~ /[/]x/ && c", Some("c=true")),
+            ("a == ", Some("")),
+            ("index && notebook", Some("index=true notebook=true")),
             ("a && (b", None),
             ("a &&", None),
             ("== x", None),
-            ("a == ", None),
         ] {
             assert_eq!(scoped(when).as_deref(), want, "{when}");
         }
@@ -1056,12 +1243,18 @@ mod tests {
             user_dir(code, &env_at(&home, &[("XDG_CONFIG_HOME", &xdg)])),
             Some(home.join("xdg/Code/User"))
         );
+        std::fs::create_dir_all(home.join(".config/Code/User")).unwrap();
+        // Empty is unset: `~/.config`.
         assert_eq!(
             user_dir(code, &env_at(&home, &[("XDG_CONFIG_HOME", "")])),
-            None
+            Some(home.join(".config/Code/User"))
         );
-        std::fs::create_dir_all(home.join(".config/Code/User")).unwrap();
         assert_eq!(user_dir(code, &env), Some(home.join(".config/Code/User")));
+        // With Code's and VSCodium's both there, the first in the list: Code.
+        assert_eq!(
+            variant(None, None, &env).map(|v| v.name_long),
+            Some("Visual Studio Code")
+        );
         // The Flatpak's only when the host directory is absent.
         let flat = home.join(".var/app/com.visualstudio.code/config/Code/User");
         std::fs::create_dir_all(&flat).unwrap();
@@ -1111,6 +1304,28 @@ mod tests {
             text("notes.MD - Code - OSS"),
             "extension=MD filetype=markdown"
         );
+        // By file name before extension: VS Code's own JSON files are `jsonc`; compound suffixes win.
+        for (title, want) in [
+            (
+                "keybindings.json - Visual Studio Code",
+                "extension=json filetype=jsonc",
+            ),
+            (
+                "package.json - p - Visual Studio Code",
+                "extension=json filetype=json",
+            ),
+            (
+                "tsconfig.app.json - p - Visual Studio Code",
+                "extension=json filetype=jsonc",
+            ),
+            (
+                "a.prompt.md - p - Visual Studio Code",
+                "extension=md filetype=prompt",
+            ),
+            ("Makefile - p - VSCodium - Insiders", "filetype=makefile"),
+        ] {
+            assert_eq!(text(title), want, "{title}");
+        }
         assert_eq!(text("main.rs - project"), "");
         assert_eq!(
             text("main.rs - project - Visual Studio Code - Insiders"),
@@ -1135,6 +1350,12 @@ mod tests {
             ("f19", Some("F19")),
             ("f20", None),
             ("cmd+a", None),
+            ("ctrl-shift-p", Some("ctrl+shift+p")),
+            ("win+a", Some("super+a")),
+            ("super+a", None),
+            ("ctrl+-", Some("ctrl+minus")),
+            ("ctrl--", Some("ctrl+minus")),
+            ("-", Some("minus")),
             ("browserback", None),
             ("enter", Some("Return")),
             ("pagedown", Some("Next")),
@@ -1160,6 +1381,14 @@ mod tests {
             .iter()
             .any(|b| b.action == "sample.run"));
         assert!(s.binds["single"].iter().any(|b| b.action == "single.go"));
+        // A `%displayName%` from package.nls.json; a `mac`-only rule isn't listed or counted.
+        assert_eq!(keys(&s, "local.go"), ["ctrl+alt+n"]);
+        assert!(s.binds["Localised Name"]
+            .iter()
+            .any(|b| b.action == "local.go"));
+        assert!(keys(&s, "local.maconly").is_empty());
+        let (_, keys_left, _) = build("x", &entries);
+        assert_eq!(keys_left, 0);
         // No extensions.json: every folder.
         let env = env_at(&fixture("noindex"), &[]);
         let (s, _, _) = build("x", &extension_rules(&VARIANTS[0], &env, &mut broken));
@@ -1170,5 +1399,10 @@ mod tests {
     #[test]
     fn bad_pinned_file() {
         assert!(sheet_with("{", None, None, &|_| None).is_err());
+        // Nothing left out: no note at all.
+        let tiny = r#"[{ "key": "ctrl+a", "command": "x.y", "when": "a" }]"#;
+        let (s, _, notes) = sheet_with(tiny, None, None, &|_| None).unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(keys(&s, "x.y"), ["ctrl+a"]);
     }
 }

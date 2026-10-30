@@ -121,20 +121,23 @@ config dir given with `zathura -c`/`--config-dir`, and for the Flatpak, its runt
 
 ### VS Code
 
-In a VS Code window (Visual Studio Code, Insiders, VSCodium or Code - OSS, by window title, else by class), keybind-find
-lists VS Code's default keybindings for Linux, pinned for 1.143.1 (one version, not checked against yours, since that
-would mean running VS Code's CLI on every press), then the keybindings your installed extensions contribute, then your
-`keybindings.json` (`~/.config/<Code|Code - Insiders|VSCodium|Code - OSS>/User/`, or under `$XDG_CONFIG_HOME`, or the
-Flatpak's), applied as VS Code applies it: a `-command` rule removes that command's binds (matching its key and its
-`when`, as written), and a rule with the same key and `when` as an earlier one replaces it. Each bind's `when` clause
-becomes scopes: `editorTextFocus` shows as `[editorTextFocus=true]`, `!editorReadonly` as `[editorReadonly=false]`,
-`editorLangId == rust` as `[filetype=rust]`; parts that can't be a scope (`!=`, regexes, `in`, comparisons) are dropped,
-so a bind is shown in more places, never fewer. The file's extension and language are guessed from the window title,
-which needs VS Code's default `window.title` (the file first, the product name last). Only the default profile's
-`keybindings.json` is read. Extensions come from `~/.vscode/extensions` (Insiders `~/.vscode-insiders`, VSCodium and
-Code - OSS `~/.vscode-oss`, or the Flatpak's), those its `extensions.json` lists; disabled ones are still listed (VS
-Code keeps that in a database). Keys keybind-find can't name (`[IntlBackslash]`, the browser keys) and `when` clauses
-it can't read are counted in one line.
+In a VS Code window (Visual Studio Code, Insiders, VSCodium or Code - OSS, recognised by its window class; the title's
+product name says which), keybind-find lists VS Code's default keybindings for Linux, pinned for 1.143.1 (one version,
+not checked against yours, since that would mean running VS Code's CLI on every press), then the keybindings your
+installed extensions contribute, then your `keybindings.json` (`~/.config/<Code|Code - Insiders|VSCodium|Code - OSS>/User/`,
+or under `$XDG_CONFIG_HOME`, or the Flatpak's). As in VS Code, a `-command` rule removes that command's default and
+extension binds (matching its key and its `when`, as written; never your own), wherever it stands in the file. A rule
+with the same key and `when` as an earlier one is listed in its place (VS Code would also let it shadow binds whose
+`when` it covers; those stay listed). Each bind's `when` clause becomes scopes: `editorTextFocus` shows as
+`[editorTextFocus=true]`, `!editorReadonly` as `[editorReadonly=false]`, `editorLangId == rust` as `[filetype=rust]`;
+parts that can't be a scope (`!=`, regexes, `in`, comparisons) are dropped, so a bind is shown in more places, never
+fewer, and binds whose `when` is `false` (VS Code never runs them) aren't listed. The file's extension and language
+are guessed from the window title, which needs VS Code's default `window.title` (the file first, the product name
+last); with no editor open the folder name is taken for a file name. Only the default profile's `keybindings.json` is
+read. Extensions come from `~/.vscode/extensions` (Insiders `~/.vscode-insiders`, VSCodium and Code - OSS
+`~/.vscode-oss`, or the Flatpak's), those its `extensions.json` lists; disabled ones are still listed (VS Code keeps
+that in a database). Keys keybind-find can't name (`[IntlBackslash]`, the browser keys), `when` clauses it can't read
+and extensions whose `package.json` doesn't parse are counted in one line.
 
 ### Obsidian
 
