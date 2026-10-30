@@ -1,0 +1,4 @@
+# Synthetic: the system keymap (/etc/mc).
+[filemanager]
+Help = f12
+System = alt-y

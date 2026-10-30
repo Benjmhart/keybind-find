@@ -1,0 +1,3 @@
+# Synthetic: the user keymap under XDG_CONFIG_HOME.
+[filemanager]
+Xdg = alt-x

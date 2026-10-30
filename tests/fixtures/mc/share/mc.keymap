@@ -1,0 +1,4 @@
+# Synthetic: the share-dir keymap.
+[filemanager]
+Help = f11
+Share = f13

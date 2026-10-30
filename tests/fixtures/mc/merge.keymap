@@ -1,0 +1,21 @@
+# Synthetic: a user keymap over the defaults.
+[filemanager]
+# Replaced: Copy's whole list.
+Copy = alt-5; shift-f5
+# Removed.
+Move =
+# f9 is Menu's too, and Menu comes first: Menu keeps it.
+Quit = f10; f9
+# New, after the defaults.
+MyAction = ctrl-alt-q ; ctrl-alt-w
+
+[editor]
+ExtendedKeyMap =
+
+[editor:xmap]
+Save = s
+
+  # An indented comment, and a blank line follow.
+
+[filemanager:xmap]
+Unknown = no-such-key
