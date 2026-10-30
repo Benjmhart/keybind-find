@@ -121,7 +121,7 @@ fn vault(title: Option<&str>, env: Env, notes: &mut Vec<String>) -> Option<PathB
         [one] => Some(one.clone()),
         _ => {
             notes.push(format!(
-                "no vault in {} matches the window title; listing the defaults",
+                "no single vault in {} matches the window title; listing the defaults",
                 file.display()
             ));
             None
@@ -333,7 +333,8 @@ mod tests {
     fn pinned_file() {
         assert!(PINNED.contains("obsidian-1.14.5.asar.gz"), "release asset");
         let sha = PINNED.split("SHA-256 ").nth(1).unwrap();
-        assert!(sha.len() > 64 && sha[..64].bytes().all(|b| b.is_ascii_hexdigit()));
+        let (hex, rest) = sha.split_at(64);
+        assert!(hex.bytes().all(|b| b.is_ascii_hexdigit()) && rest.starts_with('.'));
         let p = pinned();
         assert_eq!(p.obsidian_version, "1.14.5");
         let mut ids: Vec<_> = p.command.iter().map(|c| &c.id).collect();
@@ -361,6 +362,7 @@ mod tests {
             (&["Ctrl"], "P", Some("ctrl+p")),
             (&["Meta"], "a", Some("super+a")),
             (&["Mod", "Ctrl", "Shift"], "A", Some("ctrl+shift+a")),
+            (&["Shift", "Alt", "Mod"], "x", Some("ctrl+alt+shift+x")),
             (&["Mod", "Alt"], "ArrowLeft", Some("ctrl+alt+Left")),
             (&["Alt"], "Enter", Some("alt+Return")),
             (&["Mod"], ",", Some("ctrl+comma")),
@@ -466,7 +468,7 @@ mod tests {
         assert_eq!(vault(None, &env, &mut notes), None);
         assert_eq!(notes.len(), 2);
         assert!(
-            notes.iter().all(|n| n.starts_with("no vault in ")),
+            notes.iter().all(|n| n.starts_with("no single vault in ")),
             "{notes:?}"
         );
         // No list, or an empty one: none, no note.
@@ -475,7 +477,22 @@ mod tests {
         std::fs::create_dir_all(dir.join("empty/obsidian")).unwrap();
         std::fs::write(dir.join("empty/obsidian/obsidian.json"), r#"{"vaults":{}}"#).unwrap();
         assert_eq!(vault(None, &env_for(dir.join("empty")), &mut notes), None);
+        std::fs::write(dir.join("empty/obsidian/obsidian.json"), "{}").unwrap();
+        assert_eq!(vault(None, &env_for(dir.join("empty")), &mut notes), None);
         assert!(notes.is_empty(), "{notes:?}");
+        // Two vaults with the same name, both named by the title: none, with the note.
+        vault_list(
+            &dir.join("twins/obsidian"),
+            &[Path::new("/a/Work"), Path::new("/b/Work")],
+        );
+        let twins = env_for(dir.join("twins"));
+        assert_eq!(
+            vault(Some("Note - Work - Obsidian 1.14.5"), &twins, &mut notes),
+            None
+        );
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].starts_with("no single vault in "), "{notes:?}");
+        notes.clear();
         // A malformed list: a note.
         std::fs::create_dir_all(dir.join("bad/obsidian")).unwrap();
         std::fs::write(dir.join("bad/obsidian/obsidian.json"), "{").unwrap();
@@ -538,8 +555,12 @@ mod tests {
         let custom = custom_hotkeys(&fixtures().join("vaults/Work"), &mut notes);
         assert!(notes.is_empty(), "{notes:?}");
         let (sheet, left_out) = parse(&pinned(), &custom);
-        // Replaced.
+        // Replaced, keeping its name.
         assert_eq!(keys(&sheet, "editor:toggle-bold"), ["ctrl+shift+b"]);
+        let bold = sheet.binds["editor"]
+            .iter()
+            .find(|b| b.action == "editor:toggle-bold");
+        assert_eq!(bold.unwrap().desc, "Toggle bold");
         // Emptied: gone.
         assert!(keys(&sheet, "workspace:close").is_empty());
         // A plugin's: its id is the description and its prefix the category.
@@ -591,7 +612,8 @@ mod tests {
             "{notes:?}"
         );
         assert!(notes[2].contains("not an absolute path"), "{notes:?}");
-        assert!(notes[3].contains("unreadable"), "{notes:?}");
+        assert!(notes[3].contains("unreadable-"), "{notes:?}");
+        assert!(notes[3].contains("/.obsidian/hotkeys.json: "), "{notes:?}");
         // End to end: the title picks the vault, its file is laid over; a malformed pinned file is an error.
         let dir = scratch("e2e");
         let work = fixtures().join("vaults/Work");
@@ -620,7 +642,7 @@ mod tests {
         let (sheet, notes) = sheet_with(PINNED, Some("Obsidian"), &env).unwrap();
         assert_eq!(sheet.binds, defaults.binds);
         assert_eq!(notes.len(), 1, "{notes:?}");
-        assert!(notes[0].starts_with("no vault in "), "{notes:?}");
+        assert!(notes[0].starts_with("no single vault in "), "{notes:?}");
         assert!(sheet_with("command = 1", None, &env).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }

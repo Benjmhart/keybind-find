@@ -119,17 +119,18 @@ config dir given with `zathura -c`/`--config-dir`, and for the Flatpak, its runt
 ### Obsidian
 
 In an Obsidian window (class or app id `obsidian`, or `md.obsidian.Obsidian`, Obsidian's desktop name and the
-Flatpak's id), keybind-find lists Obsidian's command hotkeys: the defaults of Obsidian 1.14.5 (read from that release's app bundle;
-Obsidian isn't run, so its version isn't checked and every version gets these), with the focused vault's
-`.obsidian/hotkeys.json` on top, as Obsidian uses it: a command you gave hotkeys has only yours, and one you cleared has
-none. Your vaults are listed in `obsidian.json`, the first found of `$XDG_CONFIG_HOME/obsidian` (else
-`~/.config/obsidian`, as for the AppImage), the Flatpak's `~/.var/app/md.obsidian.Obsidian/config/obsidian` and the
-Snap's `~/snap/obsidian/current/.config/obsidian` (the first found is used, even when it is an older install's). The window title (`<note> - <vault> - Obsidian <version>`) names
-the vault; with one vault it is that one, and with several and a title that names none (a pop-out window) you get the
-defaults and a one-line note, as you do when two vaults share that folder name. A plugin's hotkey is listed under the
-plugin's id; it, and a command with no default hotkey that you gave one, are described by their command id.
-Only the `.obsidian` config folder is read (a vault set to another config folder keeps that inside Obsidian), and the
-editor's own keys (CodeMirror's, not commands) aren't listed.
+Flatpak's id), keybind-find lists Obsidian's command hotkeys: the defaults of Obsidian 1.14.5 (read from that
+release's app bundle; Obsidian isn't run, so its version isn't checked and every version gets these), with the
+focused vault's `.obsidian/hotkeys.json` on top, as Obsidian uses it: a command you gave hotkeys has only yours, and
+one you cleared has none. Your vaults are listed in `obsidian.json`, the first found of `$XDG_CONFIG_HOME/obsidian`
+(else `~/.config/obsidian`, as for the AppImage), the Flatpak's `~/.var/app/md.obsidian.Obsidian/config/obsidian` and
+the Snap's `~/snap/obsidian/current/.config/obsidian`; the first found is used, even when it is an older install's.
+The window title (`<note> - <vault> - Obsidian <version>`) names the vault; with one vault it is that one, and with
+several and a title that names none (a pop-out window), or two vaults sharing that folder name, you get the defaults
+and a one-line note. A plugin's hotkey is listed under the plugin's id; it, and a command with no default hotkey that
+you gave one, are described by their command id. Only the `.obsidian` config folder is read (a vault set to another
+config folder keeps that inside Obsidian), and only command hotkeys are listed: keys that aren't commands, such as
+the editor's own (CodeMirror's), aren't.
 
 ### Firefox and Chromium
 
