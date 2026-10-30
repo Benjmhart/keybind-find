@@ -1430,6 +1430,16 @@ mod tests {
                 );
             }
         }
+        // On GNOME Xorg too.
+        assert_eq!(
+            providers_for(
+                wm_provider(Some("gnome")),
+                Some("Gnome-terminal"),
+                Some("bash"),
+                &[]
+            ),
+            ["gnome", "espanso", "gnome-terminal", "bash", "sheets"]
+        );
         // foot's own keys, standalone and in server mode, then the program inside it.
         for class in ["foot", "footclient"] {
             for wm in ["sway", "hyprland"] {
@@ -3193,38 +3203,38 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
 
     #[test]
     fn gnome_terminal_cannot_name_its_focused_tab() {
-        // A stand-in `/proc` with two children under one server: no answer for either class, as for any terminal
-        // but kitty.
+        // A stand-in `/proc`: one gnome-terminal-server whose thread has two shells. Neither class can name the
+        // focused one (no arm in `focused_child`, unlike kitty), so `foreground` reports several children, with no
+        // hint, and `settle` warns and keeps gnome-terminal's own keys.
         let proc =
             std::env::temp_dir().join(format!("kbf-gnome-terminal-proc-{}", std::process::id()));
+        std::fs::create_dir_all(proc.join("100/task/100")).unwrap();
+        std::fs::write(proc.join("100/task/100/children"), b"101 102 ").unwrap();
         for child in ["101", "102"] {
             std::fs::create_dir_all(proc.join(child)).unwrap();
             std::fs::write(proc.join(child).join("environ"), b"SHELL=/bin/zsh\0").unwrap();
         }
-        let children = ["101".to_string(), "102".to_string()];
         for class in ["Gnome-terminal", "org.gnome.Terminal"] {
+            let e = foreground(100, class, None, &|_| None, &proc).unwrap_err();
             assert_eq!(
-                focused_child(class, None, &children, &|_| None, &proc),
-                Err("")
+                e.to_string(),
+                "pid 100 has 2 children (one process serving several windows or tabs?)",
+                "{class}"
+            );
+            let mut ctx = Context {
+                window_id: None,
+                class: Some(class.into()),
+                instance: None,
+                title: None,
+                providers: Vec::new(),
+            };
+            assert_eq!(settle(&mut ctx, Some("xmonad"), Err(e)), None);
+            assert_eq!(
+                ctx.providers,
+                ["xmonad", "espanso", "gnome-terminal", "sheets"]
             );
         }
         let _ = std::fs::remove_dir_all(&proc);
-        // `program_in` then reports several children: `settle` warns and keeps gnome-terminal's own keys.
-        let mut ctx = Context {
-            window_id: None,
-            class: Some("Gnome-terminal".into()),
-            instance: None,
-            title: None,
-            providers: Vec::new(),
-        };
-        let several = Err(anyhow::anyhow!(
-            "finding the program inside Gnome-terminal: pid 1 has 2 children"
-        ));
-        assert_eq!(settle(&mut ctx, Some("xmonad"), several), None);
-        assert_eq!(
-            ctx.providers,
-            ["xmonad", "espanso", "gnome-terminal", "sheets"]
-        );
     }
 
     #[test]

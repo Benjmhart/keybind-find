@@ -39,8 +39,15 @@ fn parse(text: &str) -> (Sheet, Vec<String>) {
         let note = "its shortcuts are turned off (Preferences → Shortcuts, or shortcuts-enabled)";
         return (sheet, vec![note.into()]);
     }
+    let keys: Vec<_> = lines.iter().filter(|(s, _, _)| s == KEYBINDINGS).collect();
+    if keys.is_empty() {
+        return (
+            sheet,
+            vec![format!("gsettings listed no {KEYBINDINGS} keys")],
+        );
+    }
     let mut left_out = 0;
-    for (_, key, value) in lines.iter().filter(|(s, _, _)| s == KEYBINDINGS) {
+    for (_, key, value) in keys {
         let Some(accels) = strings(value) else {
             left_out += 1;
             continue;
@@ -66,7 +73,7 @@ fn parse(text: &str) -> (Sheet, Vec<String>) {
     if left_out > 0 {
         notes.push(format!(
             "leaving out {left_out} shortcut(s) keybind-find can't name (a modifier other than ctrl, shift, alt \
-             and super, or a key not shaped like a keysym name)"
+             and super, a key not shaped like a keysym name, or a value that isn't a string)"
         ));
     }
     (sheet, notes)
@@ -135,7 +142,7 @@ mod tests {
         ] {
             assert!(rows.contains(&want), "{want:?}: {rows:?}");
         }
-        // `'disabled'` defaults list nothing: 29 lines of 68 have a key (the switch is one of the others).
+        // `'disabled'` defaults list nothing: of 68 lines, 39 are disabled and one is the switch.
         assert!(!rows.iter().any(|(_, d)| *d == "copy html"));
         assert_eq!(rows.len(), 28);
     }
@@ -146,6 +153,8 @@ mod tests {
         let (s, notes) = parse(&text);
         let rows = rows(&s);
         assert!(rows.contains(&("ctrl+t", "new tab")), "{rows:?}");
+        // As the preferences write a change: `<Primary>`.
+        assert!(rows.contains(&("ctrl+alt+v", "paste")), "{rows:?}");
         assert!(!rows.contains(&("ctrl+shift+t", "new tab")));
         // `''` is cleared: nothing, silently; `<Hyper>s` is counted.
         assert!(!rows.iter().any(|(_, d)| *d == "copy"));
@@ -166,6 +175,10 @@ mod tests {
         // A value that isn't a string is counted too.
         let (_, notes) = parse(&format!("{KEYBINDINGS} copy 6"));
         assert!(notes[0].starts_with("leaving out 1 "), "{notes:?}");
+        // No keybindings lines at all (a schema without the child): an empty sheet, said once.
+        let (s, notes) = parse(&format!("{SETTINGS} shortcuts-enabled true"));
+        assert!(s.binds.is_empty());
+        assert_eq!(notes, [format!("gsettings listed no {KEYBINDINGS} keys")]);
     }
 
     #[test]
@@ -240,5 +253,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
         assert!(notes.is_empty(), "{notes:?}");
         assert!(rows(&s).contains(&("ctrl+shift+t", "new tab")), "{s:?}");
+        // The fixture is this output.
+        let text = std::fs::read_to_string(fixture("list-default.txt")).unwrap();
+        assert_eq!(s.binds, parse(&text).0.binds);
     }
 }

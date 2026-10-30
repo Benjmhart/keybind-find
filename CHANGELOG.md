@@ -7,7 +7,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Added
 
-- GNOME Terminal: its keyboard shortcuts from `gsettings`, as its preferences set them, when a GNOME Terminal window has focus.
+- GNOME Terminal: its keyboard shortcuts from `gsettings`, as its preferences set them, when a GNOME Terminal window has focus (on X11, sway and Hyprland).
 - Obsidian: its command hotkeys from defaults pinned for 1.14.5 with the focused vault's `hotkeys.json` on top (the vault picked by window title), when an Obsidian window has focus.
 - foot: its key, search and URL bindings from defaults pinned per version (1.28.0) with your `foot.ini` on top (following `include=`), and its text bindings, when a foot or footclient window has focus.
 - GNOME: its window, shell, mutter and media-key shortcuts, your custom shortcuts and the overlay key, from `gsettings`; on GNOME Wayland the list opens in fzf in alacritty (fuzzel needs layer-shell).
