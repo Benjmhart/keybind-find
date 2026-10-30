@@ -47,12 +47,14 @@ fn read(env: Env, system: &Path) -> (Sheet, Vec<String>) {
         .collect();
     let home = env("HOME").filter(|h| !h.is_empty());
     let load = |name: &str| -> Option<String> {
-        let path = match name.strip_prefix("~/") {
-            Some(rest) => PathBuf::from(home.as_ref()?).join(rest),
-            None => PathBuf::from(name),
+        let path = match name.strip_prefix('~') {
+            Some(rest) if rest.is_empty() || rest.starts_with('/') => {
+                PathBuf::from(format!("{}{rest}", home.as_ref()?))
+            }
+            _ => PathBuf::from(name),
         };
-        // A relative path is relative to ranger's directory, unknown here.
-        text(&path).filter(|_| path.is_absolute())
+        // A relative path (or `~user`) is relative to ranger's directory, unknown here.
+        path.is_absolute().then(|| text(&path)).flatten()
     };
     parse(&texts, &load)
 }
@@ -81,12 +83,17 @@ type Load<'a> = &'a dyn Fn(&str) -> Option<String>;
 /// How deep `source` lines may nest (ranger has no limit; a file sourcing itself would never end).
 const DEPTH: usize = 8;
 
+/// How many `source` files are read in all.
+const LOADS: usize = 64;
+
 /// What sourcing the files builds: the key tree, the aliases, and the lines not run.
 struct State<'a> {
     tree: Vec<(i64, Node)>,
     /// `alias <name> <command…>`, latest last.
     aliases: Vec<(String, String)>,
     skipped_lines: usize,
+    /// `source` files read so far.
+    loads: usize,
     load: Load<'a>,
 }
 
@@ -98,25 +105,33 @@ impl State<'_> {
             if line.starts_with('#') || line.trim().is_empty() {
                 continue;
             }
-            if !self.execute(line, depth) {
+            if self.execute(line, depth) != Outcome::Ran {
                 self.skipped_lines += 1;
             }
         }
     }
 
-    /// `execute_console` for one command line; `false` when it isn't run here or ranger would raise.
-    fn execute(&mut self, line: &str, depth: usize) -> bool {
+    /// `execute_console` for one command line.
+    fn execute(&mut self, line: &str, depth: usize) -> Outcome {
         let words: Vec<&str> = line.split_whitespace().collect();
+        // `execute_console('')` raises (an empty `chain` part).
         let Some(&name) = words.first() else {
-            return true;
+            return Outcome::Raised;
         };
-        // An alias stands for its command, the rest of the line kept (`command_alias_factory`).
+        // An alias stands for its command, the rest of the line kept (`command_alias_factory`); its command was
+        // resolved when it was defined.
         if let Some((_, full)) = self.aliases.iter().rev().find(|(a, _)| a == name) {
             let after = &line[line.find(name).map_or(0, |i| i + name.len())..];
-            let line = format!("{full}{after}");
-            return depth < DEPTH && self.execute(&line, depth + 1);
+            return self.builtin(&format!("{full}{after}"), depth);
         }
-        match name {
+        self.builtin(line, depth)
+    }
+
+    /// One command line whose first word is ranger's own command.
+    fn builtin(&mut self, line: &str, depth: usize) -> Outcome {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let ok = |ran: bool| if ran { Outcome::Ran } else { Outcome::Raised };
+        match words.first().copied().unwrap_or("") {
             "map" if words.len() >= 3 => {
                 let (keys, numbered) = codes_marked(words[1]);
                 bind(
@@ -124,52 +139,82 @@ impl State<'_> {
                     &keys,
                     Node::Command(rest(line, 2).to_string(), numbered),
                 );
-                true
+                Outcome::Ran
             }
-            // Each target in turn; a source that isn't bound stops the line (ranger's `KeyError`).
-            "copymap" if words.len() >= 3 => words[2..].iter().all(|target| {
+            // Each target in turn; a source that isn't bound stops the line (ranger's `KeyError`). The copy is
+            // hidden only when its own keys are written with a `<number>`.
+            "copymap" if words.len() >= 3 => ok(words[2..].iter().all(|target| {
                 let Some(mut node) = find(&self.tree, &codes(words[1])).cloned() else {
                     return false;
                 };
                 let (keys, numbered) = codes_marked(target);
-                if numbered {
-                    hide(&mut node);
-                }
+                hide(&mut node, numbered);
                 bind(&mut self.tree, &keys, node);
                 true
-            }),
-            "unmap" => words[1..]
+            })),
+            "unmap" => ok(words[1..]
                 .iter()
-                .all(|keys| unbind(&mut self.tree, &codes(keys))),
-            // `alias <name> <command…>`, for a command ranger has (here: the ones that bind keys, or any other).
+                .all(|keys| unbind(&mut self.tree, &codes(keys)))),
+            // `alias <name> <command…>`: an alias in the command is resolved now, as ranger binds the alias to the
+            // command class it names when it is defined.
             "alias" if words.len() >= 3 => {
-                self.aliases
-                    .push((words[1].to_string(), rest(line, 2).to_string()));
-                true
+                let full = rest(line, 2);
+                let head = full.split_whitespace().next().unwrap_or("");
+                let full = match self.aliases.iter().rev().find(|(a, _)| a == head) {
+                    Some((_, target)) => format!("{target}{}", &full[head.len()..]),
+                    None => full.to_string(),
+                };
+                self.aliases.push((words[1].to_string(), full));
+                Outcome::Ran
             }
-            // `chain <command>; <command>…`: each in turn, stopping where one raises (it propagates out of chain).
-            "chain" => rest(line, 1)
-                .split(';')
-                .map(str::trim)
-                .filter(|c| !c.is_empty())
-                .all(|c| self.execute(c, depth)),
-            // `source <file>`: its lines, as a config file of their own.
-            "source" if words.len() >= 2 => match (depth < DEPTH)
-                .then(|| (self.load)(rest(line, 1)))
+            // `chain <command>; <command>…`: each in turn. `execute_console` catches a command's error, so the chain
+            // goes on; only an empty part raises before that (`split()[0]`) and stops it. The line counts once.
+            "chain" => {
+                let mut all_ran = true;
+                for c in rest(line, 1).split(';').map(str::trim) {
+                    if c.is_empty() {
+                        return Outcome::Raised;
+                    }
+                    all_ran &= self.execute(c, depth) == Outcome::Ran;
+                }
+                if all_ran {
+                    Outcome::Ran
+                } else {
+                    Outcome::Raised
+                }
+            }
+            // `source <file>`: its lines, as a config file of their own; one that can't be read raises.
+            // ranger's `source` takes one argument (`fm.source(filename)`): more is a TypeError. A budget of loads
+            // keeps a file that sources itself many times over from hanging the hotkey.
+            "source" if words.len() == 2 => match (depth < DEPTH && self.loads < LOADS)
+                .then(|| {
+                    self.loads += 1;
+                    (self.load)(words[1])
+                })
                 .flatten()
             {
                 Some(text) => {
                     self.source(&text, depth + 1);
-                    true
+                    Outcome::Ran
                 }
-                None => false,
+                None => Outcome::Raised,
             },
             // Never run.
-            "eval" => false,
+            "eval" => Outcome::NotRun,
             // Other contexts, settings: not browser keys.
-            _ => true,
+            _ => Outcome::Ran,
         }
     }
+}
+
+/// What ranger does with one command line, as far as keybind-find follows it.
+#[derive(PartialEq)]
+enum Outcome {
+    Ran,
+    /// Not run here (`eval`): counted.
+    NotRun,
+    /// ranger reports an error: counted.
+    Raised,
 }
 
 /// The sheet from rc.conf `texts` in the order ranger sources them, and the notes for stderr.
@@ -178,6 +223,7 @@ fn parse(texts: &[&str], load: Load) -> (Sheet, Vec<String>) {
         tree: Vec::new(),
         aliases: Vec::new(),
         skipped_lines: 0,
+        loads: 0,
         load,
     };
     for text in texts {
@@ -212,8 +258,8 @@ fn parse(texts: &[&str], load: Load) -> (Sheet, Vec<String>) {
     let mut notes = Vec::new();
     if left_out + skipped_lines > 0 {
         notes.push(format!(
-            "leaving out {left_out} key(s) keybind-find can't send (<any>, <bg>, a key code) and {skipped_lines} \
-             line(s) it doesn't run (eval) or ranger stops on (copymap of a key not bound, unmap through a key bound to a command)"
+            "leaving out {left_out} key(s) keybind-find doesn't list (<any>, <bg>, a <number>, a key with no keysym) and \
+             {skipped_lines} line(s) it doesn't run (eval) or ranger stops on with an error"
         ));
     }
     (sheet, notes)
@@ -303,11 +349,11 @@ fn unbind(map: &mut Vec<(i64, Node)>, keys: &[i64]) -> bool {
     ok
 }
 
-/// Marks every command under `node` as bound with a `<number>` code.
-fn hide(node: &mut Node) {
+/// Marks every command under `node` as bound with a `<number>` code, or not.
+fn hide(node: &mut Node, numbered: bool) {
     match node {
-        Node::Command(_, hidden) => *hidden = true,
-        Node::Keys(inner) => inner.iter_mut().for_each(|(_, n)| hide(n)),
+        Node::Command(_, hidden) => *hidden = numbered,
+        Node::Keys(inner) => inner.iter_mut().for_each(|(_, n)| hide(n, numbered)),
     }
 }
 
@@ -539,8 +585,8 @@ mod tests {
         // Only the `<any>`/`<bg>` maps are left out; no line is skipped.
         assert_eq!(
             notes,
-            ["leaving out 11 key(s) keybind-find can't send (<any>, <bg>, a key code) and 0 line(s) it doesn't run \
-              (eval) or ranger stops on (copymap of a key not bound, unmap through a key bound to a command)"]
+            ["leaving out 11 key(s) keybind-find doesn't list (<any>, <bg>, a <number>, a key with no keysym) and \
+              0 line(s) it doesn't run (eval) or ranger stops on with an error"]
         );
         assert_eq!(get(&s, "g g"), ["move to=0"]);
         assert_eq!(get(&s, "q"), ["quit"]);
@@ -610,7 +656,11 @@ mod tests {
         // A missing source stops the line (the targets after it too); so does unmapping under a command.
         let (s, notes) = parse_t(&["map a a\ncopymap zz b\nunmap aa\n"]);
         assert_eq!(get(&s, "a"), ["a"]);
-        assert!(notes[0].ends_with("and 2 line(s) it doesn't run (eval) or ranger stops on (copymap of a key not bound, unmap through a key bound to a command)"), "{notes:?}");
+        assert!(
+            notes[0]
+                .ends_with("and 2 line(s) it doesn't run (eval) or ranger stops on with an error"),
+            "{notes:?}"
+        );
         // Unmapping a key not bound is nothing (not counted); a list stops where ranger raises.
         let (s, notes) = parse_t(&["map a a\nmap b b\nunmap zz\nunmap b aa a\n"]);
         assert_eq!((get(&s, "a"), get(&s, "b")), (vec!["a"], vec![]));
@@ -629,10 +679,34 @@ mod tests {
         );
         assert_eq!(get(&s, "c"), ["three"]);
         assert!(notes[0].contains(" and 1 line(s)"), "{notes:?}");
-        // A file sourcing itself stops at the depth limit.
+        // A file sourcing itself stops at the depth limit; one sourcing itself many times over, at the budget.
         let me = |_: &str| Some("map x y\nsource /me\n".to_string());
-        let (s, _) = parse(&["source /me\n"], &me);
-        assert_eq!(get(&s, "x"), ["y"]);
+        let (s, notes) = parse(&["source /me\n"], &me);
+        assert_eq!(
+            (get(&s, "x"), notes[0].contains(" and 1 line(s)")),
+            (vec!["y"], true),
+            "{notes:?}"
+        );
+        let many = |_: &str| Some("source /m\n".repeat(20));
+        let (_, notes) = parse(&["source /m\n"], &many);
+        assert!(!notes.is_empty());
+        // `source` takes one argument: a path with a space is ranger's TypeError.
+        let any = |_: &str| Some("map z z\n".to_string());
+        let (s, _) = parse(&["source /my dir/keys.conf\n"], &any);
+        assert!(get(&s, "z").is_empty());
+        // `chain` goes on past an `eval` (not run here) and past a command's error (ranger catches it), and stops at
+        // an empty part; each such line counts once.
+        let (s, notes) = parse_t(&[
+            "chain eval x; map c d\nchain copymap zz q; map e f\nchain map g h;; map i j\n",
+        ]);
+        assert_eq!(
+            (get(&s, "c"), get(&s, "e"), get(&s, "g"), get(&s, "i")),
+            (vec!["d"], vec!["f"], vec!["h"], vec![])
+        );
+        assert!(notes[0].contains(" and 3 line(s)"), "{notes:?}");
+        // An alias's command is resolved when it is defined: redefining `m` later doesn't change `n`.
+        let (s, _) = parse_t(&["alias m map\nalias n m\nalias m unmap\nn k up\n"]);
+        assert_eq!(get(&s, "k"), ["up"]);
         // A `<number>` is that key in the tree (`<10>` is Return, `<100>` is `d`), but its binding isn't listed.
         let (s, notes) =
             parse_t(&["map <CR> open\nmap <10> run\nmap <100> x\ncopymap <CR> <101>\n"]);
@@ -640,6 +714,9 @@ mod tests {
         assert!(notes[0].starts_with("leaving out 3 key(s)"), "{notes:?}");
         let (s, _) = parse_t(&["map <100> x\nmap d shown\n"]);
         assert_eq!(get(&s, "d"), ["shown"]);
+        // The hiding follows the keys as written: a copy to a named key is listed.
+        let (s, _) = parse_t(&["map <100> x\ncopymap d e\n"]);
+        assert_eq!(get(&s, "e"), ["x"]);
         // Two names for one code are one key: `<C-j>` is `<CR>`.
         let (s, _) = parse_t(&["map <CR> open\nmap <C-j> down\n"]);
         assert_eq!(get(&s, "Return"), ["down"]);
@@ -678,6 +755,19 @@ mod tests {
             let (s, notes) = read(&|_| None, &locked);
             assert_eq!((get(&s, "q"), notes.len()), (vec!["quit"], 1));
         }
+        // `source ~/…` in the user's file, through `read`'s loader (`HOME`); a relative one isn't read.
+        std::fs::write(home.join("extra.conf"), "map <F7> reload_cwd\n").unwrap();
+        std::fs::write(
+            home.join(".config/ranger/rc.conf"),
+            format!(
+                "{}source ~/extra.conf\nsource extra.conf\n",
+                text("rc.conf")
+            ),
+        )
+        .unwrap();
+        let (s, notes) = read(&env(&[]), &system);
+        assert_eq!(get(&s, "F7"), ["reload_cwd"]);
+        assert!(notes[0].contains(" and 2 line(s)"), "{notes:?}");
         // Defaults, then the user's file (no system file).
         let (s, _) = read(&env(&[]), &system);
         assert_eq!(
