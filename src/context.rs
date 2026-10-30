@@ -523,10 +523,15 @@ fn session_file_name(d: &str) -> &str {
     name.strip_suffix(".desktop").unwrap_or(name)
 }
 
-/// The window-manager provider for a session: only sway, Hyprland, xmonad, KDE, Xfce and i3 have one. Nothing falls back to
+/// The window-manager provider for a session: only sway, Hyprland, xmonad, KDE, Xfce, i3 and GNOME have one. Nothing falls back to
 /// xmonad: a leftover `xmonad.keys` under i3 must not show.
 fn wm_provider(session: Option<&'static str>) -> Option<&'static str> {
-    session.filter(|s| matches!(*s, "sway" | "hyprland" | "xmonad" | "kde" | "xfce" | "i3"))
+    session.filter(|s| {
+        matches!(
+            *s,
+            "sway" | "hyprland" | "xmonad" | "kde" | "xfce" | "i3" | "gnome"
+        )
+    })
 }
 
 /// The EWMH check window's `_NET_WM_NAME` (who the window manager says it is); `None` when anything is unreadable.
@@ -1362,6 +1367,20 @@ mod tests {
                 &[]
             ),
             ["xfce", "espanso", "alacritty", "bash", "sheets"]
+        );
+        // GNOME: its shortcuts on X11 with the window's, on Wayland alone (no focus source).
+        assert_eq!(
+            providers_for(
+                wm_provider(Some("gnome")),
+                Some("Alacritty"),
+                Some("bash"),
+                &[]
+            ),
+            ["gnome", "espanso", "alacritty", "bash", "sheets"]
+        );
+        assert_eq!(
+            providers_for(wm_provider(Some("gnome")), None, None, &[]),
+            ["gnome", "espanso"]
         );
         // ghostty's own keys, in any case of its class, then the program inside it.
         for class in [
@@ -2652,7 +2671,7 @@ mod tests {
     #[test]
     fn which_sessions_have_a_provider() {
         // Each session with a window-manager provider names itself; a new one adds a row.
-        let with = ["sway", "hyprland", "xmonad", "kde", "xfce", "i3"];
+        let with = ["sway", "hyprland", "xmonad", "kde", "xfce", "i3", "gnome"];
         assert_eq!(wm_provider(None), None);
         // Xfce's Wayland session is unknown: no xfwm4 keys on another compositor.
         assert_eq!(
@@ -2697,10 +2716,16 @@ mod tests {
                 |p, _| panic!("{p} asked outside sway, Hyprland and KDE"),
             );
             assert_eq!((ctx.window_id, ctx.class, ctx.title), (None, None, None));
-            assert_eq!(ctx.providers, ["espanso"]);
+            // GNOME's own shortcuts still apply.
+            let want: &[&str] = if session == Some("gnome") {
+                &["gnome", "espanso"]
+            } else {
+                &["espanso"]
+            };
+            assert_eq!(ctx.providers, want, "{session:?}");
         }
         // On X11 every window manager, known or not, reads the focus from X.
-        for session in [Some("i3"), Some("xmonad"), None] {
+        for session in [Some("i3"), Some("xmonad"), Some("gnome"), None] {
             let (ctx, _) = focus(
                 session,
                 false,
