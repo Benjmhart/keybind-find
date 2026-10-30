@@ -6,6 +6,8 @@ Copy = alt-5; shift-f5
 Move =
 # f9 is Menu's too, and Menu comes first: Menu keeps it.
 Quit = f10; f9
+# Replaced in place: Help stays before Delete, so it takes f8 from it.
+Help = f1; f8
 # New, after the defaults.
 MyAction = ctrl-alt-q ; ctrl-alt-w
 

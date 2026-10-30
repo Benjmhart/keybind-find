@@ -1,0 +1,3 @@
+# Synthetic: a named keymap found in the share dir.
+[filemanager]
+Shared = alt-s

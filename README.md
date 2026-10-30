@@ -201,15 +201,21 @@ given with `-config-dir`.
 When mc, mcedit, mcview or mcdiff is the program in the focused terminal, keybind-find lists mc's keys, one category per
 keymap section (`filemanager`, `panel`, `editor`, `viewer`, `viewer:hex`, …), built as mc builds its keymap: mc 4.8.33's
 compiled-in defaults, then `/usr/share/mc/mc.keymap` and the system keymap (`$MC_DATADIR/mc.keymap`, else
-`/etc/mc/mc.keymap`; distros install mc's full default keymap there, so your mc version's defaults show), then **one**
-user keymap: `$MC_KEYMAP`, else the `keymap` value in `[Midnight-Commander]` of `~/.config/mc/ini`, else
-`~/.config/mc/mc.keymap` (or under `$XDG_CONFIG_HOME/mc`). A name without `.keymap` gets it, and a relative one is looked
-for in `~/.config/mc`, then `/usr/share/mc`. A later file replaces an action's keys, and `Action =` removes it; a key two
-actions name in one section shows on the first, as mc uses the first. Keys in a `:xmap` section follow the
-`ExtendedKeyMap` key (`ctrl+x c`). Not seen: a keymap given with `mc -K`. Keys whose names mc can't read, and a misspelt
-action (listed as written), are as in your file; keys keybind-find can't name are left out and counted in one line.
-While mc's subshell is in front (Ctrl-O) the terminal still reports mc, so mc's keys are listed, not the shell's; with
-`mc -u` (no subshell) the shell's are.
+`/etc/mc/mc.keymap`), then **one** user keymap: `$MC_KEYMAP`, else the `keymap` value in `[Midnight-Commander]` of
+`~/.config/mc/ini`, else `~/.config/mc/mc.keymap` (or under `$XDG_CONFIG_HOME/mc`). Distros install mc's full default
+keymap as `/etc/mc/mc.keymap`, so another mc version's keys show for every action that file names (actions only
+4.8.33 compiles in still show). A name without `.keymap` gets it, and a relative one is looked for in `~/.config/mc`,
+then `/usr/share/mc`. A later file replaces an action's keys, and `Action =` removes it; a key two actions name in one
+section shows on the first, as mc uses the first. Keys in a `:xmap` section follow the key that opens it
+(`ExtendedKeyMap`, `ctrl+x c`); when an earlier action has that key, as `WordRight` has the editor's `ctrl-x` by default,
+mc never opens the map and its keys aren't listed. A line mc's keyfile reader can't read ends the file there, with a
+one-line note; a misspelt action is listed as written; key names keybind-find can't name (including ones mc can't read,
+such as the `ctr-a` in mc's own default keymap) are left out and counted in one line.
+
+Not seen: a keymap given with `mc -K`, and `MC_KEYMAP` or `MC_DATADIR` set only in the shell that started mc
+(keybind-find has its own environment, from your window manager). While mc's subshell is in front (Ctrl-O) the terminal
+still reports mc, so mc's keys are listed, not the shell's. MinIO's client is also called `mc`; in a terminal running
+it you get Midnight Commander's list.
 
 ### yazi
 

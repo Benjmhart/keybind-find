@@ -9,7 +9,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// mc 4.8.33's compiled-in defaults. The installed system keymap (distros ship the full default keymap as
-/// `/etc/mc/mc.keymap`) is laid over them, so an older or newer mc's defaults win wherever that file is there.
+/// `/etc/mc/mc.keymap`) is laid over them, so another mc version's keys win for every action that file names; actions
+/// only 4.8.33 compiles in still show.
 // ponytail: one pinned version; a registry by `mc --version` if a version without the system file shows wrong keys.
 const PINNED: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -36,6 +37,8 @@ pub fn sheet() -> anyhow::Result<Sheet> {
 
 /// The sheet from `pinned` and the keymap files under `share` and `sysconf` (test seams) and the user's, found
 /// through `env`. Also the lines for stderr.
+// ponytail: `env` is keybind-find's (from the window manager), not mc's: an `MC_KEYMAP` set only in the shell that ran
+// mc isn't seen; reading mc's `/proc/<pid>/environ` needs mc's pid, which the provider isn't given.
 fn sheet_with(
     pinned: &str,
     share: &Path,
@@ -45,14 +48,17 @@ fn sheet_with(
     let mut keymap = keyfile(pinned).map_err(|e| anyhow!("the pinned mc keymap: {e}"))?;
     let mut notes = Vec::new();
     for file in files(share, sysconf, env) {
-        // A file that isn't there is skipped, as mc skips it.
-        match std::fs::read_to_string(&file) {
+        // A file that isn't there is skipped, as mc skips it. Bytes that aren't UTF-8 (a comment's) don't stop it.
+        match std::fs::read(&file) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => notes.push(format!("{}: {e}; not used", file.display())),
-            Ok(text) => match keyfile(&text) {
-                Ok(read) => merge(&mut keymap, read),
-                Err(e) => notes.push(format!("{}: {e}; not used", file.display())),
-            },
+            Ok(bytes) => {
+                let (read, error) = keyfile_upto(&String::from_utf8_lossy(&bytes));
+                merge(&mut keymap, read);
+                if let Some(e) = error {
+                    notes.push(format!("{}: {e}; the rest of it not used", file.display()));
+                }
+            }
         }
     }
     let (sheet, keys, sections) = build(&keymap);
@@ -80,7 +86,7 @@ fn files(share: &Path, sysconf: &Path, env: Env) -> Vec<PathBuf> {
     let named = |name: &str| full_name(name, config.as_deref(), share);
     let ini_keymap = || {
         let text = std::fs::read_to_string(config.as_ref()?.join("ini")).ok()?;
-        let ini = keyfile(&text).ok()?;
+        let (ini, _) = keyfile_upto(&text);
         let (_, keys) = ini.iter().find(|(s, _)| s == "Midnight-Commander")?;
         let (_, value) = keys.iter().find(|(k, _)| k == "keymap")?;
         Some(value.clone()).filter(|v| !v.is_empty())
@@ -130,9 +136,17 @@ fn full_name(name: &str, config: Option<&Path>, share: &Path) -> Option<PathBuf>
         .find(|f| f.exists())
 }
 
-/// A GLib keyfile as mc reads it: `[section]`, `key = value`, `#` comments and blank lines; anything else makes the
-/// whole file unreadable (as `g_key_file_load_from_file` refuses it). A section named twice is one section.
+/// A keyfile that must be whole (the pinned one).
 fn keyfile(text: &str) -> Result<Keymap, String> {
+    let (keymap, error) = keyfile_upto(text);
+    error.map_or(Ok(keymap), Err)
+}
+
+/// A GLib keyfile as mc reads it: `[section]`, `key = value`, `#` comments and blank lines. A line that is none of
+/// those ends it: what came before is kept, as GLib keeps it and mc uses it; the error comes back beside it. A section
+/// named twice is one section.
+// ponytail: laxer than GLib on odd lines (`[]`, an empty key, a locale `Key[de]`, `\;` escapes in a list).
+fn keyfile_upto(text: &str) -> (Keymap, Option<String>) {
     let mut keymap: Keymap = Vec::new();
     let mut current = None;
     for (n, line) in text.lines().enumerate() {
@@ -155,14 +169,20 @@ fn keyfile(text: &str) -> Result<Keymap, String> {
             continue;
         }
         let Some((key, value)) = line.split_once('=') else {
-            return Err(format!("line {}: not a key, a section or a comment", n + 1));
+            return (
+                keymap,
+                Some(format!("line {}: not a key, a section or a comment", n + 1)),
+            );
         };
         let Some(i) = current else {
-            return Err(format!("line {}: a key before any section", n + 1));
+            return (
+                keymap,
+                Some(format!("line {}: a key before any section", n + 1)),
+            );
         };
         set(&mut keymap[i].1, key.trim(), value.trim());
     }
-    Ok(keymap)
+    (keymap, None)
 }
 
 /// Sets `key` in place, or appends it.
@@ -196,10 +216,12 @@ fn merge(keymap: &mut Keymap, read: Keymap) {
 }
 
 /// The sheet: a category per section, each action's keys in the section's order; a key already bound earlier in the
-/// section isn't listed again (mc's lookup takes the first). A `:xmap` section's keys follow its parent's
-/// `ExtendedKeyMap`. Also the keys with no name here, and the `:xmap` sections without a prefix.
+/// section isn't listed again (mc's lookup takes the first). A `:xmap` section's keys follow the first key its parent
+/// binds to `ExtendedKeyMap` (none when an earlier action has it: mc never reaches that map). Also the keys with no
+/// name here, and the `:xmap` sections left out for want of a prefix.
 // ponytail: an action name mc doesn't know (it ignores those) is listed as written; there's no action table here.
-// ponytail: keys compared in key notation, not mc's key codes, so `tab` and `ctrl-i` (one code in mc) are both listed.
+// ponytail: keys compared in key notation, not mc's key codes: `ctrl-A` and `ctrl-shift-a` (one code in mc) are two
+// keys here, and `shift-tab` and `backtab` (two codes) one.
 fn build(keymap: &Keymap) -> (Sheet, usize, usize) {
     let mut sheet = Sheet {
         title: "mc".into(),
@@ -207,43 +229,51 @@ fn build(keymap: &Keymap) -> (Sheet, usize, usize) {
         binds: Default::default(),
     };
     let (mut keys_left, mut sections_left) = (0, 0);
-    for (section, actions) in keymap {
+    for (section, actions) in keymap.iter().filter(|(_, a)| !a.is_empty()) {
         let prefix = match section.strip_suffix(":xmap") {
             None => String::new(),
             Some(parent) => {
-                let extended = keymap
-                    .iter()
-                    .find(|(s, _)| s == parent)
-                    .and_then(|(_, a)| a.iter().find(|(k, _)| k == "ExtendedKeyMap"))
-                    .and_then(|(_, v)| v.split(';').map(str::trim).find(|n| !n.is_empty()))
-                    .and_then(notation);
-                let Some(extended) = extended else {
+                let extended = keymap.iter().find(|(s, _)| s == parent).and_then(|(_, a)| {
+                    bound(a)
+                        .0
+                        .into_iter()
+                        .find(|(_, act)| *act == "ExtendedKeyMap")
+                });
+                let Some((extended, _)) = extended else {
                     sections_left += 1;
                     continue;
                 };
                 format!("{extended} ")
             }
         };
-        let mut seen = HashSet::new();
-        for (action, value) in actions {
-            for name in value.split(';').map(str::trim).filter(|n| !n.is_empty()) {
-                let Some(key) = notation(name) else {
-                    keys_left += 1;
-                    continue;
-                };
-                let key = format!("{prefix}{key}");
-                if seen.insert(key.clone()) {
-                    sheet.binds.entry(section.clone()).or_default().push(Bind {
-                        key,
-                        desc: action.clone(),
-                        action: action.clone(),
-                        when: Default::default(),
-                    });
-                }
-            }
+        let (binds, left) = bound(actions);
+        keys_left += left;
+        for (key, action) in binds {
+            sheet.binds.entry(section.clone()).or_default().push(Bind {
+                key: format!("{prefix}{key}"),
+                desc: action.to_string(),
+                action: action.to_string(),
+                when: Default::default(),
+            });
         }
     }
     (sheet, keys_left, sections_left)
+}
+
+/// A section's keys in order with the action each is bound to, a key going to the first action that names it; and
+/// the number of key names with no translation.
+fn bound(actions: &[(String, String)]) -> (Vec<(String, &str)>, usize) {
+    let (mut binds, mut left, mut seen) = (Vec::new(), 0, HashSet::new());
+    for (action, value) in actions {
+        for name in value.split(';').map(str::trim).filter(|n| !n.is_empty()) {
+            match notation(name) {
+                None => left += 1,
+                Some(key) if seen.insert(key.clone()) => binds.push((key, action.as_str())),
+                Some(_) => {}
+            }
+        }
+    }
+    (binds, left)
 }
 
 /// An mc key name (`ctrl-x`, `alt-shift-a`, `f19`, `kpplus`) in key notation, as `tty_keyname_to_keycode` reads it:
@@ -297,21 +327,22 @@ fn key(part: &str) -> Option<(String, Option<&'static str>)> {
         "end" => ("End", None),
         "pgup" => ("Prior", None),
         "pgdn" => ("Next", None),
-        "kpslash" => ("KP_Divide", None),
+        // Only these three are keypad codes of their own in mc; its other `kp*` names are the plain keys.
         "kpasterisk" => ("KP_Multiply", None),
         "kpminus" => ("KP_Subtract", None),
         "kpplus" => ("KP_Add", None),
-        "kpleft" => ("KP_Left", None),
-        "kpright" => ("KP_Right", None),
-        "kpup" => ("KP_Up", None),
-        "kpdown" => ("KP_Down", None),
-        "kphome" => ("KP_Home", None),
-        "kpend" => ("KP_End", None),
-        "kpnpage" => ("KP_Next", None),
-        "kpppage" => ("KP_Prior", None),
-        "kpinsert" => ("KP_Insert", None),
-        "kpdelete" => ("KP_Delete", None),
-        "kpenter" => ("KP_Enter", None),
+        "kpslash" | "slash" => ("slash", None),
+        "kpleft" => ("Left", None),
+        "kpright" => ("Right", None),
+        "kpup" => ("Up", None),
+        "kpdown" => ("Down", None),
+        "kphome" => ("Home", None),
+        "kpend" => ("End", None),
+        "kpnpage" => ("Next", None),
+        "kpppage" => ("Prior", None),
+        "kpinsert" => ("Insert", None),
+        "kpdelete" => ("Delete", None),
+        "kpenter" => ("Return", None),
         // curses' keypad corners: 7 and 1 with Num Lock off.
         "a1" => ("KP_Home", None),
         "c1" => ("KP_End", None),
@@ -348,7 +379,6 @@ fn key(part: &str) -> Option<(String, Option<&'static str>)> {
                 "lbrace" => '{',
                 "rbrace" => '}',
                 "space" => ' ',
-                "slash" => '/',
                 "backslash" => '\\',
                 "number" | "hash" => '#',
                 "at" => '@',
@@ -424,6 +454,9 @@ mod tests {
             ("F10", Some("F10")),
             ("f24", Some("F24")),
             ("kpplus", Some("KP_Add")),
+            ("kpenter", Some("Return")),
+            ("kpleft", Some("Left")),
+            ("kpslash", Some("slash")),
             ("alt-question", Some("alt+question")),
             ("alt-prime", Some("alt+grave")),
             ("ctrl-backslash", Some("ctrl+backslash")),
@@ -487,6 +520,17 @@ mod tests {
             files_for(&[("MC_KEYMAP", "mc".into())])[2],
             fixture("home/.config/mc/mc.keymap")
         );
+        // Not in the config dir: the share dir.
+        assert_eq!(
+            files_for(&[("MC_KEYMAP", "shared".into())])[2],
+            fixture("share/shared.keymap")
+        );
+        // Naming the share dir's own mc.keymap: passed over, as the system file is.
+        let share_name = share.display().to_string();
+        assert_eq!(
+            files_for(&[("MC_KEYMAP", share_name)])[2],
+            home.join("mc.keymap")
+        );
         // Not found anywhere: the next source.
         assert_eq!(
             files_for(&[("MC_KEYMAP", "nosuch".into())])[2],
@@ -537,7 +581,7 @@ mod tests {
         assert_eq!(keys(&s, "filemanager", "Help"), ["F12"]);
         for (action, key) in [
             ("Share", "F13"),
-            ("System", "alt+y"),
+            ("System", "alt+w"),
             ("UserDefault", "alt+u"),
         ] {
             assert_eq!(keys(&s, "filemanager", action), [key], "{action}");
@@ -551,7 +595,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(keys(&s, "filemanager", "DataDir"), ["alt+z"]);
-        assert!(keys(&s, "filemanager", "System").is_empty());
+        // /etc/mc's file isn't read: its Help = f12 is gone.
+        assert_eq!(keys(&s, "filemanager", "Help"), ["F11"]);
         // The upstream emacs keymap as the user's: it parses and lays over.
         let (s, notes) = sheet_with(
             PINNED,
@@ -566,7 +611,12 @@ mod tests {
             ["leaving out 1 key(s) keybind-find can't name and 0 `:xmap` section(s) with no ExtendedKeyMap"]
         );
         assert!(keys(&s, "filemanager", "UserDefault").is_empty());
-        assert!(!s.binds["editor"].is_empty());
+        assert_eq!(keys(&s, "editor", "Store"), ["alt+w"]);
+        // Its Paste = ctrl-y loses to DeleteLine, earlier in mc's [editor]: as in mc.
+        assert!(keys(&s, "editor", "Paste").is_empty());
+        // It moves WordRight off ctrl-x, so the editor's extended map is reached.
+        assert_eq!(keys(&s, "editor", "WordRight"), ["ctrl+Right", "alt+f"]);
+        assert_eq!(keys(&s, "editor:xmap", "EditNew"), ["ctrl+x k"]);
     }
 
     #[test]
@@ -581,12 +631,16 @@ mod tests {
         // f9 on Menu and Quit: Menu, earlier in the section, keeps it.
         assert_eq!(keys(&s, "filemanager", "Menu"), ["F9"]);
         assert_eq!(keys(&s, "filemanager", "Quit"), ["F10"]);
+        // Replaced in place: Help, before Delete, takes f8 from it.
+        assert_eq!(keys(&s, "filemanager", "Help"), ["F1", "F8"]);
+        assert!(keys(&s, "filemanager", "Delete").is_empty());
         // A new action comes after the defaults.
         let fm = &s.binds["filemanager"];
         let mine = fm.iter().position(|b| b.action == "MyAction").unwrap();
         assert_eq!(fm[mine].key, "ctrl+alt+q");
-        assert!(fm[..mine].iter().all(|b| b.action != "MyAction"));
         assert_eq!(fm.last().unwrap().key, "ctrl+alt+w");
+        let quit_quiet = fm.iter().position(|b| b.action == "QuitQuiet").unwrap();
+        assert!(quit_quiet < mine, "a default after the new action");
         // `[editor:xmap]` with the editor's ExtendedKeyMap removed: left out, counted; an unknown key counted.
         assert!(!s.binds.contains_key("editor:xmap"));
         assert_eq!((keys_left, sections_left), (1, 1));
@@ -597,13 +651,32 @@ mod tests {
     }
 
     #[test]
+    fn xmap_prefix() {
+        let mut keymap = keyfile(PINNED).unwrap();
+        let read = std::fs::read_to_string(fixture("xmap.keymap")).unwrap();
+        merge(&mut keymap, keyfile(&read).unwrap());
+        let (s, keys_left, sections_left) = build(&keymap);
+        // The first key the parent binds to ExtendedKeyMap: not `bogus` (no name), not f2 (UserMenu's).
+        assert_eq!(keys(&s, "filemanager:xmap", "Hello"), ["ctrl+y z"]);
+        let xmap = &s.binds["filemanager:xmap"];
+        assert!(
+            xmap.iter().all(|b| b.key.starts_with("ctrl+y ")),
+            "{xmap:?}"
+        );
+        // The editor's ExtendedKeyMap loses ctrl-x to WordRight: its xmap is left out, counted; an empty one isn't.
+        assert!(!s.binds.contains_key("editor:xmap"));
+        assert!(!s.binds.contains_key("viewer:xmap"));
+        assert_eq!((keys_left, sections_left), (1, 1));
+    }
+
+    #[test]
     fn failures() {
         let none = fixture("nowhere");
         // No files at all: the pinned sheet, no note.
         let (s, notes) = sheet_with(PINNED, &none, &none, &|_| None).unwrap();
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(s.binds, build(&keyfile(PINNED).unwrap()).0.binds);
-        // A malformed user file: a note, the rest used.
+        // A malformed user file: a note; its lines before the bad one are used, as mc uses them.
         let bad = fixture("malformed.keymap").display().to_string();
         let (s, notes) = sheet_with(
             PINNED,
@@ -615,11 +688,21 @@ mod tests {
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(
             notes[0]
-                .contains("malformed.keymap: line 3: not a key, a section or a comment; not used"),
+                .contains("malformed.keymap: line 3: not a key, a section or a comment; the rest of it not used"),
             "{notes:?}"
         );
-        assert_eq!(keys(&s, "filemanager", "Copy"), ["F5"]);
+        assert_eq!(keys(&s, "filemanager", "Copy"), ["F9"]);
         assert_eq!(keys(&s, "filemanager", "Help"), ["F12"]);
+        // Bytes that aren't UTF-8 in a comment don't stop a file.
+        let latin1 =
+            std::env::temp_dir().join(format!("kbf-mc-latin1-{}.keymap", std::process::id()));
+        std::fs::write(&latin1, b"# caf\xe9\n[filemanager]\nCopy = f9\n").unwrap();
+        let named = latin1.display().to_string();
+        let (s, notes) =
+            sheet_with(PINNED, &none, &none, &env_with(&[("MC_KEYMAP", named)])).unwrap();
+        let _ = std::fs::remove_file(&latin1);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(keys(&s, "filemanager", "Copy"), ["F9"]);
         // An unreadable one (a directory named `.keymap`): a note.
         let dir = std::env::temp_dir().join(format!("kbf-mc-dir-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("d.keymap")).unwrap();
@@ -636,11 +719,20 @@ mod tests {
             keyfile("x = 1"),
             Err("line 1: a key before any section".into())
         );
+        let (kept, error) = keyfile_upto("[a]\nx = f1\nbad line\nz = f3\n");
+        assert_eq!(
+            kept,
+            [("a".to_string(), vec![("x".to_string(), "f1".to_string())])]
+        );
+        assert_eq!(
+            error.as_deref(),
+            Some("line 3: not a key, a section or a comment")
+        );
         // A malformed pinned file is an error.
         assert!(sheet_with("nonsense", &none, &none, &|_| None).is_err());
     }
 
-    /// The installed system keymap, when there is one, reads with no note.
+    /// The installed system keymap, when there is one, is read and used.
     #[test]
     fn real_system_keymap() {
         let etc = Path::new(SYSCONF);
@@ -650,7 +742,8 @@ mod tests {
         }
         let none = fixture("nowhere");
         let (s, notes) = sheet_with(PINNED, &none, etc, &|_| None).unwrap();
-        assert!(notes.is_empty(), "{notes:?}");
+        // Read, not passed over; a count of keys with no name is fine (4.8.33's own file has `ctr-a`).
+        assert!(notes.iter().all(|n| !n.ends_with("not used")), "{notes:?}");
         assert!(!s.binds["filemanager"].is_empty());
     }
 }
