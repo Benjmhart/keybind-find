@@ -3553,19 +3553,27 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             .status();
     }
 
-    /// A PATH dir holding `less`, `pager` and `decoy` as symlinks to `sleep`, unique per call.
+    /// A PATH dir holding a copy of `sleep` and `less`, `pager` and `decoy` as symlinks to it, unique per call.
+    /// uutils' multicall `sleep` (Ubuntu 26.04) refuses to run under another name, so GNU's `gnusleep` when there.
     fn sleep_links() -> (std::path::PathBuf, String) {
         static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let bin = std::env::temp_dir().join(format!("kbf-less-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
-        let out = Command::new("sh")
-            .args(["-c", "command -v sleep"])
-            .output()
+        let sleep = bin.join("sleep");
+        // `cp` in a child, not `fs::copy`: a write fd open here could leak into another test's fork (ETXTBSY).
+        let copied = Command::new("sh")
+            .args([
+                "-c",
+                "cp \"$(command -v gnusleep || command -v sleep)\" \"$1\"",
+                "sh",
+            ])
+            .arg(&sleep)
+            .status()
             .unwrap();
-        let sleep = String::from_utf8(out.stdout).unwrap();
+        assert!(copied.success());
         for name in ["less", "pager", "decoy"] {
-            std::os::unix::fs::symlink(sleep.trim(), bin.join(name)).unwrap();
+            std::os::unix::fs::symlink(&sleep, bin.join(name)).unwrap();
         }
         let path = format!(
             "{}:{}",
