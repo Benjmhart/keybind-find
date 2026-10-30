@@ -341,7 +341,7 @@ its defaults; several `def_key` blocks for one key are alternatives, shown in or
 key bound only to `dummy` isn't listed. Where ncmpcpp would stop reading at an error (an invalid key, a line it doesn't
 know, a key with no actions), keybind-find stops too, with one line naming the file and line. Files given with
 `-b`/`--bindings` on ncmpcpp's command line aren't read. One list for every screen: in ncmpcpp a key runs the first of
-its actions that can run where you are, so an alternative may do nothing on the current screen. `mouse` isn't listed.
+its alternatives that can run where you are, so an alternative may do nothing on the current screen. `mouse` isn't listed.
 
 ### yazi
 
