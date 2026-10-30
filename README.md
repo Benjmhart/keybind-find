@@ -42,7 +42,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | zathura | its keys: zathura's defaults for its version (0.5.2, 0.5.11 and 2026.10.23 built in) with your zathurarc's `map`/`unmap` on top | none ([below](#zathura)) |
 | VS Code, VSCodium, Code - OSS | the default keys (1.143.1's built in), your installed extensions' and your `keybindings.json` on top, each tagged with where it works; the file's language guessed from the title | none ([below](#vs-code)) |
 | Obsidian | its default hotkeys (1.14.5's built in) with your vault's `.obsidian/hotkeys.json` on top, the vault picked by window title | none ([below](#obsidian)) |
-| st, surf, tabbed, dwm | their stock keys from `config.def.h` at st 0.9.3, surf 2.1, tabbed 0.9 and dwm 6.8 (dwm's in a dwm session, whatever window has focus); a patched `config.h` isn't read: replace the sheet with your own of the same name, or write a parser | none ([below](#suckless-st-surf-tabbed-dwm)) |
+| st, surf, tabbed, dwm | their stock keys from `config.def.h` at st 0.9.3, surf 2.1, tabbed 0.9 and dwm 6.8 (dwm's in a dwm session, whatever window has focus); a patched `config.h` isn't read: replace the sheet with your own of the same name | none ([below](#suckless-st-surf-tabbed-dwm)) |
 | browsers | built-in sheets for Gmail, YouTube and GitHub; any web app you write a sheet for | none; GitHub's needs a URL-in-title extension ([docs/sheets.md](docs/sheets.md)) |
 | Firefox / Chromium keys | the browser's own shortcuts (tabs, navigation, find, dev tools) in Firefox, LibreWolf, Zen, Chromium, Chrome, Brave and Edge, from built-in sheets | none ([below](#firefox-and-chromium)) |
 | Vimium | Vimium's defaults for its version, and your remaps from a saved backup | none; remaps need the backup ([docs/vimium.md](docs/vimium.md)) |
@@ -199,11 +199,13 @@ These programs are configured by editing `config.h` and recompiling, so keybind-
 the stock ones, from each release's `config.def.h`
 ([data/sheets/st.json](data/sheets/st.json), [surf.json](data/sheets/surf.json),
 [tabbed.json](data/sheets/tabbed.json), [dwm.json](data/sheets/dwm.json)). st's apply in a window of class
-`st-256color` or `St`, surf's in `Surf`, tabbed's in `tabbed`; a surf or st embedded in tabbed is part of tabbed's
+`st-256color` or `St` (or that instance, as with `st -c scratchpad`), surf's in `Surf`, tabbed's in `tabbed`; a surf or st embedded in tabbed is part of tabbed's
 window, so only tabbed's keys show there. dwm's apply in a dwm session (its `_NET_WM_NAME`), beside the focused
-window's, and only when a window has focus: on an empty desktop nothing is listed. If you patched `config.h`, put a
-sheet of the same name (`st.json`, `dwm.json`, …) in your sheets folder ([docs/sheets.md](docs/sheets.md)); it
-replaces the built-in one, or write a parser that reads your `config.h`.
+window's, and only when a window has focus: on an empty desktop nothing is listed. If you patched `config.h`, copy the built-in sheet into
+your sheets folder under the same name (`st.json`, `dwm.json`, …) and edit it ([docs/sheets.md](docs/sheets.md)): it
+replaces the built-in one and applies where it did, whatever its `provider`. For st, surf and tabbed a parser named
+after the window class (`st-256color`) that reads your `config.h` works too; it adds to the built-in sheet, so
+replace that with an empty one.
 
 There is no dmenu sheet: dmenu grabs the keyboard and is never the focused window, so `Super+/` can't open over it
 and a picked key couldn't reach it.

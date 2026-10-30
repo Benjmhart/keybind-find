@@ -11,11 +11,11 @@
 //!   execute bit. All parsers share one time limit.
 //!
 //! All matching sheets merge into one, in file name order, then the built-in web-app sheets (`BUILTIN`, which apply
-//! with no folder at all), then the browser's own keys (`BROWSER_SHEETS`, Firefox's or Chromium's by `family`) when no
+//! with no folder at all), then dwm's keys (`WM_SHEETS`) in a dwm session, then st's, surf's and tabbed's
+//! (`APP_SHEETS`) by class, then the browser's own keys (`BROWSER_SHEETS`, Firefox's or Chromium's by `family`) when no
 //! web-app sheet (a `.json` sheet with a `window_title`, built in or the user's) applied, and not in a Chromium app
-//! window. dwm's keys (`WM_SHEETS`) come next in a dwm session, then st's, surf's and tabbed's (`APP_SHEETS`) by class.
-//! A file in the folder with a built-in sheet's name replaces it,
-//! even when it fails. A file that fails is one stderr line; only an unreadable directory fails the provider.
+//! window. A file in the folder with a built-in sheet's name replaces it (a suckless one's applies where the built-in
+//! would, whatever its `provider`), even when it fails. A file that fails is one stderr line; only an unreadable directory fails the provider.
 
 use crate::context::{run_for, Context};
 use crate::sheet::Sheet;
@@ -299,6 +299,27 @@ fn parse_reporting(
     // Whether a web-app sheet (one with a `window_title`) applied: then the browser's own keys are left out.
     let mut web_app = false;
     let deadline = std::time::Instant::now() + timeout;
+    let built_in = |text: &str| {
+        serde_json::from_str(text)
+            .context("not a DMS cheatsheet")
+            .map(|s| Some((s, false)))
+    };
+    // A suckless sheet by file name (`WM_SHEETS`, `APP_SHEETS`): whether it applies here, by session or by class
+    // (or instance, for `st -c`).
+    let in_session = |session: &str| wm.is_some_and(|w| w.eq_ignore_ascii_case(session));
+    let of_window = |classes: &[&str]| {
+        [class, instance]
+            .into_iter()
+            .flatten()
+            .any(|c| classes.iter().any(|k| k.eq_ignore_ascii_case(c)))
+    };
+    let suckless = |file: &str| {
+        let wms = WM_SHEETS.iter().map(|(s, n, _)| (*n, in_session(s)));
+        let apps = APP_SHEETS.iter().map(|(c, n, _)| (*n, of_window(c)));
+        wms.chain(apps)
+            .find(|(n, _)| n.eq_ignore_ascii_case(file))
+            .map(|(_, here)| here)
+    };
     for path in paths {
         let json = path
             .extension()
@@ -319,8 +340,16 @@ fn parse_reporting(
         if json {
             user_sheets.extend(path.file_name().map(|n| n.to_string_lossy().into_owned()));
         }
+        let file_name = path.file_name().map(|n| n.to_string_lossy().into_owned());
         let found = if json {
-            static_sheet(&path, class, title)
+            match file_name.as_deref().and_then(suckless) {
+                // A replacement for a suckless sheet applies where the built-in would, whatever its `provider`.
+                Some(here) => std::fs::read_to_string(&path)
+                    .context("can't read it")
+                    .and_then(|t| built_in(&t))
+                    .map(|s| s.filter(|_| here)),
+                None => static_sheet(&path, class, title),
+            }
         } else if meta.permissions().mode() & 0o111 != 0 && parser_matches(&path, class) {
             match &parsers_allowed {
                 Ok(()) => run_parser(&path, &meta, deadline).map(|o| o.map(|s| (s, false))),
@@ -345,13 +374,8 @@ fn parse_reporting(
             merge(&mut sheet, &mut notes, &format!("built-in {name}"), found);
         }
     }
-    let built_in = |text: &str| {
-        serde_json::from_str(text)
-            .context("not a DMS cheatsheet")
-            .map(|s| Some((s, false)))
-    };
     for (session, name, text) in WM_SHEETS {
-        if wm.is_some_and(|w| w.eq_ignore_ascii_case(session)) && !replaced(name) {
+        if in_session(session) && !replaced(name) {
             merge(
                 &mut sheet,
                 &mut notes,
@@ -361,9 +385,7 @@ fn parse_reporting(
         }
     }
     for (classes, name, text) in APP_SHEETS {
-        if class.is_some_and(|c| classes.iter().any(|k| k.eq_ignore_ascii_case(c)))
-            && !replaced(name)
-        {
+        if of_window(classes) && !replaced(name) {
             merge(
                 &mut sheet,
                 &mut notes,
@@ -631,8 +653,16 @@ mod tests {
         // st-256color.json, then the parser's output (file name order); the .bak copy isn't run. The built-in
         // st.json follows.
         assert_eq!(
-            keys(&sheet, "clipboard")[..3],
-            ["shift+Insert", "ctrl+shift+c", "ctrl+shift+v"]
+            keys(&sheet, "clipboard"),
+            [
+                "shift+Insert",
+                "ctrl+shift+c",
+                "ctrl+shift+v",
+                "ctrl+shift+c",
+                "ctrl+shift+v",
+                "ctrl+shift+y",
+                "shift+Insert"
+            ]
         );
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(notes[0].contains("broken.json"), "{}", notes[0]);
@@ -1260,8 +1290,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            keys(&sheet, "clipboard")[..3],
-            ["shift+Insert", "ctrl+shift+c", "ctrl+shift+v"]
+            keys(&sheet, "clipboard"),
+            [
+                "shift+Insert",
+                "ctrl+shift+c",
+                "ctrl+shift+v",
+                "ctrl+shift+c",
+                "ctrl+shift+v",
+                "ctrl+shift+y",
+                "shift+Insert"
+            ]
         );
     }
 
@@ -1287,12 +1325,29 @@ mod tests {
             // The title names the program, its release, the tag's commit and `config.def.h`.
             let program = name.trim_end_matches(".json");
             assert_eq!(s.provider, program, "{name}");
+            let words: Vec<&str> = s.title.split(' ').collect();
+            let commit = words
+                .last()
+                .and_then(|w| w.strip_suffix(')'))
+                .unwrap_or_default();
             assert!(
-                s.title.starts_with(&format!("{program} "))
-                    && s.title.contains("defaults (config.def.h at "),
+                words.len() == 6
+                    && words[0] == program
+                    && words[1].split('.').all(|n| n.parse::<u32>().is_ok())
+                    && words[2..5] == ["defaults", "(config.def.h", "at"]
+                    && commit.len() == 7
+                    && commit.chars().all(|c| c.is_ascii_hexdigit()),
                 "{name}: {}",
                 s.title
             );
+            // Every row of `config.def.h`'s key table (tabbed's two actions on one key as one), no mouse bindings.
+            let want = match program {
+                "st" => 12,
+                "surf" => 37,
+                "tabbed" => 21,
+                _ => 60,
+            };
+            assert_eq!(s.binds.values().flatten().count(), want, "{name}");
             assert_valid_keys(name, &s, &names);
         }
         // dwm: `TAGKEYS` for 1-9 under its four modifiers, and the two all-tags keys.
@@ -1305,7 +1360,16 @@ mod tests {
             }
         }
         assert!(keys.contains(&"alt+0") && keys.contains(&"alt+shift+0"));
-        assert_eq!(keys.len(), 24 + 36);
+        // st's `XK_ANY_MOD` keys are the bare key.
+        let (_, _, st) = APP_SHEETS[0];
+        let st: Sheet = serde_json::from_str(st).unwrap();
+        let st: Vec<&str> = st
+            .binds
+            .values()
+            .flatten()
+            .map(|b| b.key.as_str())
+            .collect();
+        assert!(st.contains(&"Break") && st.contains(&"Print"));
     }
 
     #[test]
@@ -1352,33 +1416,58 @@ mod tests {
 
     #[test]
     fn a_user_file_replaces_a_suckless_sheet() {
-        let dir = std::env::temp_dir().join(format!("kbf-sheets-suckless-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let keys = |class: &str, wm: Option<&str>| {
+        let dir = temp("suckless");
+        let keys = |class: &str, instance: Option<&str>, wm: Option<&str>| {
             let (sheet, notes) =
-                parse_reporting(&dir, Some(class), None, None, wm, PARSER_TIMEOUT).unwrap();
+                parse_reporting(&dir, Some(class), instance, None, wm, PARSER_TIMEOUT).unwrap();
             let keys: Vec<String> = sheet.binds.into_values().flatten().map(|b| b.key).collect();
             (keys, notes)
         };
-        // Same name, any provider: it replaces the built-in (here it applies to no window).
-        std::fs::write(
-            dir.join("st.json"),
-            r#"{"title": "mine", "provider": "nothing", "binds": {"x": [{"key": "ctrl+x", "desc": "x"}]}}"#,
+        // An edited copy of the built-in (its `provider` no window's class) applies where the built-in would.
+        let mine = |provider: &str| {
+            format!(
+                r#"{{"title": "mine", "provider": "{provider}", "binds": {{"x": [{{"key": "ctrl+x", "desc": "x"}}]}}}}"#
+            )
+        };
+        std::fs::write(dir.join("st.json"), mine("st")).unwrap();
+        std::fs::write(dir.join("DWM.json"), mine("dwm")).unwrap();
+        let (k, notes) = keys("st-256color", None, None);
+        assert_eq!((k, notes.len()), (vec!["ctrl+x".to_string()], 0));
+        let (k, _) = keys("firefox", None, Some("dwm"));
+        assert!(
+            k.contains(&"ctrl+x".to_string()) && !k.contains(&"alt+p".to_string()),
+            "{k:?}"
+        );
+        // Not elsewhere: no st or dwm window, no keys of theirs.
+        let (k, _) = keys("firefox", None, Some("i3"));
+        assert!(!k.contains(&"ctrl+x".to_string()), "{k:?}");
+        // A broken one replaces it too: one note naming it, and no keys of either.
+        std::fs::write(dir.join("st.json"), "{").unwrap();
+        std::fs::write(dir.join("DWM.json"), "{").unwrap();
+        let (k, notes) = keys("st-256color", None, Some("dwm"));
+        assert!(k.is_empty(), "{k:?}");
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert!(
+            notes[0].contains("DWM.json") && notes[1].contains("st.json"),
+            "{notes:?}"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+        // st started with `-c scratchpad` keeps its instance: still st's keys.
+        let none = Path::new("/nonexistent/keybind-find-sheets");
+        let (sheet, _) = parse_reporting(
+            none,
+            Some("scratchpad"),
+            Some("st-256color"),
+            None,
+            None,
+            PARSER_TIMEOUT,
         )
         .unwrap();
-        let (k, notes) = keys("st-256color", None);
-        assert!(k.is_empty() && notes.is_empty(), "{k:?} {notes:?}");
-        // A broken one too: a note, and no st keys.
-        std::fs::write(dir.join("st.json"), "{").unwrap();
-        let (k, notes) = keys("st-256color", None);
-        assert!(k.is_empty(), "{k:?}");
-        assert_eq!(notes.len(), 1, "{notes:?}");
-        // dwm's the same way.
-        std::fs::write(dir.join("DWM.json"), "{").unwrap();
-        let (k, _) = keys("firefox", Some("dwm"));
-        assert!(!k.contains(&"alt+p".to_string()));
-        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(sheet
+            .binds
+            .values()
+            .flatten()
+            .any(|b| b.key == "ctrl+shift+c"));
     }
 
     #[test]
