@@ -192,25 +192,45 @@ fn build(keymaps: &[(&str, Value)], notes: &mut Vec<String>) -> (Sheet, usize, u
             ));
             continue;
         };
-        for (context, bindings) in sections {
+        for (context, unbind, bindings) in sections {
             let context_text: String = context.chars().filter(|c| !c.is_whitespace()).collect();
-            let scopes = if context.trim().is_empty() {
+            // As Zed: only an empty context is none; one of spaces doesn't parse.
+            let scopes = if context.is_empty() {
                 Some(Scopes::new())
             } else {
                 parse(context).map(|p| scopes(&p))
             };
+            // An unbind (in `unbind`, or bound to `zed::Unbind`) removes the earlier binds of that key to that action,
+            // in that context (any, with none); it lists nothing.
+            let unbinds = unbind
+                .iter()
+                .map(|(k, a)| (*k, action_of(a).map(|(n, _)| n)));
+            let bound = bindings.iter().filter_map(|(k, a)| match action_of(a) {
+                Some(("zed::Unbind", Some(Value::String(target)))) => {
+                    Some((*k, Some(target.as_str())))
+                }
+                _ => None,
+            });
+            for (key, target) in unbinds.chain(bound) {
+                let key = notation(key).ok_or_else(|| key.clone());
+                entries.retain(|e| {
+                    e.key != key
+                        || Some(e.action.as_str()) != target
+                        || !(context_text.is_empty() || e.context == context_text)
+                });
+            }
             for (key, action) in bindings {
                 let key = notation(key).ok_or_else(|| key.clone());
-                entries.retain(|e| e.key != key || e.context != context_text);
-                let (action, args) = match action {
-                    Value::String(a) => (a.clone(), None),
-                    Value::Array(a) => match a.first() {
-                        Some(Value::String(n)) => (n.clone(), a.get(1)),
-                        _ => continue,
-                    },
-                    // `null` (`sections` refuses any other shape): removes the earlier binds, listing nothing.
-                    _ => continue,
+                let (action, args) = match action_of(action) {
+                    Some(("zed::Unbind", _)) => continue,
+                    Some((a, args)) => (a.to_string(), args),
+                    // `null`: removes the earlier binds with this key and context, listing nothing.
+                    None => {
+                        entries.retain(|e| e.key != key || e.context != context_text);
+                        continue;
+                    }
                 };
+                entries.retain(|e| e.key != key || e.context != context_text);
                 let desc = match args {
                     Some(args) => format!("{action} {args}"),
                     None => action.clone(),
@@ -254,8 +274,25 @@ fn build(keymaps: &[(&str, Value)], notes: &mut Vec<String>) -> (Sheet, usize, u
     (sheet, left_out, bad_contexts)
 }
 
-/// A keymap's sections, `(context, bindings)`; `None` when it isn't Zed's shape (in any section or action).
-fn sections(keymap: &Value) -> Option<Vec<(&str, Vec<(&String, &Value)>)>> {
+/// An action's name and args; `None` for `null` (and the old `"zed::NoAction"`, its alias).
+fn action_of(action: &Value) -> Option<(&str, Option<&Value>)> {
+    match action {
+        Value::String(a) if a == "zed::NoAction" => None,
+        Value::String(a) => Some((a, None)),
+        Value::Array(a) => Some((a.first()?.as_str()?, a.get(1))),
+        _ => None,
+    }
+}
+
+/// One keymap section: its context, `unbind` and `bindings`.
+type Section<'a> = (
+    &'a str,
+    Vec<(&'a String, &'a Value)>,
+    Vec<(&'a String, &'a Value)>,
+);
+
+/// A keymap's sections; `None` when it isn't Zed's shape (in any section or action).
+fn sections(keymap: &Value) -> Option<Vec<Section<'_>>> {
     keymap
         .as_array()?
         .iter()
@@ -264,21 +301,23 @@ fn sections(keymap: &Value) -> Option<Vec<(&str, Vec<(&String, &Value)>)>> {
                 Value::Null => "",
                 c => c.as_str()?,
             };
-            // `bindings` is optional (a section may hold only `unbind`, which isn't applied).
-            let bindings: Vec<_> = match &s["bindings"] {
-                Value::Null => Vec::new(),
-                b => b.as_object()?.iter().collect(),
+            // Both optional: a section may hold only `unbind` (Zed's keymap editor writes those).
+            let map = |k: &str| -> Option<Vec<_>> {
+                match &s[k] {
+                    Value::Null => Some(Vec::new()),
+                    b => Some(b.as_object()?.iter().collect()),
+                }
             };
-            // An action is a name, `[name, args]` or `null`.
+            let (unbind, bindings) = (map("unbind")?, map("bindings")?);
+            // An action is a name, `[name, args]` or `null`; an unbind target, a name or `[name, args]`.
             let action = |a: &Value| match a {
-                Value::String(_) | Value::Null => true,
-                Value::Array(a) => a.first().is_some_and(Value::is_string),
+                Value::String(_) => true,
+                Value::Array(a) => a.len() == 2 && a[0].is_string(),
                 _ => false,
             };
-            bindings
-                .iter()
-                .all(|(_, a)| action(a))
-                .then_some((context, bindings))
+            let ok = bindings.iter().all(|(_, a)| a.is_null() || action(a))
+                && unbind.iter().all(|(_, a)| action(a));
+            ok.then_some((context, unbind, bindings))
         })
         .collect()
 }
@@ -304,8 +343,12 @@ fn stroke(stroke: &str) -> Option<String> {
             ("secondary-", "ctrl"),
             ("fn-", "fn"),
         ] {
-            // `ctrl--` is ctrl and the `-` key.
-            if let Some(r) = rest.strip_prefix(prefix).filter(|r| !r.is_empty()) {
+            // `ctrl--` is ctrl and the `-` key. Zed reads modifiers in any case (`Ctrl-P`).
+            let r = rest
+                .get(..prefix.len())
+                .filter(|p| p.eq_ignore_ascii_case(prefix))
+                .map(|_| &rest[prefix.len()..]);
+            if let Some(r) = r.filter(|r| !r.is_empty()) {
                 if m == "fn" {
                     return None;
                 }
@@ -316,7 +359,9 @@ fn stroke(stroke: &str) -> Option<String> {
         }
         break;
     }
-    let keysym = match rest {
+    // Named keys in any case too (`Enter`, `F5`); a single letter's case is shift.
+    let named = rest.to_ascii_lowercase();
+    let keysym = match named.as_str() {
         "enter" => "Return".to_string(),
         "escape" => "Escape".into(),
         "backspace" => "BackSpace".into(),
@@ -335,6 +380,7 @@ fn stroke(stroke: &str) -> Option<String> {
         f if f.len() > 1
             && f.starts_with('f')
             && !f[1..].starts_with('0')
+            && f[1..].bytes().all(|b| b.is_ascii_digit())
             && f[1..].parse::<u8>().is_ok_and(|n| (1..=24).contains(&n)) =>
         {
             format!("F{}", &f[1..])
@@ -487,10 +533,14 @@ fn scopes_of(scopes: &Scopes) -> BTreeMap<Name, Values> {
         .collect()
 }
 
-/// The file's `extension` from a title in Zed's default format (`project — main.rs`: the last segment after ` — `);
-/// none without the separator.
+/// `os=linux`, and the file's `extension` from a title in Zed's default format (`project — main.rs`: the last segment
+/// after ` — `); no extension without the separator.
 fn facts(title: Option<&str>) -> Facts {
     let mut facts = Facts::new();
+    // Zed sets `os` in every context: `os == windows` binds never run here.
+    if let (Ok(k), Ok(v)) = ("os".parse::<Name>(), "linux".parse::<Name>()) {
+        facts.insert(k, v);
+    }
     let file = title
         .and_then(|t| t.rsplit_once(" \u{2014} "))
         .map(|(_, f)| f);
@@ -573,7 +623,7 @@ mod tests {
         {
             let v: Value = serde_json::from_str(&super::super::micro::strip_jsonc(text)).unwrap();
             assert!(sections(&v).is_some(), "{name}");
-            for (c, _) in sections(&v).unwrap() {
+            for (c, ..) in sections(&v).unwrap() {
                 assert!(c.trim().is_empty() || parse(c).is_some(), "{name}: {c}");
             }
         }
@@ -717,7 +767,7 @@ mod tests {
         // No files at all: the defaults, silently.
         let (s, facts, notes) = read(None, &env_of(None));
         assert_eq!(all(&s).len(), 917);
-        assert!(facts.is_empty() && others(notes).is_empty());
+        assert!(!facts.contains_key("extension") && others(notes).is_empty());
         // Unset and empty XDG_CONFIG_HOME: `~/.config/zed`; set: that.
         let dot = h.join(".config/zed");
         std::fs::create_dir_all(&dot).unwrap();
@@ -881,6 +931,28 @@ mod tests {
         let (s, ..) = sheet_of("None", false, &[odd]);
         assert_eq!(find(&s, "q", "Editor=true"), ["x::Y"]);
         assert_eq!(find(&s, "w", "Editor=true vim_operator=\""), ["x::Y"]);
+        // Unbinds: by key and action name, in that context or (with none) any; `zed::NoAction` is `null`; a
+        // one-element action array isn't Zed's shape.
+        let base = r#"[{"context": "Editor", "bindings": {"q": "a::A", "w": "b::B", "e": "c::C"}},
+                       {"context": "Pane", "bindings": {"q": "a::A"}}]"#;
+        let user = r#"[{"context": "Editor", "unbind": {"q": "a::A", "w": "other::X"}},
+                       {"bindings": {"e": ["zed::Unbind", "c::C"]}},
+                       {"context": "Pane", "bindings": {"q": "zed::NoAction"}}]"#;
+        let (s, _, _, notes) = sheet_of("None", false, &[base, user]);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert!(find(&s, "q", "Editor=true").is_empty());
+        assert_eq!(find(&s, "w", "Editor=true"), ["b::B"]);
+        assert!(find(&s, "e", "Editor=true").is_empty() && find(&s, "e", "").is_empty());
+        assert!(find(&s, "q", "Pane=true").is_empty());
+        let mut notes = Vec::new();
+        build(
+            &[(
+                "keymap.json",
+                serde_json::from_str(r#"[{"bindings": {"q": ["a::A"]}}]"#).unwrap(),
+            )],
+            &mut notes,
+        );
+        assert_eq!(notes.len(), 1);
         // An action without `::` is filed under `zed`.
         let bare = r#"[{"bindings": {"q": "NoNamespace"}}]"#;
         assert_eq!(
@@ -896,7 +968,17 @@ mod tests {
         assert_eq!(ext("project"), None);
         assert_eq!(ext("a — b — notes.md").as_deref(), Some("md"));
         assert_eq!(ext("project - main.rs"), None);
-        assert!(facts(None).is_empty());
+        // `os` is always linux: `os == windows` binds are hidden.
+        let none = facts(None);
+        assert_eq!(none.len(), 1);
+        assert_eq!(
+            none.get("os").map(|o| o.to_string()).as_deref(),
+            Some("linux")
+        );
+        let (s, ..) = sheet_of("Zed", true, &[]);
+        assert!(all(&s)
+            .iter()
+            .any(|b| tags(b).split(' ').any(|t| t == "os=windows")));
         // The title reaches the facts through `read`.
         let (_, facts, _) = read(Some("keybind-find — zed.rs"), &|_| None);
         assert_eq!(
@@ -912,6 +994,12 @@ mod tests {
             ("secondary-s", "ctrl+s"),
             ("cmd-k cmd-s", "super+k super+s"),
             ("win-a", "super+a"),
+            ("Ctrl-Shift-P", "ctrl+shift+p"),
+            ("CTRL-p", "ctrl+p"),
+            ("Enter", "Return"),
+            ("F5", "F5"),
+            ("Shift-Tab", "shift+Tab"),
+            ("ctrl-P", "ctrl+shift+p"),
             ("super-a", "super+a"),
             ("shift-G", "shift+g"),
             ("ctrl--", "ctrl+minus"),
@@ -941,6 +1029,7 @@ mod tests {
             "shift",
             "f25",
             "f01",
+            "f+1",
             "copy",
             "ctrl-",
             "",

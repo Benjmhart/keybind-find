@@ -170,16 +170,16 @@ lists Zed's keys without running Zed: the Linux keymaps of Zed 1.25.3 built in
 default keymap, then your `base_keymap`'s (VS Code, JetBrains, Sublime Text, Atom, Emacs or Cursor; `Zed` and
 `TextMate` add none, `None` loads no defaults at all), then Zed's vim keymap when `vim_mode` or `helix_mode` is on,
 then Zed's specific overrides, then your `keymap.json` on top. A bind of yours replaces the one before it with the same key and the same context, and
-`null` removes it. Both files are read from `~/.config/zed/` (`$XDG_CONFIG_HOME/zed/`), or the Flatpak's
+`null` removes it; an `unbind` (or `zed::Unbind`) removes the binds of that key to that action. Both files are read from `~/.config/zed/` (`$XDG_CONFIG_HOME/zed/`), or the Flatpak's
 `~/.var/app/dev.zed.Zed/config/zed/` when the first doesn't exist; a file that doesn't parse is one line and is left
 out. Only one Zed version is built in, and Zed updates itself weekly: keys a newer Zed added or moved are missing
-until keybind-find's copy is updated. AI bindings that `disable_ai` would hide are listed, and a section's
-`unbind` isn't applied.
+until keybind-find's copy is updated. AI bindings that `disable_ai` would hide are listed.
 
 Each bind's `context` is shown as tags: `Editor` as `[Editor=true]`, `!menu` as `[menu=false]`, `extension == md` as
 `[extension=md]`, vim's `vim_mode == normal` as `[mode=normal]` and Zed's own `mode == full` as `[editor_mode=full]`;
 for `A > B` only `B`'s; an `||` keeps what both sides share, and `!=` or a negated group none. So a tag says where a
-bind works, never more narrowly than Zed. The only fact is the file's `extension`, taken from the window title in
+bind works, never more narrowly than Zed. The facts are `os=linux` (so `os == windows` binds are hidden) and the
+file's `extension`, taken from the window title in
 Zed's default format (`project — main.rs`), which hides the keys of other file types (`extension == md`). The guess
 needs the default `window_title_format`: one without ` — ` gives no fact, and one that doesn't end in the file name
 gives a wrong one. Keys Zed binds that keybind-find can't send (`fn-`, a lone `shift`,

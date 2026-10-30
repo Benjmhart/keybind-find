@@ -69,7 +69,7 @@ Code window the facts are the file's `extension` (`rs`) and its VS Code language
 whose `when` names another `editorLangId` are hidden. With keybind-find's VS Code extension installed (README, VS
 Code) they are VS Code's own, for the focused window's active editor, and with no editor open there are none;
 without it they are guessed from the window title (`main.rs - project - Visual Studio Code`), and with a
-`window.title` that leaves out the product name there are none. In a Zed window the fact is the file's `extension`,
+`window.title` that leaves out the product name there are none. In a Zed window the facts are `os=linux` and the file's `extension`,
 guessed from the title in Zed's default format (`project — main.rs`); with no file open, or another
 `window_title_format`, there is none.
 
