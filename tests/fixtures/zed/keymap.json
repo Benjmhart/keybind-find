@@ -1,0 +1,19 @@
+// A synthetic Zed keymap.json.
+[
+  {
+    "context": "Workspace",
+    "bindings": {
+      // Replaces the default's `ctrl-shift-p` (the same context).
+      "ctrl-shift-p": "file_finder::Toggle",
+      // Removes the default `ctrl-w` in Workspace.
+      "ctrl-w": null,
+    },
+  },
+  {
+    "bindings": { "ctrl-alt-q": ["workspace::SendKeystrokes", "ctrl-s ctrl-w"] },
+  },
+  {
+    "context": "Editor && extension == md",
+    "bindings": { "ctrl-b": "markdown::OpenPreview" },
+  },
+]

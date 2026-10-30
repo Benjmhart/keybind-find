@@ -7,6 +7,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Added
 
+- Zed: its keys from the Linux keymaps of Zed 1.25.3 (built in) for your base keymap and vim or helix mode, with your `keymap.json` on top, each bind's context as tags, and the file's extension guessed from the window title.
 - Emacs: the keys active in the buffer you are in, asked of the running Emacs over its server (`emacsclient`), with its major mode and evil state as facts; with no server, the global map (and evil's state maps) of your init file from `emacs --batch`. In a terminal (`emacs`, `emacsclient -t`) or an Emacs window.
 - st, surf, tabbed and dwm: their stock keys from `config.def.h` (st 0.9.3, surf 2.1, tabbed 0.9, dwm 6.8) as built-in sheets, st's, surf's and tabbed's by window class and dwm's in a dwm session.
 - VS Code: a small companion extension (`editors/vscode/`) that tells keybind-find the focused window's language and file extension, in place of the window-title guess.

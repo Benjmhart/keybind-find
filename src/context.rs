@@ -722,6 +722,10 @@ fn providers_for(
     }) {
         providers.push("zathura");
     }
+    // Zed's release channels: the window itself, by app id or X11 class.
+    if class.is_some_and(crate::providers::is_zed) {
+        providers.push("zed");
+    }
     // VS Code, Insiders, VSCodium and Code - OSS: the window itself, by class or app id.
     if class.is_some_and(crate::providers::is_vscode) {
         providers.push("vscode");
@@ -1466,6 +1470,16 @@ mod tests {
             );
         }
         assert!(!x(Some("Emacs-gtk"), None).contains(&"emacs"));
+        // Zed, each release channel, before `sheets`.
+        for class in [
+            "dev.zed.Zed",
+            "dev.zed.Zed-Preview",
+            "dev.zed.Zed-Nightly",
+            "dev.zed.Zed-Dev",
+        ] {
+            assert_eq!(x(Some(class), None), ["xmonad", "espanso", "zed", "sheets"]);
+        }
+        assert!(!x(Some("dev.zed.Zed-Other"), None).contains(&"zed"));
         // An Xfce X11 session: xfwm4's keys from the `xfce` provider.
         assert_eq!(
             providers_for(

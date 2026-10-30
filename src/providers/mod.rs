@@ -39,9 +39,11 @@ mod xfce;
 mod xmonad;
 mod yazi;
 mod zathura;
+mod zed;
 
 pub(crate) use sheets::is_browser;
 pub(crate) use vscode::is_vscode;
+pub(crate) use zed::is_zed;
 
 pub const KNOWN: &[&str] = &[
     "xmonad",
@@ -77,6 +79,7 @@ pub const KNOWN: &[&str] = &[
     "mc",
     "vscode",
     "emacs",
+    "zed",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -112,6 +115,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "vscode" => vscode::sheet(ctx),
         "obsidian" => obsidian::sheet(ctx),
         "emacs" => emacs::sheet(ctx),
+        "zed" => zed::sheet(ctx),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
