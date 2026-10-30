@@ -94,7 +94,7 @@ fn parse(defaults: &str, files: &[(&str, &str)]) -> anyhow::Result<(Sheet, Vec<S
     for (path, text) in files {
         if let Err((line, why)) = read_file(text, &mut user, &mut commands) {
             notes.push(format!(
-                "{path}:{line}: {why}; ncmpcpp stops reading its bindings there, and so does keybind-find"
+                "{path}:{line}: {why}; ncmpcpp won't start with this file (a running one read it before it changed); keybind-find reads up to there"
             ));
             // As ncmpcpp's `std::all_of` over the files: an error stops the rest.
             break;
@@ -315,9 +315,13 @@ fn parts(s: &str) -> Option<Option<(Vec<&'static str>, String)>> {
     }
     for (prefix, m) in [("alt-", "alt"), ("ctrl-", "ctrl"), ("shift-", "shift")] {
         if let Some(rest) = s.strip_prefix(prefix).filter(|r| !r.is_empty()) {
-            // `stringToKey`: a special name, else one character.
-            let inner =
-                parts(rest).or_else(|| (rest.chars().count() == 1).then(|| single(rest)))?;
+            // `stringToKey`: a special name, else one character. ncmpcpp never reads shift with a character (only with
+            // tab and the arrows), so `shift-a` is a key no press reaches: kept apart from `A`, and not listed.
+            let one = rest.chars().count() == 1;
+            if m == "shift" && one && parts(rest).is_none() {
+                return Some(None);
+            }
+            let inner = parts(rest).or_else(|| one.then(|| single(rest)))?;
             return Some(inner.map(|(mut mods, k)| {
                 mods.push(m);
                 (mods, k)
@@ -449,7 +453,7 @@ mod tests {
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert_eq!(
             notes[0],
-            "xdg/bindings:30: invalid key: 'bogus'; ncmpcpp stops reading its bindings there, and so does keybind-find"
+            "xdg/bindings:30: invalid key: 'bogus'; ncmpcpp won't start with this file (a running one read it before it changed); keybind-find reads up to there"
         );
         // `z` after the error keeps its default; the second file's `Q` isn't read.
         assert_eq!(get(&s, "z"), Some("toggle random"));
@@ -504,6 +508,9 @@ mod tests {
             note("def_command \"c\" [deferred]\ndef_key \"p\"\n  quit\n")
                 .starts_with("b:2: definition of command 'c' cannot be empty")
         );
+        // `shift-a` is a key no press reaches: it doesn't replace `A`'s default.
+        let (s2, _) = parse(DEFAULTS, &[("b", "def_key \"shift-a\"\n  quit\n")]).unwrap();
+        assert_ne!(get(&s2, "shift+a"), Some("quit"));
         // A non-ASCII key is a key to ncmpcpp but can't be sent: counted.
         let (_, notes) = parse(DEFAULTS, &[("b", "def_key \"é\"\n  quit\n")]).unwrap();
         assert_eq!(
@@ -609,7 +616,6 @@ mod tests {
             ("ctrl-i", "Tab"),
             ("ctrl-m", "Return"),
             ("ctrl-]", "ctrl+bracketright"),
-            ("shift-a", "shift+a"),
             ("alt-l", "alt+l"),
             ("alt-L", "alt+shift+l"),
             ("ctrl-up", "ctrl+Up"),
@@ -637,7 +643,6 @@ mod tests {
             // Nested prefixes come out in canonical order, shift once.
             ("shift-ctrl-a", "ctrl+shift+a"),
             ("alt-ctrl-x", "ctrl+alt+x"),
-            ("shift-A", "shift+a"),
             ("ctrl-\\", "ctrl+backslash"),
         ] {
             assert_eq!(notation(name).as_deref(), Some(want), "{name}");
@@ -645,7 +650,7 @@ mod tests {
             assert!(want.parse::<keybind_find_sheet::Key>().is_ok(), "{want}");
         }
         // Valid to ncmpcpp, but not sent: counted.
-        for name in ["mouse", "é", "alt-mouse"] {
+        for name in ["mouse", "é", "alt-mouse", "shift-a", "shift-A", "shift-1"] {
             assert_eq!(notation(name), None, "{name}");
             assert!(valid(name), "{name}");
         }
