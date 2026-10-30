@@ -341,10 +341,11 @@ then `/etc/ranger/rc.conf`, then yours (`$XDG_CONFIG_HOME/ranger/rc.conf`, else 
 into ranger's key tree as ranger does: a later line wins, binding `g` drops `gg` and the reverse, `copymap` copies
 what the key has at that line. Only the browser's keys are listed (not the console's `cmap`, the pager's `pmap` or
 the task view's `tmap`), with the command as the description and its first word as the category. When
-`RANGER_LOAD_DEFAULT_RC` is `false` the defaults are left out, as ranger does; that variable is read from
-keybind-find's environment, not ranger's, and a config directory given with `-r`/`--confdir` isn't read. Your `eval`
-lines aren't run (they are counted), nor is any command. Keys keybind-find can't send (`<any>` bookmark keys,
-`<bg>`, a `<number>` key code) are left out with a count.
+`RANGER_LOAD_DEFAULT_RC` is `false` the defaults are left out, as ranger does; that variable, like `HOME` and
+`XDG_CONFIG_HOME`, is read from keybind-find's environment, not ranger's, and a config directory given with `-r`/`--confdir` isn't read. `source` lines
+(an absolute path or `~/…`), `chain` and `alias` are followed. Your `eval` lines aren't run (they are counted), nor
+is any command. Keys keybind-find can't send (`<any>` bookmark keys,
+`<bg>`, a `<number>` key code) are left out with a count; an unknown `<name>` is its characters, as in ranger.
 
 ### ncmpcpp
 

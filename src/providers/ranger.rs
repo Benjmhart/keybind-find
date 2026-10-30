@@ -45,7 +45,16 @@ fn read(env: Env, system: &Path) -> (Sheet, Vec<String>) {
         .into_iter()
         .chain(files.iter().map(String::as_str))
         .collect();
-    parse(&texts)
+    let home = env("HOME").filter(|h| !h.is_empty());
+    let load = |name: &str| -> Option<String> {
+        let path = match name.strip_prefix("~/") {
+            Some(rest) => PathBuf::from(home.as_ref()?).join(rest),
+            None => PathBuf::from(name),
+        };
+        // A relative path is relative to ranger's directory, unknown here.
+        text(&path).filter(|_| path.is_absolute())
+    };
+    parse(&texts, &load)
 }
 
 /// The user's rc.conf: `$XDG_CONFIG_HOME/ranger/rc.conf` when that is absolute, else `~/.config/ranger/rc.conf`.
@@ -65,48 +74,107 @@ enum Node {
     Keys(Vec<(i64, Node)>),
 }
 
-/// The sheet from rc.conf `texts` in the order ranger sources them, and the notes for stderr.
-fn parse(texts: &[&str]) -> (Sheet, Vec<String>) {
-    let mut tree: Vec<(i64, Node)> = Vec::new();
-    let mut skipped_lines = 0;
-    for text in texts {
+/// Reads a file named by a `source` line (`~` expanded); `None` when it can't be read.
+type Load<'a> = &'a dyn Fn(&str) -> Option<String>;
+
+/// How deep `source` lines may nest (ranger has no limit; a file sourcing itself would never end).
+const DEPTH: usize = 8;
+
+/// What sourcing the files builds: the key tree, the aliases, and the lines not run.
+struct State<'a> {
+    tree: Vec<(i64, Node)>,
+    /// `alias <name> <command…>`, latest last.
+    aliases: Vec<(String, String)>,
+    skipped_lines: usize,
+    load: Load<'a>,
+}
+
+impl State<'_> {
+    /// `actions.source`: each line, spaces and line ends stripped; comments and blank lines skipped.
+    fn source(&mut self, text: &str, depth: usize) {
         for line in text.lines() {
-            // `source`: strips spaces and line ends only; comments and blank lines skipped.
             let line = line.trim_matches(|c| c == ' ' || c == '\r' || c == '\n');
             if line.starts_with('#') || line.trim().is_empty() {
                 continue;
             }
-            let words: Vec<&str> = line.split_whitespace().collect();
-            let ran = match words[0] {
-                "map" if words.len() >= 3 => {
-                    bind(
-                        &mut tree,
-                        &codes(words[1]),
-                        Node::Command(rest(line, 2).to_string()),
-                    );
-                    true
-                }
-                // Each target in turn; a source that isn't bound stops the line (ranger's `KeyError`).
-                "copymap" if words.len() >= 3 => words[2..].iter().all(|target| {
-                    let Some(node) = find(&tree, &codes(words[1])).cloned() else {
-                        return false;
-                    };
-                    bind(&mut tree, &codes(target), node);
-                    true
-                }),
-                "unmap" => words[1..]
-                    .iter()
-                    .all(|keys| unbind(&mut tree, &codes(keys))),
-                // Never run.
-                "eval" => false,
-                // Other contexts, settings, aliases: not browser keys.
-                _ => true,
-            };
-            if !ran {
-                skipped_lines += 1;
+            if !self.execute(line, depth) {
+                self.skipped_lines += 1;
             }
         }
     }
+
+    /// `execute_console` for one command line; `false` when it isn't run here or ranger would raise.
+    fn execute(&mut self, line: &str, depth: usize) -> bool {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let Some(&name) = words.first() else {
+            return true;
+        };
+        // An alias stands for its command, the rest of the line kept (`command_alias_factory`).
+        if let Some((_, full)) = self.aliases.iter().rev().find(|(a, _)| a == name) {
+            let after = &line[line.find(name).map_or(0, |i| i + name.len())..];
+            let line = format!("{full}{after}");
+            return depth < DEPTH && self.execute(&line, depth + 1);
+        }
+        match name {
+            "map" if words.len() >= 3 => {
+                let node = Node::Command(rest(line, 2).to_string());
+                bind(&mut self.tree, &codes(words[1]), node);
+                true
+            }
+            // Each target in turn; a source that isn't bound stops the line (ranger's `KeyError`).
+            "copymap" if words.len() >= 3 => words[2..].iter().all(|target| {
+                let Some(node) = find(&self.tree, &codes(words[1])).cloned() else {
+                    return false;
+                };
+                bind(&mut self.tree, &codes(target), node);
+                true
+            }),
+            "unmap" => words[1..]
+                .iter()
+                .all(|keys| unbind(&mut self.tree, &codes(keys))),
+            // `alias <name> <command…>`, for a command ranger has (here: the ones that bind keys, or any other).
+            "alias" if words.len() >= 3 => {
+                self.aliases
+                    .push((words[1].to_string(), rest(line, 2).to_string()));
+                true
+            }
+            // `chain <command>; <command>…`: each in turn.
+            "chain" => rest(line, 1)
+                .split(';')
+                .map(str::trim)
+                .filter(|c| !c.is_empty())
+                .fold(true, |ok, c| self.execute(c, depth) && ok),
+            // `source <file>`: its lines, as a config file of their own.
+            "source" if words.len() >= 2 => match (depth < DEPTH)
+                .then(|| (self.load)(rest(line, 1)))
+                .flatten()
+            {
+                Some(text) => {
+                    self.source(&text, depth + 1);
+                    true
+                }
+                None => false,
+            },
+            // Never run.
+            "eval" => false,
+            // Other contexts, settings: not browser keys.
+            _ => true,
+        }
+    }
+}
+
+/// The sheet from rc.conf `texts` in the order ranger sources them, and the notes for stderr.
+fn parse(texts: &[&str], load: Load) -> (Sheet, Vec<String>) {
+    let mut st = State {
+        tree: Vec::new(),
+        aliases: Vec::new(),
+        skipped_lines: 0,
+        load,
+    };
+    for text in texts {
+        st.source(text, 0);
+    }
+    let (tree, skipped_lines) = (st.tree, st.skipped_lines);
     let mut sheet = Sheet {
         title: "ranger".into(),
         provider: "ranger".into(),
@@ -136,7 +204,7 @@ fn parse(texts: &[&str]) -> (Sheet, Vec<String>) {
     if left_out + skipped_lines > 0 {
         notes.push(format!(
             "leaving out {left_out} key(s) keybind-find can't send (<any>, <bg>, a key code) and {skipped_lines} \
-             line(s) it doesn't run (eval) or ranger stops on (copymap or unmap of a key not bound)"
+             line(s) it doesn't run (eval) or ranger stops on (copymap of a key not bound, unmap through a key bound to a command)"
         ));
     }
     (sheet, notes)
@@ -246,7 +314,8 @@ const QUANTIFIER: i64 = 9004;
 const CODE: i64 = 1 << 32;
 
 /// `parse_keybinding`: a key sequence as key codes. `<name>` is looked up lower-cased; a number in brackets is that
-/// code (marked, and never sent); any other `<…>` is its characters. Under Python 3 the text goes through its UTF-8 bytes.
+/// code (marked, and never sent); any other `<…>` is its characters. `_clean_input` first turns the text into its
+/// UTF-8 bytes (`encode('utf-8').decode('latin-1')`), so a non-ASCII character is several codes.
 fn codes(keys: &str) -> Vec<i64> {
     let bytes = keys.as_bytes();
     let mut out = Vec::new();
@@ -260,7 +329,7 @@ fn codes(keys: &str) -> Vec<i64> {
                     Some(k) => out.extend(k),
                     // A key code: left out (the AC), so kept apart from the character it may be.
                     None if !name.is_empty() && name.bytes().all(|b| b.is_ascii_digit()) => {
-                        out.push(CODE + name.parse::<i64>().unwrap_or(0));
+                        out.push(CODE + name.parse::<u32>().map_or(-1, i64::from));
                     }
                     None => {
                         out.push(b'<' as i64);
@@ -373,8 +442,7 @@ fn key(k: i64) -> Option<(Vec<&'static str>, String)> {
         0 => Some((vec!["ctrl"], "space".into())),
         9 => plain("Tab"),
         10 => plain("Return"),
-        // `<c-_>` is `ord('_') - 96`.
-        -1 => Some((vec!["ctrl"], "underscore".into())),
+        // `<c-_>` is `ord('_') - 96`, -1: no key sends it (ctrl+_ is 31), so it isn't listed.
         1..=26 => Some((vec!["ctrl"], ((k + 96) as u8 as char).to_string())),
         27 => plain("Escape"),
         32..=126 => {
@@ -417,6 +485,11 @@ mod tests {
             .join(name)
     }
 
+    /// `parse` with no file to `source`.
+    fn parse_t(texts: &[&str]) -> (Sheet, Vec<String>) {
+        parse(texts, &|_| None)
+    }
+
     fn text(name: &str) -> String {
         std::fs::read_to_string(fixture(name)).unwrap()
     }
@@ -437,19 +510,24 @@ mod tests {
                 && DEFAULTS.contains("55fc2839f693aed9486d211694d7317d78161341")
         );
         assert!(DEFAULTS.contains("ranger/config/rc.conf"));
-        let (s, notes) = parse(&[DEFAULTS]);
+        let (s, notes) = parse_t(&[DEFAULTS]);
         assert_eq!(s.binds.values().map(Vec::len).sum::<usize>(), 280);
         // Only the `<any>`/`<bg>` maps are left out; no line is skipped.
         assert_eq!(
             notes,
             ["leaving out 11 key(s) keybind-find can't send (<any>, <bg>, a key code) and 0 line(s) it doesn't run \
-              (eval) or ranger stops on (copymap or unmap of a key not bound)"]
+              (eval) or ranger stops on (copymap of a key not bound, unmap through a key bound to a command)"]
         );
         assert_eq!(get(&s, "g g"), ["move to=0"]);
         assert_eq!(get(&s, "q"), ["quit"]);
         assert_eq!(get(&s, "plus u x"), ["shell -f chmod u+x %s"]);
         assert_eq!(get(&s, "k"), ["move up=1"]);
         assert_eq!(get(&s, "Up"), ["move up=1"]);
+        // A `map … eval …` default shows its text, under `eval`; nothing is run.
+        assert!(s.binds["eval"]
+            .iter()
+            .any(|b| b.key == "shift+a" && b.desc.starts_with("eval fm.open_console(")));
+        assert_eq!(get(&s, "alt+1"), ["tab_open 1"]);
         // The category is the command's first word.
         assert!(s.binds["quit"].iter().any(|b| b.key == "q"));
         for b in s.binds.values().flatten() {
@@ -471,7 +549,7 @@ mod tests {
     #[test]
     fn rules() {
         let (user, system) = (text("rc.conf"), text("system-rc.conf"));
-        let (s, notes) = parse(&[DEFAULTS, &system, &user]);
+        let (s, notes) = parse_t(&[DEFAULTS, &system, &user]);
         assert_eq!(get(&s, "q"), ["quitall"]);
         assert!(get(&s, "shift+q").is_empty());
         // `copymap` copies the binding the source has at that line: the user's.
@@ -481,7 +559,7 @@ mod tests {
         assert_eq!(get(&s, "alt+j"), ["scroll_preview 3"]);
         assert_eq!(get(&s, "ctrl+f"), ["move down=1 pages=True"]);
         // Other contexts skipped: the console's `<C-x>` isn't a browser key, the pager's `q` didn't replace it.
-        assert!(get(&s, "ctrl+y").is_empty());
+        assert!(get(&s, "ctrl+x").is_empty() && get(&s, "ctrl+y").is_empty());
         // The system file's `ZZ` stands; its `w` lost to the user's later lines.
         assert_eq!(get(&s, "shift+z shift+z"), ["quit"]);
         assert_eq!(get(&s, "w"), ["console tab_new"]);
@@ -495,25 +573,47 @@ mod tests {
     #[test]
     fn the_key_tree() {
         // Binding a prefix replaces what was under it; binding under a key that held a command makes it a prefix.
-        let (s, _) = parse(&["map gg top\nmap g go\n"]);
+        let (s, _) = parse_t(&["map gg top\nmap g go\n"]);
         assert_eq!((get(&s, "g"), get(&s, "g g")), (vec!["go"], vec![]));
-        let (s, _) = parse(&["map g go\nmap gx x\n"]);
+        let (s, _) = parse_t(&["map g go\nmap gx x\n"]);
         assert_eq!((get(&s, "g"), get(&s, "g x")), (vec![], vec!["x"]));
         // `copymap` of a prefix copies everything under it.
-        let (s, _) = parse(&["map ga a\nmap gb b\ncopymap g h\n"]);
+        let (s, _) = parse_t(&["map ga a\nmap gb b\ncopymap g h\n"]);
         assert_eq!((get(&s, "h a"), get(&s, "h b")), (vec!["a"], vec!["b"]));
         // `unmap` removes the key and a prefix left empty; several at once.
-        let (s, _) = parse(&["map ga a\nmap gb b\nmap c c\nunmap ga gb c\n"]);
+        let (s, _) = parse_t(&["map ga a\nmap gb b\nmap c c\nunmap ga gb c\n"]);
         assert!(s.binds.is_empty());
         // A missing source stops the line (the targets after it too); so does unmapping under a command.
-        let (s, notes) = parse(&["map a a\ncopymap zz b\nunmap aa\n"]);
+        let (s, notes) = parse_t(&["map a a\ncopymap zz b\nunmap aa\n"]);
         assert_eq!(get(&s, "a"), ["a"]);
-        assert!(notes[0].ends_with("and 2 line(s) it doesn't run (eval) or ranger stops on (copymap or unmap of a key not bound)"), "{notes:?}");
+        assert!(notes[0].ends_with("and 2 line(s) it doesn't run (eval) or ranger stops on (copymap of a key not bound, unmap through a key bound to a command)"), "{notes:?}");
+        // Unmapping a key not bound is nothing (not counted); a list stops where ranger raises.
+        let (s, notes) = parse_t(&["map a a\nmap b b\nunmap zz\nunmap b aa a\n"]);
+        assert_eq!((get(&s, "a"), get(&s, "b")), (vec!["a"], vec![]));
+        assert!(notes[0].contains(" and 1 line(s)"), "{notes:?}");
+        // `source` reads the named file (here through the test's loader), `chain` runs each command, an alias stands
+        // for its command; a `source` of a file that can't be read is counted.
+        let files =
+            |name: &str| (name == "/keys.conf").then(|| "map k up\nalias m map\n".to_string());
+        let (s, notes) = parse(
+            &["source /keys.conf\nchain map a 1; map b 2\nm c three\nsource /none.conf\n"],
+            &files,
+        );
+        assert_eq!(
+            (get(&s, "k"), get(&s, "a"), get(&s, "b")),
+            (vec!["up"], vec!["1"], vec!["2"])
+        );
+        assert_eq!(get(&s, "c"), ["three"]);
+        assert!(notes[0].contains(" and 1 line(s)"), "{notes:?}");
+        // A file sourcing itself stops at the depth limit.
+        let me = |_: &str| Some("map x y\nsource /me\n".to_string());
+        let (s, _) = parse(&["source /me\n"], &me);
+        assert_eq!(get(&s, "x"), ["y"]);
         // Two names for one code are one key: `<C-j>` is `<CR>`.
-        let (s, _) = parse(&["map <CR> open\nmap <C-j> down\n"]);
+        let (s, _) = parse_t(&["map <CR> open\nmap <C-j> down\n"]);
         assert_eq!(get(&s, "Return"), ["down"]);
         // `map` with no command, and blank or comment lines: nothing.
-        let (s, notes) = parse(&["map x\n\n   # note\n  map  y   cmd   arg\n"]);
+        let (s, notes) = parse_t(&["map x\n\n   # note\n  map  y   cmd   arg\n"]);
         assert_eq!((get(&s, "y"), notes.len()), (vec!["cmd   arg"], 0));
     }
 
@@ -538,6 +638,15 @@ mod tests {
                     .map(|(_, v)| v.to_string())
             }
         };
+        // An unreadable file is skipped, silently (the defaults stand).
+        let locked = dir.join("locked.conf");
+        std::fs::write(&locked, "map q x\n").unwrap();
+        std::fs::set_permissions(&locked, std::os::unix::fs::PermissionsExt::from_mode(0o000))
+            .unwrap();
+        if std::fs::read(&locked).is_err() {
+            let (s, notes) = read(&|_| None, &locked);
+            assert_eq!((get(&s, "q"), notes.len()), (vec!["quit"], 1));
+        }
         // Defaults, then the user's file (no system file).
         let (s, _) = read(&env(&[]), &system);
         assert_eq!(
@@ -614,6 +723,11 @@ mod tests {
             ("<F5>", "F5"),
             ("<c-space>", "ctrl+space"),
             ("<a-left>", "alt+Left"),
+            ("<s-delete>", "shift+Delete"),
+            ("<a-5>", "alt+5"),
+            ("<a-{>", "alt+braceleft"),
+            ("<alt>j", "alt+j"),
+            ("<f35>", "F35"),
             ("J", "shift+j"),
             ("gg", "g g"),
             ("+ux", "plus u x"),
@@ -628,6 +742,9 @@ mod tests {
             "m<bg>",
             "<100>",
             "<f0>",
+            "<f40>",
+            "<c-_>",
+            "<999999999999999999999>",
             "é",
             "<alt>",
         ] {
