@@ -138,12 +138,12 @@ impl State<'_> {
                     .push((words[1].to_string(), rest(line, 2).to_string()));
                 true
             }
-            // `chain <command>; <command>…`: each in turn.
+            // `chain <command>; <command>…`: each in turn, stopping where one raises (it propagates out of chain).
             "chain" => rest(line, 1)
                 .split(';')
                 .map(str::trim)
                 .filter(|c| !c.is_empty())
-                .fold(true, |ok, c| self.execute(c, depth) && ok),
+                .all(|c| self.execute(c, depth)),
             // `source <file>`: its lines, as a config file of their own.
             "source" if words.len() >= 2 => match (depth < DEPTH)
                 .then(|| (self.load)(rest(line, 1)))
