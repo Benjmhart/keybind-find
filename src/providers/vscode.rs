@@ -1397,7 +1397,7 @@ mod tests {
         // No directory entries: none.
         assert_eq!(live_facts(code, &env), None);
         // One focused file: its facts; a value that isn't a `Name` is left out.
-        let facts = r#"{"filetype": "rust", "extension": "rs", "bad": "has space", "n": 3}"#;
+        let facts = r#"{"filetype": "rust", "extension": "rs", "bad": "has space", "n": 3, "bad key": "x"}"#;
         write(
             "1.json",
             state(me as u64, true, 10, "Visual Studio Code", facts),
@@ -1474,15 +1474,14 @@ mod tests {
             .status()
             .unwrap()
             .success());
-        assert_eq!(
-            text(live_facts(&VARIANTS[2], &env)).as_deref(),
-            Some("filetype=python")
-        );
-        // It is VSCodium's own.
-        assert_eq!(
-            text(live_facts(&VARIANTS[2], &env)).as_deref(),
-            Some("filetype=python")
-        );
+        // In a thread, so a read that blocks fails the test instead of hanging it.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let env2 = env_at(&tmp, &[("XDG_RUNTIME_DIR", &run)]);
+        std::thread::spawn(move || tx.send(text(live_facts(&VARIANTS[2], &env2))));
+        let got = rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        assert_eq!(got.as_deref(), Some("filetype=python"));
+        // It is VSCodium's own, not Code's.
+        assert_eq!(live_facts(code, &env), None);
         // No runtime directory, or an empty variable: none.
         let _ = std::fs::remove_dir_all(&tmp);
         assert_eq!(live_facts(&VARIANTS[2], &env), None);

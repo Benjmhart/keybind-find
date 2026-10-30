@@ -14,7 +14,8 @@ function state({ pid, focused, time, appName, document }) {
   if (document) {
     facts.filetype = document.languageId;
     const ext = path.posix.extname(document.uri.path);
-    if (ext.length > 1) facts.extension = ext.slice(1);
+    // As keybind-find's title guess: 1 to 16 characters.
+    if (ext.length > 1 && ext.length <= 17) facts.extension = ext.slice(1);
   }
   return { version: 1, pid, focused, time, appName, facts };
 }
@@ -28,11 +29,15 @@ let file;
 function write(vscode, opened) {
   const run = process.env.XDG_RUNTIME_DIR;
   if (!run) return;
-  const dir = path.join(run, 'keybind-find', 'vscode');
-  file = path.join(dir, `${process.pid}.json`);
   const editor = vscode.window.activeTextEditor;
   let document = editor && editor.document;
-  if (document && opened && opened.uri.toString() === document.uri.toString()) document = opened;
+  if (opened) {
+    // Documents open in the background all the time (git, language servers); only the active one matters.
+    if (!document || opened.uri.toString() !== document.uri.toString()) return;
+    document = opened;
+  }
+  const dir = path.join(run, 'keybind-find', 'vscode');
+  file = path.join(dir, `${process.pid}.json`);
   const s = state({
     pid: process.pid,
     focused: vscode.window.state.focused,

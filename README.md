@@ -153,7 +153,7 @@ cp -r editors/vscode ~/.vscode/extensions/keybind-find.keybind-find-0.1.0
 (`~/.vscode-insiders/extensions/` for Insiders, `~/.vscode-oss/extensions/` for VSCodium and Code - OSS.) It writes
 one small file per window, `$XDG_RUNTIME_DIR/keybind-find/vscode/<pid>.json`, when the window's focus, editor or
 language changes, and deletes it when the window closes; it makes no network calls and runs nothing. The language is
-the last text editor's, also while a panel or the terminal has focus. Snap and Flatpak builds keep their runtime
+the active text editor's (the Output panel is one), and stays the last one while the terminal has focus. Snap and Flatpak builds keep their runtime
 directory to themselves, so there keybind-find falls back to the window title. It can't report the
 rest of VS Code's context: no extension can read context keys, so focus keys (`editorTextFocus`, `terminalFocus`),
 the `resource*` keys and other extensions' keys (VSCodeVim's mode) stay tags. It isn't on the Marketplace or Open VSX
