@@ -644,6 +644,10 @@ fn providers_for(
             Some("screen") => providers.push("screen"),
             Some("yazi") => providers.push("yazi"),
             Some("micro") => providers.push("micro"),
+            // mcedit, mcview and mcdiff are links to mc; comm is the name it was run as.
+            // ponytail: mc's subshell (Ctrl-O) runs on its own pty, so the terminal still reports mc and mc's keys show
+            // while the shell is in front; check whether the subshell leads its pty's foreground group to tell.
+            Some("mc" | "mcedit" | "mcview" | "mcdiff") => providers.push("mc"),
             _ => {}
         }
         // `man`, `git log` and `systemctl status` lead the pipeline that less runs in.
@@ -1366,6 +1370,14 @@ mod tests {
             x(Some("Alacritty"), Some("micro")),
             ["xmonad", "espanso", "alacritty", "micro", "sheets"]
         );
+        // mc and its links in a terminal, after the terminal's own keys and before `sheets`.
+        for child in ["mc", "mcedit", "mcview", "mcdiff"] {
+            assert_eq!(
+                x(Some("Alacritty"), Some(child)),
+                ["xmonad", "espanso", "alacritty", "mc", "sheets"]
+            );
+        }
+        assert!(!x(Some("Alacritty"), Some("mcc")).contains(&"mc"));
         // yazi in a terminal, before `sheets`.
         assert_eq!(
             x(Some("Alacritty"), Some("yazi")),
@@ -1691,6 +1703,10 @@ mod tests {
                 (Some("screen"), vec!["screen"]),
                 (Some("yazi"), vec!["yazi"]),
                 (Some("micro"), vec!["micro"]),
+                (Some("mc"), vec!["mc"]),
+                (Some("mcedit"), vec!["mc"]),
+                (Some("mcview"), vec!["mc"]),
+                (Some("mcdiff"), vec!["mc"]),
                 (Some("python3"), vec![]),
                 (None, vec![]),
             ] {

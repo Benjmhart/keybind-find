@@ -1,0 +1,13 @@
+# Synthetic: an ExtendedKeyMap of several keys, the first not a key name and f2 already UserMenu's.
+[filemanager]
+ExtendedKeyMap = bogus; f2; ctrl-y
+
+[filemanager:xmap]
+Hello = z
+
+# The editor's ctrl-x is WordRight's (earlier): mc never reaches [editor:xmap].
+[editor:xmap]
+Save = s
+
+# A header with no keys adds nothing.
+[viewer:xmap]

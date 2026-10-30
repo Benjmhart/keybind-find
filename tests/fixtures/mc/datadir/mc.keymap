@@ -1,0 +1,3 @@
+# Synthetic: the system keymap under $MC_DATADIR.
+[filemanager]
+DataDir = alt-z

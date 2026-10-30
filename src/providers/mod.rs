@@ -16,6 +16,7 @@ mod i3;
 mod kde;
 pub(crate) mod kitty;
 mod less;
+mod mc;
 mod micro;
 mod mpv;
 mod nano;
@@ -70,6 +71,7 @@ pub const KNOWN: &[&str] = &[
     "foot",
     "obsidian",
     "gnome-terminal",
+    "mc",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -101,6 +103,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "yazi" => yazi::sheet(),
         "zathura" => zathura::sheet(ctx),
         "micro" => micro::sheet(),
+        "mc" => mc::sheet(),
         "obsidian" => obsidian::sheet(ctx),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(

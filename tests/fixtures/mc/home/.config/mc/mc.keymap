@@ -1,0 +1,5 @@
+# Synthetic: the default user keymap.
+[filemanager]
+UserDefault = alt-u
+# Over the system file's.
+System = alt-w

@@ -31,6 +31,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | vim | your maps (`:map`, `:map!`, `:tmap`, `:lmap`) from a headless vim with your vimrc; not vim's built-in keys | none; it runs your vimrc ([below](#vim)) |
 | nano | its main-menu keys: nano's defaults for its version (7.2, 8.4 and 9.2 built in) with your nanorc's `bind`/`unbind` on top | none ([below](#nano)) |
 | micro | its keys: micro's defaults for its version (2.0.11, 2.0.14 and 2.0.15 built in) with your `bindings.json` on top | none ([below](#micro)) |
+| Midnight Commander | its keys by section (file manager, panel, editor, viewer, …): mc's compiled-in defaults (4.8.33's built in) with the system and your keymap on top | none ([below](#midnight-commander)) |
 | yazi | its keys: yazi's default keymap for its version (25.4.8, 25.5.31 and 26.9.1 built in) with your `keymap.toml` merged in | none ([below](#yazi)) |
 | herdr | herdr's defaults for its version, your `config.toml` and plugin commands | none |
 | tmux | the running server's `list-keys`, so your prefix and bindings, with each key's note | none |
@@ -46,7 +47,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | espanso | `espanso match list`; picking a match types its trigger | none |
 | anything else | a sheet you write, or a script that prints one | [docs/sheets.md](docs/sheets.md) |
 
-nvim, vim, nano, micro, yazi, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
+nvim, vim, nano, micro, mc (and mcedit, mcview, mcdiff), yazi, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
 sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
@@ -194,6 +195,28 @@ action as written (`Copy|CopyLine`, `command:pwd`). A `bindings.json` that doesn
 defaults are shown; mouse keys, raw escapes, keys micro or keybind-find can't read and values that aren't strings are
 left out, counted in one line. Not read: keys bound by Lua plugins (unless written to `bindings.json`), and a config dir
 given with `-config-dir`.
+
+### Midnight Commander
+
+When mc, mcedit, mcview or mcdiff is the program in the focused terminal, keybind-find lists mc's keys, one category per
+keymap section (`filemanager`, `panel`, `editor`, `viewer`, `viewer:hex`, …), built as mc builds its keymap: mc 4.8.33's
+compiled-in defaults, then `/usr/share/mc/mc.keymap` and the system keymap (`$MC_DATADIR/mc.keymap`, else
+`/etc/mc/mc.keymap`), then **one** user keymap: `$MC_KEYMAP`, else the `keymap` value in `[Midnight-Commander]` of
+`~/.config/mc/ini`, else `~/.config/mc/mc.keymap` (or under `$XDG_CONFIG_HOME/mc`). Distros install mc's full default
+keymap as `/etc/mc/mc.keymap`, so another mc version's keys show for every action that file names (actions only
+4.8.33 compiles in still show). A name without `.keymap` gets it, and a relative one is looked for in `~/.config/mc`,
+then `/usr/share/mc`. A later file replaces an action's keys, and `Action =` removes it; a key two actions name in one
+section shows on the first, as mc uses the first. Keys in a `:xmap` section follow the key that opens it
+(`ExtendedKeyMap`, `ctrl+x c`): the first of its keys that no earlier action in that section has. When every one is
+taken, as `WordRight` takes the editor's `ctrl-x` by default, mc never opens the map and its keys aren't listed (a key
+bound in a section mc consults first, such as `[panel]` before `[filemanager]`, isn't checked). A line mc's keyfile reader can't read ends the file there, with a
+one-line note; a misspelt action is listed as written; key names keybind-find can't name (including ones mc can't read,
+such as the `ctr-a` in mc's own default keymap) are left out and counted in one line.
+
+Not seen: a keymap given with `mc -K`, and `MC_KEYMAP` or `MC_DATADIR` set only in the shell that started mc
+(keybind-find has its own environment, from your window manager). While mc's subshell is in front (Ctrl-O) the terminal
+still reports mc, so mc's keys are listed, not the shell's. MinIO's client is also called `mc`; in a terminal running
+it you get Midnight Commander's list.
 
 ### yazi
 
