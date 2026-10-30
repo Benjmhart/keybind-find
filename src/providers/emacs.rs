@@ -12,21 +12,6 @@ use std::process::Command;
 use std::time::Duration;
 
 pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
-    // No Emacs found in the window (`dump` from a shell), or no server for it: the init file, silently.
-    if let Some(pid) = crate::context::editor_pid() {
-        match live(pid) {
-            Ok(Some(answer)) => {
-                let (sheet, facts, left_out) = parse(answer, true)?;
-                crate::context::set_facts(facts);
-                note_left_out(left_out);
-                return Ok(sheet);
-            }
-            Ok(None) => {}
-            Err(e) => eprintln!(
-                "keybind-find: emacs: the running Emacs: {e:#}; reading the init file in --batch instead"
-            ),
-        }
-    }
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_default();
@@ -34,25 +19,55 @@ pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
         .map(PathBuf::from)
         .filter(|d| d.is_absolute())
         .unwrap_or_else(|| home.join(".config"));
-    let (sheet, notes) = batch(framework(&home, &config), |_| {})?;
+    let ask_it = crate::context::editor_pid().map(target);
+    let (sheet, facts, notes) = read(ask_it, framework(&home, &config), |_| {})?;
+    if let Some(facts) = facts {
+        crate::context::set_facts(facts);
+    }
     for note in notes {
         eprintln!("keybind-find: emacs: {note}");
     }
     Ok(sheet)
 }
 
-fn note_left_out(left_out: usize) {
-    if left_out > 0 {
-        eprintln!(
-            "keybind-find: emacs: leaving out {left_out} key(s) keybind-find can't send (hyper, alt-as-A- or a key \
-             with no X keysym)"
-        );
+/// The sheet, the facts (from a live answer) and the notes for stderr. With `ask_it` (the sockets to try and the pid
+/// that must answer), the running Emacs; no answer from it, silently, or a failure, with a note, falls back to the batch
+/// read. `setup` (a test seam) is applied to each command.
+fn read(
+    ask_it: Option<(Vec<PathBuf>, Option<u32>)>,
+    framework: Option<(&str, PathBuf)>,
+    setup: impl Fn(&mut Command),
+) -> anyhow::Result<(Sheet, Option<crate::scope::Facts>, Vec<String>)> {
+    let mut notes = Vec::new();
+    if let Some((sockets, want)) = ask_it {
+        match ask(&sockets, want, &setup) {
+            Ok(Some(answer)) => {
+                let (sheet, facts, left_out) = parse(answer, true)?;
+                notes.extend(left_out_note(left_out));
+                return Ok((sheet, Some(facts), notes));
+            }
+            Ok(None) => {}
+            Err(e) => notes.push(format!(
+                "the running Emacs: {e:#}; reading the init file in --batch instead"
+            )),
+        }
     }
+    let (sheet, more) = batch(framework, &setup)?;
+    notes.extend(more);
+    Ok((sheet, None, notes))
 }
 
-/// The answer of the Emacs whose pid (an `emacs` or the `emacsclient` talking to one) is `pid`; `None` when no socket
-/// is its (or there is none).
-fn live(pid: u32) -> anyhow::Result<Option<Answer>> {
+fn left_out_note(left_out: usize) -> Option<String> {
+    (left_out > 0).then(|| {
+        format!(
+            "leaving out {left_out} key(s) keybind-find can't send (hyper, alt-as-A- or a key with no X keysym)"
+        )
+    })
+}
+
+/// The sockets to try for the Emacs whose pid (an `emacs`, or the `emacsclient` talking to one) is `pid`, and the pid
+/// that must answer: an emacs must be the one; an emacsclient talks to some server, so any.
+fn target(pid: u32) -> (Vec<PathBuf>, Option<u32>) {
     let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
     let cmdline: Vec<String> = std::fs::read(format!("/proc/{pid}/cmdline"))
         .map(|b| {
@@ -62,25 +77,24 @@ fn live(pid: u32) -> anyhow::Result<Option<Answer>> {
                 .collect()
         })
         .unwrap_or_default();
-    // An emacsclient talks to some server; an emacs must be the one that answers.
+    let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty());
+    let uid = std::fs::metadata("/proc/self").ok().map(|m| m.uid());
+    let dir = server_dir(env("XDG_RUNTIME_DIR"), env("TMPDIR"), uid);
     let want = (comm.trim_end() != "emacsclient").then_some(pid);
-    ask(
-        &socket_candidates(&cmdline, server_dir().as_deref()),
-        want,
-        |_| {},
-    )
+    (socket_candidates(&cmdline, dir.as_deref()), want)
 }
 
 /// Emacs's server directory (`server-socket-dir`): `$XDG_RUNTIME_DIR/emacs`, else `${TMPDIR:-/tmp}/emacs<uid>`.
-fn server_dir() -> Option<PathBuf> {
-    if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR").filter(|d| !d.is_empty()) {
+fn server_dir(
+    runtime: Option<std::ffi::OsString>,
+    tmpdir: Option<std::ffi::OsString>,
+    uid: Option<u32>,
+) -> Option<PathBuf> {
+    if let Some(runtime) = runtime {
         return Some(PathBuf::from(runtime).join("emacs"));
     }
-    let uid = std::fs::metadata("/proc/self").ok()?.uid();
-    let tmp = std::env::var_os("TMPDIR")
-        .filter(|d| !d.is_empty())
-        .unwrap_or_else(|| "/tmp".into());
-    Some(PathBuf::from(tmp).join(format!("emacs{uid}")))
+    let tmp = PathBuf::from(tmpdir.unwrap_or_else(|| "/tmp".into()));
+    Some(tmp.join(format!("emacs{}", uid?)))
 }
 
 /// The sockets to try, in order: the one named in the command line (`--daemon=NAME`, `--fg-daemon=NAME`, or
@@ -247,11 +261,11 @@ const END: &str = "KEYBIND-FIND-EMACS-END";
 /// Run by `emacs --batch -q`, after `(let ((kbf-load t|nil))`: with `kbf-load`, `early-init.el`, the installed packages
 /// and the init file (`~/.emacs`, `~/.emacs.el`, else `init.el` in `user-emacs-directory`), an error kept as `error`;
 /// then the global map and, with evil loaded, its normal, insert, visual and motion state maps (source: the state),
-/// between `START` and `END`. `server-start` does nothing and `kill-emacs-hook` is cleared, so the init can't touch a
+/// between `START` and `END`. `server-start` does nothing (an advice, which outlives the init loading `server.el`) and `kill-emacs-hook` is cleared, so the init can't touch a
 /// running Emacs or write its state files.
 const BATCH_BODY: &str = concat!(
     r#"(let ((kbf-error nil) (dir user-emacs-directory))
-  (fset 'server-start #'ignore)
+  (advice-add 'server-start :override #'ignore)
   (when kbf-load
     (condition-case err
         (let ((early (expand-file-name "early-init.el" dir))
@@ -314,7 +328,8 @@ fn batch(
         .env("LC_ALL", "C.UTF-8")
         .env("MISE_NOT_FOUND_AUTO_INSTALL", "0")
         .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY");
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("WAYLAND_SOCKET");
     let (_, stdout, stderr) = crate::context::run_for_status(cmd, BATCH_TIMEOUT)?;
     let json = between_sentinels(&stdout).with_context(|| match one_line(&stderr) {
         e if e.is_empty() => "emacs --batch printed no keymap".to_string(),
@@ -335,11 +350,7 @@ fn batch(
         ));
     }
     let (sheet, _, left_out) = parse(answer, false)?;
-    if left_out > 0 {
-        notes.push(format!(
-            "leaving out {left_out} key(s) keybind-find can't send (hyper, alt-as-A- or a key with no X keysym)"
-        ));
-    }
+    notes.extend(left_out_note(left_out));
     Ok((sheet, notes))
 }
 
@@ -497,6 +508,11 @@ fn named(name: &str) -> Option<String> {
         "home" => "Home",
         "end" => "End",
         "prior" => "Prior",
+        "Scroll_Lock" => "Scroll_Lock",
+        "copy" => "XF86Copy",
+        "cut" => "XF86Cut",
+        "paste" => "XF86Paste",
+        "open" => "XF86Open",
         "next" => "Next",
         "left" => "Left",
         "right" => "Right",
@@ -630,7 +646,9 @@ mod tests {
             (e.desc.as_str(), scopes(e).as_str()),
             ("eval-buffer", "major-mode=emacs-lisp-mode")
         );
-        // Global binds have no scope; `ESC x` and `M-x` are one key.
+        // Global binds have no scope. `ESC <left>` (backward-word) and `M-<left>` (left-word) are both alt+Left: the
+        // first in the walk, `M-<left>`, as in Emacs.
+        assert_eq!(get(&s, "global", "alt+Left").unwrap().desc, "left-word");
         for (key, command) in [
             ("ctrl+x ctrl+f", "find-file"),
             ("alt+x", "execute-extended-command"),
@@ -638,6 +656,8 @@ mod tests {
             ("F3", "kmacro-start-macro-or-insert-counter"),
             ("ctrl+at", "set-mark-command"),
             ("alt+Escape Escape", "keyboard-escape-quit"),
+            ("Scroll_Lock", "scroll-lock-mode"),
+            ("XF86Copy", "kill-ring-save"),
         ] {
             let b = get(&s, "global", key).unwrap_or_else(|| panic!("{key}"));
             assert_eq!(
@@ -652,8 +672,8 @@ mod tests {
         unique.sort();
         unique.dedup();
         assert_eq!(all.len(), unique.len());
-        // `<again>`, `<deleteline>`, `<insertchar>` and `<insertline>` have no X keysym (each once or more).
-        assert!(left_out > 0 && left_out < 20, "{left_out}");
+        // No X keysym: `<again>`, `<deleteline>`, `<insertline>` and `<insertchar>` (plain, `C-`, `S-`).
+        assert_eq!(left_out, 6);
     }
 
     #[test]
@@ -718,6 +738,8 @@ mod tests {
             ("<kp-add>", "KP_Add"),
             ("<kp-7>", "KP_7"),
             ("<XF86Back>", "XF86Back"),
+            ("<Scroll_Lock>", "Scroll_Lock"),
+            ("<copy>", "XF86Copy"),
             ("C-x C-f", "ctrl+x ctrl+f"),
             ("M-x", "alt+x"),
             ("ESC x", "alt+x"),
@@ -790,16 +812,20 @@ mod tests {
 
     #[test]
     fn the_server_directory() {
-        // This process's view, as Emacs's `server-socket-dir`.
-        let dir = server_dir().unwrap();
-        match std::env::var_os("XDG_RUNTIME_DIR").filter(|d| !d.is_empty()) {
-            Some(r) => assert_eq!(dir, PathBuf::from(r).join("emacs")),
-            None => assert!(dir
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("emacs")),
-        }
+        let os = |s: &str| Some(std::ffi::OsString::from(s));
+        assert_eq!(
+            server_dir(os("/run/user/1000"), os("/var/tmp"), Some(1000)),
+            Some(PathBuf::from("/run/user/1000/emacs"))
+        );
+        assert_eq!(
+            server_dir(None, os("/var/tmp"), Some(1000)),
+            Some(PathBuf::from("/var/tmp/emacs1000"))
+        );
+        assert_eq!(
+            server_dir(None, None, Some(1000)),
+            Some(PathBuf::from("/tmp/emacs1000"))
+        );
+        assert_eq!(server_dir(None, None, None), None);
     }
 
     const ANSWER_7: &str = r#"printf '%s\n' '"{\"pid\":7,\"major\":\"text-mode\",\"evil\":null,\"binds\":[[\"C-c a\",\"seven\",\"global\"]]}"'"#;
@@ -866,6 +892,60 @@ mod tests {
         let _ = std::fs::remove_dir_all(&bin);
     }
 
+    /// `sheet`'s path: the running Emacs, else the batch read, with one note only when asking failed.
+    #[test]
+    fn the_live_read_falls_back_to_batch() {
+        let bin = fake_client("read");
+        fake(
+            &bin,
+            "emacs",
+            &format!("/bin/cat '{}'", fixture("batch-31.1.txt").display()),
+        );
+        let s = |n: &[&str]| n.iter().map(|n| bin.join(n)).collect::<Vec<_>>();
+        // An answer: its sheet and facts, no batch read.
+        let (sheet, facts, notes) = read(Some((s(&["seven"]), Some(7))), None, path(&bin)).unwrap();
+        assert_eq!(get(&sheet, "global", "ctrl+c a").unwrap().desc, "seven");
+        assert_eq!(
+            facts
+                .unwrap()
+                .get("major-mode")
+                .map(|m| m.to_string())
+                .as_deref(),
+            Some("text-mode")
+        );
+        assert!(notes.is_empty(), "{notes:?}");
+        // No socket, no Emacs found, or only other Emacsen: the batch read, silently (bar its left-out count).
+        for ask_it in [Some((vec![], Some(7))), None, Some((s(&["nine"]), Some(7)))] {
+            let (sheet, facts, notes) = read(ask_it, None, path(&bin)).unwrap();
+            assert!(get(&sheet, "global", "ctrl+c k").is_some());
+            assert!(facts.is_none());
+            assert!(
+                notes.iter().all(|n| n.starts_with("leaving out ")),
+                "{notes:?}"
+            );
+        }
+        // A server that refuses or hangs: one note, then the batch read.
+        for socket in ["refuses", "slow"] {
+            let (sheet, facts, notes) =
+                read(Some((s(&[socket]), Some(7))), None, path(&bin)).unwrap();
+            assert!(get(&sheet, "global", "ctrl+c k").is_some());
+            assert!(facts.is_none());
+            assert!(
+                notes[0].starts_with("the running Emacs: asking "),
+                "{notes:?}"
+            );
+            assert!(
+                notes[0].ends_with("; reading the init file in --batch instead"),
+                "{notes:?}"
+            );
+            assert!(
+                notes[1..].iter().all(|n| n.starts_with("leaving out ")),
+                "{notes:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&bin);
+    }
+
     #[test]
     fn batch_answer_from_emacs_31() {
         let stdout = std::fs::read_to_string(fixture("batch-31.1.txt")).unwrap();
@@ -920,7 +1000,10 @@ mod tests {
             ),
         );
         let (s, notes) = batch(None, |c: &mut Command| {
-            c.env("PATH", &bin).env("DISPLAY", ":9");
+            c.env("PATH", &bin)
+                .env("DISPLAY", ":9")
+                .env("WAYLAND_DISPLAY", "wayland-9")
+                .env("WAYLAND_SOCKET", "9");
         })
         .unwrap();
         assert!(get(&s, "global", "ctrl+c k").is_some());
@@ -933,7 +1016,8 @@ mod tests {
         );
         let env = std::fs::read_to_string(bin.join("env")).unwrap();
         let has = |v: &str| env.lines().any(|l| l.starts_with(v));
-        assert!(!has("DISPLAY=") && !has("WAYLAND_DISPLAY=") && has("LC_ALL=C.UTF-8"));
+        assert!(!has("DISPLAY=") && !has("WAYLAND_DISPLAY=") && !has("WAYLAND_SOCKET="));
+        assert!(has("LC_ALL=C.UTF-8"));
         assert_eq!(
             std::fs::read_to_string(bin.join("pwd")).unwrap().trim(),
             "/"
@@ -986,6 +1070,41 @@ mod tests {
         let _ = std::fs::remove_dir_all(&bin);
     }
 
+    /// Captured from Emacs 31.1 with evil 1.15.0 and an init that loads evil, then errors: evil's state maps, filed
+    /// and scoped by state, and the error as a note.
+    #[test]
+    fn batch_answer_with_evil_and_an_init_error() {
+        let bin = temp("batch-evil");
+        fake(
+            &bin,
+            "emacs",
+            &format!("/bin/cat '{}'", fixture("batch-evil-31.1.txt").display()),
+        );
+        let (s, notes) = batch(None, path(&bin)).unwrap();
+        let _ = std::fs::remove_dir_all(&bin);
+        assert_eq!(
+            notes[0],
+            "the init file failed (boom here); listing the maps it set up before that"
+        );
+        let j = get(&s, "motion", "j").unwrap();
+        assert_eq!(
+            (j.desc.as_str(), scopes(j).as_str()),
+            ("evil-next-line", "mode=motion")
+        );
+        // One key, one bind per state map, and the global one.
+        let o = |c| get(&s, c, "ctrl+o").map(|b| (b.desc.as_str(), scopes(b)));
+        assert_eq!(
+            o("insert"),
+            Some(("evil-execute-in-normal-state", "mode=insert".into()))
+        );
+        assert_eq!(
+            o("motion"),
+            Some(("evil-jump-backward", "mode=motion".into()))
+        );
+        assert_eq!(o("global"), Some(("open-line", String::new())));
+        assert!(s.binds.contains_key("normal") && s.binds.contains_key("visual"));
+    }
+
     #[test]
     fn doom_and_spacemacs_are_found() {
         let home = temp("frameworks");
@@ -1033,7 +1152,13 @@ mod tests {
         // Emacs refuses a socket directory others can read (`server-ensure-safe-dir`).
         std::fs::set_permissions(&tmp, std::os::unix::fs::PermissionsExt::from_mode(0o700))
             .unwrap();
-        std::fs::copy(fixture("init.el"), home.join(".emacs.d/init.el")).unwrap();
+        // The batch read's init also starts a server, which must stay off: no socket appears.
+        let init = std::fs::read_to_string(fixture("init.el")).unwrap();
+        std::fs::write(
+            home.join(".emacs.d/init.el"),
+            format!("{init}\n(require 'server)\n(unless (server-running-p) (server-start))\n"),
+        )
+        .unwrap();
         let socket = tmp.join("s");
         let env = |c: &mut Command| {
             c.env("HOME", &home)
@@ -1057,16 +1182,46 @@ mod tests {
         }
         let live = ask(std::slice::from_ref(&socket), Some(daemon.0.id()), env);
         let batch = batch(None, env);
+        let started = tmp.join("emacs/server").exists();
         drop(daemon);
         let _ = std::fs::remove_dir_all(&tmp);
         let checks = || -> anyhow::Result<()> {
-            let (s, facts, _) = parse(live?.context("no answer from the daemon")?, true)?;
+            let answer = live?.context("no answer from the daemon")?;
+            anyhow::ensure!(
+                answer
+                    .binds
+                    .iter()
+                    .all(|(k, _, _)| !["mouse", "menu-bar", "tool-bar", "remap"]
+                        .iter()
+                        .any(|w| k.contains(w))),
+                "a mouse, menu or remap entry reached Rust"
+            );
+            let (s, facts, _) = parse(answer, true)?;
             anyhow::ensure!(get(&s, "global", "ctrl+x ctrl+f").is_some(), "no C-x C-f");
+            // The fixture init's minor-mode `C-c k` wins over its global one; `C-c e` is the major mode's.
+            anyhow::ensure!(
+                get(&s, "buffer", "ctrl+c k").is_some_and(|b| b.desc == "kill-line")
+                    && get(&s, "global", "ctrl+c k").is_none(),
+                "the minor mode's C-c k didn't win"
+            );
+            anyhow::ensure!(
+                get(&s, "emacs-lisp-mode", "ctrl+c e").is_some_and(|b| b.desc == "eval-buffer"),
+                "no major-mode C-c e"
+            );
+            // Dropped in the elisp: no self-insert, mouse, menu-bar or `ignore` entries reach Rust.
+            let all: Vec<&Bind> = s.binds.values().flatten().collect();
+            anyhow::ensure!(
+                all.iter()
+                    .all(|b| !["self-insert-command", "ignore", "undefined"]
+                        .contains(&b.desc.as_str())),
+                "a dropped command was listed"
+            );
             anyhow::ensure!(
                 facts.get("major-mode").map(|m| m.to_string()).as_deref()
                     == Some("emacs-lisp-mode"),
                 "{facts:?}"
             );
+            anyhow::ensure!(!started, "the batch read started a server");
             let (s, _) = batch?;
             anyhow::ensure!(
                 get(&s, "global", "ctrl+c k").is_some_and(|b| b.desc == "kill-whole-line"),
