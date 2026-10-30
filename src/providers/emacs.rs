@@ -68,7 +68,10 @@ fn left_out_note(left_out: usize) -> Option<String> {
 /// The sockets to try for the Emacs whose pid (an `emacs`, or the `emacsclient` talking to one) is `pid`, and the pid
 /// that must answer: an emacs must be the one; an emacsclient talks to some server, so any.
 fn target(pid: u32) -> (Vec<PathBuf>, Option<u32>) {
-    let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
+    // An Emacs that has exited: nothing to ask.
+    let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) else {
+        return (Vec::new(), Some(pid));
+    };
     let cmdline: Vec<String> = std::fs::read(format!("/proc/{pid}/cmdline"))
         .map(|b| {
             b.split(|&c| c == 0)
@@ -114,8 +117,8 @@ fn server_dir(
 }
 
 /// The sockets to try, in order: the one named in the command line (`--daemon=NAME`, `--fg-daemon=NAME`,
-/// `--bg-daemon=NAME`, or emacsclient's `-s NAME`, `-sNAME`, `--socket-name=NAME`), else `default`; a NAME without `/`
-/// is a file in `dir`. Then every socket in `dir`.
+/// `--bg-daemon=NAME`, or emacsclient's `-s NAME`, `-sNAME`, `--socket-name=NAME`, read only with a `default`, which
+/// only emacsclient has), else `default`; a NAME without `/` is a file in `dir`. Then every socket in `dir`.
 fn socket_candidates(
     cmdline: &[String],
     dir: Option<&Path>,
@@ -130,13 +133,14 @@ fn socket_candidates(
         ]
         .iter()
         .find_map(|p| a.strip_prefix(p))
+        // emacsclient's own options (emacs has `-script`): `-s NAME`, and getopt's attached `-sNAME`.
         .or_else(|| {
+            default?;
             matches!(a.as_str(), "-s" | "--socket-name")
                 .then(|| cmdline.get(i + 1).map(String::as_str))
                 .flatten()
+                .or_else(|| a.strip_prefix("-s").filter(|_| !a.starts_with("--")))
         })
-        // getopt's attached form.
-        .or_else(|| a.strip_prefix("-s").filter(|_| !a.starts_with("--")))
         .filter(|n| !n.is_empty())
     });
     let named = named.or(default).and_then(|n| match n.contains('/') {
@@ -252,7 +256,7 @@ macro_rules! walk {
          (lambda (ev def)
            (unless (or (consp ev) (eq ev t)
                        (and (symbolp ev)
-                            (string-match-p "mouse\\|wheel\\|-bar\\|-line\\|fringe\\|margin\\|remap\\|touch\\|pinch\\|drag\\|frame\\|focus\\|select-window\\|sigusr\\|dbus\\|notify\\|help-echo\\|language-change\\|paste\\|compose\\|conversion\\|config-changed\\|ns-"
+                            (string-match-p "mouse\\|wheel\\|-bar\\|-line\\|fringe\\|margin\\|remap\\|touch\\|pinch\\|drag\\|frame\\|focus\\|select-window\\|sigusr\\|dbus\\|notify\\|help-echo\\|language-change\\|xterm-paste\\|compose\\|conversion\\|config-changed\\|ns-"
                                            (symbol-name (event-basic-type ev)))))
              (while (and (consp def) (or (eq (car def) 'menu-item) (stringp (car def))))
                (setq def (if (eq (car def) 'menu-item) (nth 2 def) (cdr def))))
@@ -330,8 +334,15 @@ const BATCH_BODY: &str = concat!(
 const BATCH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A framework whose init needs its own startup, found in `user-emacs-directory` (`~/.emacs.d` if it exists, else
-/// `<config>/emacs`): its name and that directory.
+/// `<config>/emacs`) when there is no `~/.emacs`: its name and that directory.
 fn framework(home: &Path, config: &Path) -> Option<(&'static str, PathBuf)> {
+    // Emacs loads `~/.emacs` (or `.el`) instead, never reaching the framework's init.
+    if [".emacs", ".emacs.el"]
+        .iter()
+        .any(|f| home.join(f).is_file())
+    {
+        return None;
+    }
     let dot = home.join(".emacs.d");
     let dir = if dot.is_dir() {
         dot
@@ -705,6 +716,7 @@ mod tests {
             ("alt+Escape Escape", "keyboard-escape-quit"),
             ("Scroll_Lock", "scroll-lock-mode"),
             ("XF86Copy", "kill-ring-save"),
+            ("XF86Paste", "yank"),
         ] {
             let b = get(&s, "global", key).unwrap_or_else(|| panic!("{key}"));
             assert_eq!(
@@ -787,6 +799,13 @@ mod tests {
             ("<XF86Back>", "XF86Back"),
             ("<Scroll_Lock>", "Scroll_Lock"),
             ("<copy>", "XF86Copy"),
+            ("<cut>", "XF86Cut"),
+            ("<paste>", "XF86Paste"),
+            ("<open>", "XF86Open"),
+            ("<backtab>", "ISO_Left_Tab"),
+            ("S-<iso-lefttab>", "shift+ISO_Left_Tab"),
+            ("<kp-enter>", "KP_Enter"),
+            ("<kp-decimal>", "KP_Decimal"),
             ("C-x C-f", "ctrl+x ctrl+f"),
             ("M-x", "alt+x"),
             ("ESC x", "alt+x"),
@@ -853,6 +872,11 @@ mod tests {
                 "{client:?}"
             );
         }
+        // emacs's `-script` names no socket; emacsclient's options are read only for emacsclient (with a default).
+        assert_eq!(
+            socket_candidates(&args(&["emacs", "-script", "x.el"]), Some(&dir), None),
+            [server, work]
+        );
         // emacsclient with no `-s`: its default (`server`, or `$EMACS_SOCKET_NAME`) before the rest; `-t` is no name.
         assert_eq!(
             socket_candidates(&args(&["emacsclient", "-t"]), Some(&dir), Some("work")),
@@ -929,11 +953,14 @@ mod tests {
         assert!(e.contains("not a string"), "{e}");
         // ALTERNATE_EDITOR never reaches emacsclient, even set to start a daemon.
         ask(&s(&["seven"]), None, |c: &mut Command| {
-            c.env("PATH", &bin).env("ALTERNATE_EDITOR", "");
+            c.env("PATH", &bin)
+                .env("ALTERNATE_EDITOR", "")
+                .env("EMACS_SERVER_FILE", "/tmp/x");
         })
         .unwrap();
         let env = std::fs::read_to_string(bin.join("env")).unwrap();
         assert!(!env.lines().any(|l| l.starts_with("ALTERNATE_EDITOR=")));
+        assert!(!env.lines().any(|l| l.starts_with("EMACS_SERVER_FILE=")));
         let _ = std::fs::remove_dir_all(&bin);
     }
 
@@ -1178,6 +1205,9 @@ mod tests {
         assert!(framework(&home, &config).is_none());
         std::fs::write(dot.join("core/core-spacemacs.el"), "").unwrap();
         assert_eq!(framework(&home, &config), Some(("Spacemacs", dot)));
+        // A `~/.emacs` is loaded instead of either.
+        std::fs::write(home.join(".emacs"), "").unwrap();
+        assert!(framework(&home, &config).is_none());
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -1210,13 +1240,20 @@ mod tests {
         // Emacs refuses a socket directory others can read (`server-ensure-safe-dir`).
         std::fs::set_permissions(&tmp, std::os::unix::fs::PermissionsExt::from_mode(0o700))
             .unwrap();
-        // The batch read's init also starts a server, which must stay off: no socket appears.
+        // The batch read's init also starts a server, which must stay off (no socket appears), and adds to
+        // `kill-emacs-hook`, which must not run (no file appears).
         let init = std::fs::read_to_string(fixture("init.el")).unwrap();
-        std::fs::write(
-            home.join(".emacs.d/init.el"),
-            format!("{init}\n(require 'server)\n(unless (server-running-p) (server-start))\n"),
-        )
-        .unwrap();
+        let hooked = tmp.join("hooked");
+        let init = format!(
+            "{init}\n(require 'server)\n(unless (server-running-p) (server-start))\n\
+             (add-hook 'kill-emacs-hook (lambda () (write-region \"\" nil \"{}\")))\n",
+            hooked.display()
+        );
+        std::fs::write(home.join(".emacs.d/init.el"), &init).unwrap();
+        // A second home with the init as `~/.emacs`, and no `~/.emacs.d`.
+        let dot_home = tmp.join("dot");
+        std::fs::create_dir_all(&dot_home).unwrap();
+        std::fs::write(dot_home.join(".emacs"), &init).unwrap();
         let socket = tmp.join("s");
         let env = |c: &mut Command| {
             c.env("HOME", &home)
@@ -1240,7 +1277,12 @@ mod tests {
         }
         let live = ask(std::slice::from_ref(&socket), Some(daemon.0.id()), env);
         let batch = batch(None, env);
+        let dot = super::batch(None, |c: &mut Command| {
+            env(c);
+            c.env("HOME", &dot_home);
+        });
         let started = tmp.join("emacs/server").exists();
+        let hook_ran = hooked.exists();
         drop(daemon);
         let _ = std::fs::remove_dir_all(&tmp);
         let checks = || -> anyhow::Result<()> {
@@ -1256,6 +1298,18 @@ mod tests {
             );
             let (s, facts, _) = parse(answer, true)?;
             anyhow::ensure!(get(&s, "global", "ctrl+x ctrl+f").is_some(), "no C-x C-f");
+            // Lookup order: `M-<left>` before `ESC <left>`, emacs-lisp-mode's own `C-M-q` before its parent's, and a
+            // remap resolved.
+            for (category, key, command) in [
+                ("global", "alt+Left", "left-word"),
+                ("emacs-lisp-mode", "ctrl+alt+q", "indent-pp-sexp"),
+                ("global", "alt+u", "capitalize-word"),
+            ] {
+                anyhow::ensure!(
+                    get(&s, category, key).is_some_and(|b| b.desc == command),
+                    "{key} isn't {command}"
+                );
+            }
             // The fixture init's minor-mode `C-c k` wins over its global one; `C-c e` is the major mode's.
             anyhow::ensure!(
                 get(&s, "buffer", "ctrl+c k").is_some_and(|b| b.desc == "kill-line")
@@ -1280,6 +1334,12 @@ mod tests {
                 "{facts:?}"
             );
             anyhow::ensure!(!started, "the batch read started a server");
+            anyhow::ensure!(!hook_ran, "the batch read ran kill-emacs-hook");
+            let (s, _) = dot?;
+            anyhow::ensure!(
+                get(&s, "global", "ctrl+c k").is_some_and(|b| b.desc == "kill-whole-line"),
+                "the batch read missed ~/.emacs"
+            );
             let (s, _) = batch?;
             anyhow::ensure!(
                 get(&s, "global", "ctrl+c k").is_some_and(|b| b.desc == "kill-whole-line"),
