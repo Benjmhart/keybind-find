@@ -64,8 +64,8 @@ fn sheet_with(
     let (sheet, keys, sections) = build(&keymap);
     if keys + sections > 0 {
         notes.push(format!(
-            "leaving out {keys} key(s) keybind-find can't name and {sections} `:xmap` section(s) with no \
-             ExtendedKeyMap"
+            "leaving out {keys} key(s) keybind-find can't name and {sections} `:xmap` section(s) no key opens \
+             (no ExtendedKeyMap key the section above keeps)"
         ));
     }
     Ok((sheet, notes))
@@ -85,7 +85,8 @@ fn files(share: &Path, sysconf: &Path, env: Env) -> Vec<PathBuf> {
     let config = config_dir(env);
     let named = |name: &str| full_name(name, config.as_deref(), share);
     let ini_keymap = || {
-        let text = std::fs::read_to_string(config.as_ref()?.join("ini")).ok()?;
+        let bytes = std::fs::read(config.as_ref()?.join("ini")).ok()?;
+        let text = String::from_utf8_lossy(&bytes);
         let (ini, _) = keyfile_upto(&text);
         let (_, keys) = ini.iter().find(|(s, _)| s == "Midnight-Commander")?;
         let (_, value) = keys.iter().find(|(k, _)| k == "keymap")?;
@@ -237,7 +238,8 @@ fn build(keymap: &Keymap) -> (Sheet, usize, usize) {
                     bound(a)
                         .0
                         .into_iter()
-                        .find(|(_, act)| *act == "ExtendedKeyMap")
+                        // Action names are matched as mc does, in any case.
+                        .find(|(_, act)| act.eq_ignore_ascii_case("ExtendedKeyMap"))
                 });
                 let Some((extended, _)) = extended else {
                     sections_left += 1;
@@ -455,6 +457,17 @@ mod tests {
             ("f24", Some("F24")),
             ("kpplus", Some("KP_Add")),
             ("kpenter", Some("Return")),
+            ("kpasterisk", Some("KP_Multiply")),
+            ("kpminus", Some("KP_Subtract")),
+            ("a1", Some("KP_Home")),
+            ("c1", Some("KP_End")),
+            ("esc", Some("Escape")),
+            ("bs", Some("BackSpace")),
+            ("ins", Some("Insert")),
+            ("del", Some("Delete")),
+            ("apostrophe", Some("apostrophe")),
+            ("question", Some("question")),
+            ("backslash", Some("backslash")),
             ("kpleft", Some("Left")),
             ("kpslash", Some("slash")),
             ("alt-question", Some("alt+question")),
@@ -608,7 +621,7 @@ mod tests {
         // Upstream's `[menu]` has `ctr-a`, which mc can't read either.
         assert_eq!(
             notes,
-            ["leaving out 1 key(s) keybind-find can't name and 0 `:xmap` section(s) with no ExtendedKeyMap"]
+            ["leaving out 1 key(s) keybind-find can't name and 0 `:xmap` section(s) no key opens (no ExtendedKeyMap key the section above keeps)"]
         );
         assert!(keys(&s, "filemanager", "UserDefault").is_empty());
         assert_eq!(keys(&s, "editor", "Store"), ["alt+w"]);
@@ -667,6 +680,9 @@ mod tests {
         assert!(!s.binds.contains_key("editor:xmap"));
         assert!(!s.binds.contains_key("viewer:xmap"));
         assert_eq!((keys_left, sections_left), (1, 1));
+        // The action name in any case, as mc reads it.
+        let (s, _, _) = build(&keyfile("[a]\nextendedKEYmap = ctrl-y\n[a:xmap]\nX = z\n").unwrap());
+        assert_eq!(keys(&s, "a:xmap", "X"), ["ctrl+y z"]);
     }
 
     #[test]

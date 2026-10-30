@@ -207,8 +207,9 @@ keymap as `/etc/mc/mc.keymap`, so another mc version's keys show for every actio
 4.8.33 compiles in still show). A name without `.keymap` gets it, and a relative one is looked for in `~/.config/mc`,
 then `/usr/share/mc`. A later file replaces an action's keys, and `Action =` removes it; a key two actions name in one
 section shows on the first, as mc uses the first. Keys in a `:xmap` section follow the key that opens it
-(`ExtendedKeyMap`, `ctrl+x c`); when an earlier action has that key, as `WordRight` has the editor's `ctrl-x` by default,
-mc never opens the map and its keys aren't listed. A line mc's keyfile reader can't read ends the file there, with a
+(`ExtendedKeyMap`, `ctrl+x c`): the first of its keys that no earlier action in that section has. When every one is
+taken, as `WordRight` takes the editor's `ctrl-x` by default, mc never opens the map and its keys aren't listed (a key
+bound in a section mc consults first, such as `[panel]` before `[filemanager]`, isn't checked). A line mc's keyfile reader can't read ends the file there, with a
 one-line note; a misspelt action is listed as written; key names keybind-find can't name (including ones mc can't read,
 such as the `ctr-a` in mc's own default keymap) are left out and counted in one line.
 
