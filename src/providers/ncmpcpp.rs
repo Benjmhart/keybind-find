@@ -144,7 +144,7 @@ fn parse(defaults: &str, files: &[(&str, &str)]) -> anyhow::Result<(Sheet, Vec<S
     }
     if left_out > 0 {
         notes.push(format!(
-            "leaving out {left_out} key(s) keybind-find can't send (mouse, a non-ASCII key, shift with a character)"
+            "leaving out {left_out} key(s) keybind-find can't send (mouse, a non-ASCII key, a key no press reaches)"
         ));
     }
     Ok((sheet, notes))
@@ -160,8 +160,12 @@ fn same(k: &Key, name: &str, notation: &Option<String>) -> bool {
 
 /// An action line for people: the action's name with `_` as a space, its argument as written.
 fn describe(line: &str) -> String {
-    match line.split_once(char::is_whitespace) {
-        Some((name, arg)) => format!("{} {}", name.replace('_', " "), arg.trim_start()),
+    match line.split_once(|c: char| c.is_ascii_whitespace()) {
+        Some((name, arg)) => format!(
+            "{} {}",
+            name.replace('_', " "),
+            arg.trim_start_matches(|c: char| c.is_ascii_whitespace())
+        ),
         None => line.replace('_', " "),
     }
 }
@@ -293,7 +297,32 @@ fn valid(name: &str) -> bool {
 /// `stringToSpecialKey` as key notation; `Some(None)` for a key ncmpcpp accepts but keybind-find can't send
 /// (`mouse`, or a modifier on one).
 fn special(s: &str) -> Option<Option<String>> {
-    Some(parts(s)?.map(|(mods, key)| crate::sheet::chord(&mods, &key)))
+    Some(parts(s)?.map(|(mods, key)| chord(&mods, &key)))
+}
+
+/// `chord`, with a `ctrl-<x>` key code's marker as ctrl.
+fn chord(mods: &[&str], key: &str) -> String {
+    let mods: Vec<&str> = mods
+        .iter()
+        .map(|m| if *m == CODE { "ctrl" } else { m })
+        .collect();
+    crate::sheet::chord(&mods, key)
+}
+
+/// The modifier `ctrl-<x>` (six characters) carries: a key code (1 for `ctrl-a`), not ncmpcpp's ctrl bit.
+const CODE: &str = "ctrl-code";
+
+/// Whether ncmpcpp's `readKey` can report `key` (with `mods`) with the modifier `m` added: the shift and ctrl bits
+/// come only with the arrows, insert, delete, home, end and the page keys (and shift with tab), never with a character
+/// or a ctrl code; alt with anything but tab (`ESC` tab is read as shift-tab).
+fn reaches(m: &str, mods: &[&str], key: &str) -> bool {
+    const NAMED: [&str; 10] = [
+        "Up", "Down", "Left", "Right", "Insert", "Delete", "Home", "End", "Prior", "Next",
+    ];
+    match m {
+        "alt" => key != "Tab",
+        _ => !mods.contains(&CODE) && (NAMED.contains(&key) || (m == "shift" && key == "Tab")),
+    }
 }
 
 /// `stringToSpecialKey` as modifiers and a keysym, so nested prefixes (`shift-ctrl-a`, `shift-A`) come out canonical.
@@ -308,7 +337,7 @@ fn parts(s: &str) -> Option<Option<(Vec<&'static str>, String)>> {
             'm' => key("Return"),
             '[' => key("Escape"),
             'a'..='z' | '\\' | ']' | '^' | '_' => {
-                Some(super::nvim::single(c).map(|k| (vec!["ctrl"], k.to_string())))
+                Some(super::nvim::single(c).map(|k| (vec![CODE], k.to_string())))
             }
             _ => None,
         };
@@ -318,14 +347,13 @@ fn parts(s: &str) -> Option<Option<(Vec<&'static str>, String)>> {
             // `stringToKey`: a special name, else one character.
             let one = rest.chars().count() == 1;
             let inner = parts(rest).or_else(|| one.then(|| single(rest)))?;
-            // ncmpcpp's `readKey` adds shift only to named keys (tab, arrows, insert, …), never to a character or a
-            // ctrl code: `shift-a` or `shift-ctrl-a` is a key no press reaches, kept apart from `A` and not listed.
-            if m == "shift" && !shift_reaches(rest) {
-                return Some(None);
-            }
-            return Some(inner.map(|(mut mods, k)| {
-                mods.push(m);
-                (mods, k)
+            // A key no press reaches (`shift-a`, `ctrl-alt-x`, `shift-enter`): kept apart from the key it would look
+            // like (`A`), and not listed.
+            return Some(inner.and_then(|(mut mods, k)| {
+                reaches(m, &mods, &k).then(|| {
+                    mods.push(m);
+                    (mods, k)
+                })
             }));
         }
     }
@@ -357,23 +385,6 @@ fn parts(s: &str) -> Option<Option<(Vec<&'static str>, String)>> {
     key(named)
 }
 
-/// Whether a key under `shift-` is one ncmpcpp's `readKey` can report with shift: a named key under any other
-/// prefixes, not a character or a `ctrl-<x>` code.
-fn shift_reaches(mut rest: &str) -> bool {
-    loop {
-        if rest.len() == 6 && rest.starts_with("ctrl-") {
-            return false;
-        }
-        match ["alt-", "ctrl-", "shift-"]
-            .iter()
-            .find_map(|p| rest.strip_prefix(p).filter(|r| !r.is_empty()))
-        {
-            Some(r) => rest = r,
-            None => return rest.chars().count() > 1,
-        }
-    }
-}
-
 /// One character as modifiers and a keysym: an upper-case letter is shift and the letter; none for one keybind-find
 /// can't send.
 fn single(c: &str) -> Option<(Vec<&'static str>, String)> {
@@ -393,7 +404,7 @@ fn single(c: &str) -> Option<(Vec<&'static str>, String)> {
 fn notation(name: &str) -> Option<String> {
     match special(name) {
         Some(k) => k,
-        None if name.chars().count() == 1 => single(name).map(|(m, k)| crate::sheet::chord(&m, &k)),
+        None if name.chars().count() == 1 => single(name).map(|(m, k)| chord(&m, &k)),
         None => None,
     }
 }
@@ -440,7 +451,7 @@ mod tests {
         assert_eq!(s.binds["keys"].len(), 95);
         assert_eq!(
             notes,
-            ["leaving out 1 key(s) keybind-find can't send (mouse, a non-ASCII key, shift with a character)"]
+            ["leaving out 1 key(s) keybind-find can't send (mouse, a non-ASCII key, a key no press reaches)"]
         );
         assert_eq!(get(&s, "p"), Some("pause"));
         assert_eq!(get(&s, "q"), Some("quit"));
@@ -540,7 +551,7 @@ mod tests {
         let notes = parse(DEFAULTS, &[("b", "def_key \"mouse\"\n  quit\n")])
             .unwrap()
             .1;
-        assert_eq!(notes, ["leaving out 1 key(s) keybind-find can't send (mouse, a non-ASCII key, shift with a character)"]);
+        assert_eq!(notes, ["leaving out 1 key(s) keybind-find can't send (mouse, a non-ASCII key, a key no press reaches)"]);
         // `shift-a` is a key no press reaches: it doesn't replace `A`'s default.
         let (s2, _) = parse(DEFAULTS, &[("b", "def_key \"shift-a\"\n  quit\n")]).unwrap();
         let (s2, notes2) = (
@@ -550,12 +561,12 @@ mod tests {
                 .1,
         );
         assert_eq!(get(&s2, "shift+a"), Some("add"));
-        assert_eq!(notes2, ["leaving out 2 key(s) keybind-find can't send (mouse, a non-ASCII key, shift with a character)"]);
+        assert_eq!(notes2, ["leaving out 2 key(s) keybind-find can't send (mouse, a non-ASCII key, a key no press reaches)"]);
         // A non-ASCII key is a key to ncmpcpp but can't be sent: counted.
         let (_, notes) = parse(DEFAULTS, &[("b", "def_key \"é\"\n  quit\n")]).unwrap();
         assert_eq!(
             notes,
-            ["leaving out 2 key(s) keybind-find can't send (mouse, a non-ASCII key, shift with a character)"]
+            ["leaving out 2 key(s) keybind-find can't send (mouse, a non-ASCII key, a key no press reaches)"]
         );
         // Only the action's name gets `_` as a space; its argument is as written.
         let (s, _) = parse(
@@ -684,6 +695,8 @@ mod tests {
             ("shift-ctrl-up", "ctrl+shift+Up"),
             ("alt-shift-left", "alt+shift+Left"),
             ("alt-ctrl-x", "ctrl+alt+x"),
+            ("shift-ctrl-i", "shift+Tab"),
+            ("ctrl-page_up", "ctrl+Prior"),
             ("ctrl-\\", "ctrl+backslash"),
         ] {
             assert_eq!(notation(name).as_deref(), Some(want), "{name}");
@@ -700,6 +713,14 @@ mod tests {
             "shift-1",
             "shift-ctrl-a",
             "shift-alt-a",
+            // Keys no press reaches: ctrl or shift on anything but the named navigation keys, alt on tab.
+            "ctrl-alt-x",
+            "ctrl-ctrl-a",
+            "ctrl-enter",
+            "ctrl-tab",
+            "shift-enter",
+            "shift-f1",
+            "alt-tab",
         ] {
             assert_eq!(notation(name), None, "{name}");
             assert!(valid(name), "{name}");
