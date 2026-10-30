@@ -606,6 +606,8 @@ const TERMINAL_KEYS: &[(&str, &str)] = &[
     ("Alacritty", "alacritty"),
     ("com.mitchellh.ghostty", "ghostty"),
     ("kitty", "kitty"),
+    ("foot", "foot"),
+    ("footclient", "foot"),
 ];
 
 /// `child` is the terminal's foreground program (its group's leader), `group` every program in that group.
@@ -1402,6 +1404,15 @@ mod tests {
             assert!(crate::providers::KNOWN.contains(p), "{p}");
             assert!(is_terminal(class), "{class}");
         }
+        // foot's own keys, standalone and in server mode, then the program inside it.
+        for class in ["foot", "footclient"] {
+            for wm in ["sway", "hyprland"] {
+                assert_eq!(
+                    providers_for(Some(wm), Some(class), Some("zsh"), &[]),
+                    [wm, "espanso", "foot", "zsh", "sheets"]
+                );
+            }
+        }
         // kitty's own keys, in any case of its class, then the program inside it.
         for class in ["kitty", "KITTY", "Kitty"] {
             assert_eq!(
@@ -1492,12 +1503,12 @@ mod tests {
         );
         assert_eq!(
             providers_for(None, Some("foot"), Some("bash"), &group(&["bash", "less"])),
-            ["espanso", "bash", "less", "sheets"]
+            ["espanso", "foot", "bash", "less", "sheets"]
         );
         // The leader check is unchanged: nvim leads, less elsewhere doesn't hide it.
         assert_eq!(
             providers_for(None, Some("foot"), Some("nvim"), &group(&["nvim"])),
-            ["espanso", "nvim", "sheets"]
+            ["espanso", "foot", "nvim", "sheets"]
         );
         // Not a terminal, or an unlisted class: no less.
         assert_eq!(
@@ -1634,9 +1645,9 @@ mod tests {
                 }
             }
         }
-        // alacritty's own provider stays alacritty's; an unknown class gets nothing from inside it.
+        // alacritty's own provider stays alacritty's; a terminal with no keys of its own gets only the program inside.
         assert_eq!(
-            providers_for(Some("xmonad"), Some("foot"), Some("nvim"), &[]),
+            providers_for(Some("xmonad"), Some("XTerm"), Some("nvim"), &[]),
             ["xmonad", "espanso", "nvim", "sheets"]
         );
         assert_eq!(
@@ -2034,7 +2045,7 @@ mod tests {
         );
         settle(&mut ctx, Some("sway"), focus);
         assert_eq!(ctx.class.as_deref(), Some("foot"));
-        assert_eq!(ctx.providers, ["sway", "espanso", "sheets"]);
+        assert_eq!(ctx.providers, ["sway", "espanso", "foot", "sheets"]);
     }
 
     fn hypr_window(class: &str, pid: u32, xwayland: bool) -> String {
@@ -3141,18 +3152,33 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             .unwrap();
         let sh: u32 = line.trim().parse().unwrap();
         let props = Props {
-            class: Some("foot".into()),
+            class: Some("footclient".into()),
             instance: None,
             pid: Some(sh),
             title: None,
         };
         let got = program_in(&props, "pid", None);
+        // `foot --server` serves every footclient window: foot's own keys with no program inside (`settle` prints the
+        // warning, not checked here).
+        let mut ctx = Context {
+            window_id: None,
+            class: props.class.clone(),
+            instance: None,
+            title: None,
+            providers: Vec::new(),
+        };
+        let program = settle(&mut ctx, Some("sway"), program_in(&props, "pid", None));
         // The shell leads its own session and process group: kill the group, sleeps included.
         let _ = Command::new("kill")
             .args(["--", &format!("-{sh}")])
             .status();
+        assert_eq!(program, None);
+        assert_eq!(ctx.providers, ["sway", "espanso", "foot", "sheets"]);
         let e = format!("{:#}", got.unwrap_err());
-        assert!(e.starts_with("finding the program inside foot: "), "{e}");
+        assert!(
+            e.starts_with("finding the program inside footclient: "),
+            "{e}"
+        );
         assert!(
             e.contains("has 2 children (one process serving several windows or tabs?)"),
             "{e}"

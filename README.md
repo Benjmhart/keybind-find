@@ -25,6 +25,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | alacritty | its keys: alacritty's defaults merged with your `[[keyboard.bindings]]` | none |
 | Ghostty | its keys from `ghostty +list-keybinds`, as your config sets them | none ([below](#ghostty)) |
 | kitty | its default shortcuts for its version (0.49.2 built in) with your `kitty.conf` maps on top | none; the program in a tab needs remote control ([below](#kitty)) |
+| foot | its default key, search and URL bindings for its version (1.28.0 built in) with your `foot.ini` on top, and its text bindings | none ([below](#foot)) |
 | nvim | your maps from a headless nvim with your config, with each map's `desc` | none |
 | vim | your maps (`:map`, `:map!`, `:tmap`, `:lmap`) from a headless vim with your vimrc; not vim's built-in keys | none; it runs your vimrc ([below](#vim)) |
 | nano | its main-menu keys: nano's defaults for its version (7.2, 8.4 and 9.2 built in) with your nanorc's `bind`/`unbind` on top | none ([below](#nano)) |
@@ -48,7 +49,7 @@ WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxv
 sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
 GNOME Terminal, Xfce Terminal, WezTerm, Ghostty and Terminator), keybind-find can't tell which is the focused one: it prints a one-line warning
-and shows the list without the program inside (the terminal's own keys, alacritty's, Ghostty's or kitty's, are still listed).
+and shows the list without the program inside (the terminal's own keys, alacritty's, Ghostty's, kitty's or foot's, are still listed).
 kitty can say which tab has focus when its remote control is on ([below](#kitty)). espanso's `word: true` matches (they
 wait for a space or punctuation after the trigger) and regex matches (no literal trigger) can't be typed, picks do nothing while the espanso service is stopped, and matches limited by `filter_exec` aren't
 listed.
@@ -268,6 +269,28 @@ it gets no answer. Without an answer you get kitty's keys and the one-line warni
 add. Anything that can reach that socket can control kitty, as
 kitty's own documentation warns.
 
+### foot
+
+In a foot window (app_id `foot`, or `footclient` in server mode), keybind-find lists foot's default bindings for its
+version (from foot's `config.c` at 1.28.0, each described from foot.ini(5); another version gets
+the nearest, with a one-line note; with no `foot` on `PATH`, the newest) with your `foot.ini` on top, read as foot
+reads it: the first of `$XDG_CONFIG_HOME/foot/foot.ini` (else `~/.config/foot/foot.ini`) and each `$XDG_CONFIG_DIRS`
+entry's `foot/foot.ini` (else `/etc/xdg/foot/foot.ini`), following `include=` (absolute or `~/`). `[key-bindings]`
+are listed under `foot`, `[search-bindings]` under `search`, `[url-bindings]` under `url`, and `[text-bindings]` under
+`text` as the text they send (`send \x1b[A`); `[mouse-bindings]` aren't read. A line of yours replaces every default
+key of that action, and `action=none` removes it; a `pipe-*` command or `regex-*` name is shown with the action. A key
+you give to an action while another still has it stays with the other, as in foot, which reports it as an error;
+keybind-find says so in one line too. Left out and counted in one line: a modifier other than `Control`, `Shift`,
+`Mod1`/`Alt` and `Mod4`/`Super`, a key name that isn't shaped like an X keysym (names aren't looked up), an upper-case
+key with `Shift` (foot never fires it), and a line foot would refuse. An include cycle, or includes nested deeper than 8, stops with a note, as does a section name foot
+doesn't know. Not seen: a config given with `foot -c` (or to `foot --server`), `-o` overrides, and a foot started
+with another `--app-id` or `app-id=`, which isn't recognised as foot.
+
+foot is Wayland-only, so its window is read under sway and Hyprland. A standalone foot runs one shell per window and
+the program inside is found as in any terminal; `foot --server` serves every `footclient` window from one process, and
+foot can't say which shell belongs to which window, so there you get the one-line warning and foot's own keys without
+the program inside.
+
 ### KDE Plasma
 
 On Plasma, keybind-find reads the shortcuts kglobalacceld saves in `~/.config/kglobalshortcutsrc` (or under
@@ -401,6 +424,7 @@ keybind-find keys            # grab the keyboard, print each key you press in bi
 | `fzf` 0.60+ (0.66+ for key search) | the list on X11 | `fzf` | `fzf` (stable has 0.60: no key search) |
 | `alacritty` | the window fzf runs in | `alacritty` | `alacritty` |
 | `ghostty` | Ghostty: its keys (only when a Ghostty window has focus) | `ghostty` | not in Debian's repositories: a third-party build |
+| `foot` | foot: its version (else the newest defaults) | `foot` | `foot` |
 | `kitty`, `kitten` | kitty: its version (else the newest defaults), and the program in its focused tab | `kitty` | `kitty` (stable has 0.41: the 0.49.2 defaults, with a note) |
 | `xmodmap` | key search, and checking your `config.toml` keys | `xorg-xmodmap` | `x11-xserver-utils` |
 | `dmenu` | the list on X11 without fzf or alacritty (or with fzf older than 0.60, via `KEYBIND_FIND_PICKER`) | `dmenu` | `suckless-tools` |
