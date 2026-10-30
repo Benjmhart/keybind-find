@@ -68,11 +68,15 @@ fn sheet_with(
         .context("no pinned xfce4-terminal accelerators")?;
     let pinned: Pinned =
         toml::from_str(text).with_context(|| format!("reading data/xfce4_terminal/{v}.toml"))?;
-    let accels = accels_file(env)
-        .and_then(|p| std::fs::read(p).ok())
-        .map(|b| String::from_utf8_lossy(&b).into_owned());
-    let (sheet, left_out) = parse(&pinned, accels.as_deref());
     let mut notes: Vec<String> = note.into_iter().collect();
+    let accels = accels_file(env).and_then(|p| match std::fs::read(&p) {
+        Ok(b) => Some(String::from_utf8_lossy(&b).into_owned()),
+        Err(e) => {
+            notes.push(format!("{}: {e}; using the defaults", p.display()));
+            None
+        }
+    });
+    let (sheet, left_out) = parse(&pinned, accels.as_deref());
     if left_out > 0 {
         notes.push(format!(
             "leaving out {left_out} key(s) keybind-find can't send (<Hyper>, <Meta>, <Release> or another \
@@ -185,7 +189,7 @@ fn notation(accel: &str) -> Option<String> {
 
 /// The `(gtk_accel_path "<path>" "<accel>")` statements of a GTK accel map, in order, read as GTK's scanner reads
 /// them: tokens, so a statement may span lines; `;` starts a comment to the end of the line outside a string (GTK
-/// writes the unchanged defaults commented out). Anything else is skipped.
+/// writes the unchanged defaults commented out), and `/* */` is a comment too.
 fn accel_map(text: &str) -> Vec<(String, String)> {
     #[derive(PartialEq)]
     enum Token {
@@ -205,6 +209,17 @@ fn accel_map(text: &str) -> Vec<(String, String)> {
                     }
                 }
             }
+            // GScanner also skips C comments.
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut last = ' ';
+                for c in chars.by_ref() {
+                    if last == '*' && c == '/' {
+                        break;
+                    }
+                    last = c;
+                }
+            }
             '(' => tokens.push(Token::Open),
             ')' => tokens.push(Token::Close),
             '"' => {
@@ -212,7 +227,11 @@ fn accel_map(text: &str) -> Vec<(String, String)> {
                 while let Some(c) = chars.next() {
                     match c {
                         '"' => break,
-                        '\\' => s.extend(chars.next()),
+                        '\\' => s.extend(chars.next().map(|e| match e {
+                            'n' => '\n',
+                            't' => '\t',
+                            e => e,
+                        })),
                         c => s.push(c),
                     }
                 }
@@ -232,17 +251,32 @@ fn accel_map(text: &str) -> Vec<(String, String)> {
             }
         }
     }
-    tokens
-        .windows(5)
-        .filter_map(|w| match w {
-            [Token::Open, Token::Word(name), Token::Str(path), Token::Str(accel), Token::Close]
-                if name == "gtk_accel_path" =>
-            {
-                Some((path.clone(), accel.clone()))
+    // `gtk_accel_map_load_scanner`: statements while the next token is `(`; the entry is changed once its two strings
+    // are read (a missing `)` too), then the scanner skips to where the parentheses balance. Anything else stops it.
+    let mut out = Vec::new();
+    let mut i = 0;
+    while tokens.get(i) == Some(&Token::Open) {
+        if let [Token::Word(name), Token::Str(path), Token::Str(accel), ..] = &tokens[i + 1..] {
+            if name == "gtk_accel_path" {
+                out.push((path.clone(), accel.clone()));
             }
-            _ => None,
-        })
-        .collect()
+        }
+        let mut depth = 0;
+        while let Some(t) = tokens.get(i) {
+            i += 1;
+            match t {
+                Token::Open => depth += 1,
+                Token::Close => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -340,6 +374,21 @@ mod tests {
                 ("p\"x".to_string(), "<Alt>\\".to_string())
             ]
         );
+    }
+
+    /// GTK's scanner stops at the first top-level token that isn't `(`; a statement missing its `)` still applies and
+    /// swallows what follows until the parentheses balance; `/* */` is a comment.
+    #[test]
+    fn where_gtk_stops() {
+        let a = |k: &str| (format!("<Actions>/terminal-window/{k}"), "x".to_string());
+        let m = accel_map(
+            "(gtk_accel_path \"<Actions>/terminal-window/a\" \"x\")\njunk\n(gtk_accel_path \"<Actions>/terminal-window/b\" \"x\")\n",
+        );
+        assert_eq!(m, [a("a")]);
+        let m = accel_map(
+            "/* (gtk_accel_path \"<Actions>/terminal-window/z\" \"x\") */ (gtk_accel_path \"<Actions>/terminal-window/a\" \"x\"\n(gtk_accel_path \"<Actions>/terminal-window/b\" \"x\")\n",
+        );
+        assert_eq!(m, [a("a")]);
     }
 
     #[test]
