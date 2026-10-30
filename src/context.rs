@@ -160,6 +160,13 @@ fn is_emacs_window(class: &str) -> bool {
     class.eq_ignore_ascii_case("emacs")
 }
 
+/// The pid of an Emacs window (an `emacsclient -c` frame's is the daemon's), for the emacs provider to ask.
+fn emacs_window_pid(props: &Props) -> Option<u32> {
+    props
+        .pid
+        .filter(|_| props.class.as_deref().is_some_and(is_emacs_window))
+}
+
 /// The window `detect` found, as a plugin's request and a JSON picker's request carry it.
 /// ponytail: beside `Context`, like `NVIM_PID`, so `Context`'s literals don't change.
 static WINDOW: std::sync::OnceLock<keybind_find_sheet::Context> = std::sync::OnceLock::new();
@@ -779,10 +786,7 @@ fn program_in(
     pid_source: &str,
     x_window: Option<&str>,
 ) -> anyhow::Result<Option<Foreground>> {
-    if let (Some(pid), true) = (
-        props.pid,
-        props.class.as_deref().is_some_and(is_emacs_window),
-    ) {
+    if let Some(pid) = emacs_window_pid(props) {
         found_editor(pid);
     }
     let Some(class) = props.class.as_deref().filter(|c| is_terminal(c)) else {
@@ -3273,6 +3277,20 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
 
     fn kill_pid(pid: u32) {
         let _ = Command::new("kill").arg(pid.to_string()).status();
+    }
+
+    #[test]
+    fn emacs_window_pid_by_class() {
+        let props = |class: &str, pid| Props {
+            class: Some(class.into()),
+            instance: None,
+            pid,
+            title: None,
+        };
+        assert_eq!(emacs_window_pid(&props("Emacs", Some(42))), Some(42));
+        assert_eq!(emacs_window_pid(&props("emacs", Some(42))), Some(42));
+        assert_eq!(emacs_window_pid(&props("emacs", None)), None);
+        assert_eq!(emacs_window_pid(&props("Alacritty", Some(42))), None);
     }
 
     /// Emacs leading the terminal's foreground group is recorded for the emacs provider (a stand-in `/proc`; no other
