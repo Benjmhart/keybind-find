@@ -668,6 +668,14 @@ fn providers_for(
     }) {
         providers.push("zathura");
     }
+    // Obsidian too: its package name, or its `desktopName` (`md.obsidian.Obsidian`, also the Flatpak's app id).
+    if class.is_some_and(|c| {
+        ["obsidian", "md.obsidian.Obsidian"]
+            .iter()
+            .any(|m| m.eq_ignore_ascii_case(c))
+    }) {
+        providers.push("obsidian");
+    }
     // Static sheets and custom parsers are matched by class inside the provider; with no class nothing can match,
     // and leaving it out keeps "every provider failed" reachable when the real providers all fail.
     if let Some(class) = class {
@@ -1567,6 +1575,35 @@ mod tests {
         for (class, child) in [("Alacritty", Some("zathura")), ("zathura-cb", None)] {
             assert!(
                 !providers_for(Some("xmonad"), Some(class), child, &[]).contains(&"zathura"),
+                "{class}"
+            );
+        }
+    }
+
+    #[test]
+    fn obsidian_by_window_class() {
+        for wm in ["xmonad", "sway"] {
+            for class in [
+                "obsidian",
+                "Obsidian",
+                "md.obsidian.Obsidian",
+                "MD.OBSIDIAN.OBSIDIAN",
+            ] {
+                assert_eq!(
+                    providers_for(Some(wm), Some(class), None, &[]),
+                    [wm, "espanso", "obsidian", "sheets"],
+                    "{class}"
+                );
+            }
+        }
+        // A terminal's child called obsidian (the 1.12 CLI) isn't an Obsidian window; nor are look-alike classes.
+        for (class, child) in [
+            ("Alacritty", Some("obsidian")),
+            ("obsidian-cb", None),
+            ("md.obsidian", None),
+        ] {
+            assert!(
+                !providers_for(Some("xmonad"), Some(class), child, &[]).contains(&"obsidian"),
                 "{class}"
             );
         }
