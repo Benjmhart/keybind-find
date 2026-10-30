@@ -1,0 +1,212 @@
+# Obsidian 1.14.5's default hotkeys on Linux (the non-macOS branch where a command has two).
+# Release asset: obsidian-1.14.5.asar.gz from github.com/obsidianmd/obsidian-releases, tag v1.14.5,
+# SHA-256 20544378d99335bd54f4f03d9bb4b8ba8e4dc68ac4b5072eed81cde53d33503b.
+# Made by a script kept out of this repo that reads the asar without running it: each
+# `addCommand({id, name, hotkeys})` in app.js that has a default hotkey (the goto-tab loop expanded), its
+# name from the English strings in i18n.js. Only ids, English names and keys are taken.
+obsidian_version = "1.14.5"
+
+[[command]]
+id = "editor:open-search"
+name = "Search current file"
+hotkeys = [{ modifiers = ["Mod"], key = "F" }]
+
+[[command]]
+id = "editor:open-search-replace"
+name = "Search & replace in current file"
+hotkeys = [{ modifiers = ["Mod"], key = "H" }]
+
+[[command]]
+id = "editor:insert-link"
+name = "Insert Markdown link"
+hotkeys = [{ modifiers = ["Mod"], key = "K" }]
+
+[[command]]
+id = "editor:toggle-bold"
+name = "Toggle bold"
+hotkeys = [{ modifiers = ["Mod"], key = "B" }]
+
+[[command]]
+id = "editor:toggle-italics"
+name = "Toggle italic"
+hotkeys = [{ modifiers = ["Mod"], key = "I" }]
+
+[[command]]
+id = "editor:toggle-comments"
+name = "Toggle comment"
+hotkeys = [{ modifiers = ["Mod"], key = "/" }]
+
+[[command]]
+id = "editor:toggle-checklist-status"
+name = "Toggle checkbox status"
+hotkeys = [{ modifiers = ["Mod"], key = "l" }]
+
+[[command]]
+id = "editor:delete-paragraph"
+name = "Delete paragraph"
+hotkeys = [{ modifiers = ["Mod"], key = "D" }]
+
+[[command]]
+id = "global-search:open"
+name = "Search in all files"
+hotkeys = [{ modifiers = ["Mod", "Shift"], key = "F" }]
+
+[[command]]
+id = "graph:open"
+name = "Open graph view"
+hotkeys = [{ modifiers = ["Mod"], key = "G" }]
+
+[[command]]
+id = "editor:save-file"
+name = "Save current file"
+hotkeys = [{ modifiers = ["Mod"], key = "S" }]
+
+[[command]]
+id = "editor:follow-link"
+name = "Follow link under cursor"
+hotkeys = [{ modifiers = ["Alt"], key = "Enter" }]
+
+[[command]]
+id = "editor:open-link-in-new-leaf"
+name = "Open link under cursor in new tab"
+hotkeys = [{ modifiers = ["Mod"], key = "Enter" }]
+
+[[command]]
+id = "editor:open-link-in-new-window"
+name = "Open link under cursor in new window"
+hotkeys = [{ modifiers = ["Mod", "Alt", "Shift"], key = "Enter" }]
+
+[[command]]
+id = "editor:open-link-in-new-split"
+name = "Open link under cursor to the right"
+hotkeys = [{ modifiers = ["Mod", "Alt"], key = "Enter" }]
+
+[[command]]
+id = "workspace:edit-file-title"
+name = "Rename file"
+hotkeys = [{ modifiers = [], key = "F2" }]
+
+[[command]]
+id = "workspace:undo-close-pane"
+name = "Undo close tab"
+hotkeys = [{ modifiers = ["Mod", "Shift"], key = "T" }]
+
+[[command]]
+id = "workspace:next-tab"
+name = "Go to next tab"
+hotkeys = [{ modifiers = ["Ctrl"], key = "Tab" }, { modifiers = ["Ctrl"], key = "PageDown" }]
+
+[[command]]
+id = "workspace:goto-tab-1"
+name = "Go to tab #1"
+hotkeys = [{ modifiers = ["Mod"], key = "1" }]
+
+[[command]]
+id = "workspace:goto-tab-2"
+name = "Go to tab #2"
+hotkeys = [{ modifiers = ["Mod"], key = "2" }]
+
+[[command]]
+id = "workspace:goto-tab-3"
+name = "Go to tab #3"
+hotkeys = [{ modifiers = ["Mod"], key = "3" }]
+
+[[command]]
+id = "workspace:goto-tab-4"
+name = "Go to tab #4"
+hotkeys = [{ modifiers = ["Mod"], key = "4" }]
+
+[[command]]
+id = "workspace:goto-tab-5"
+name = "Go to tab #5"
+hotkeys = [{ modifiers = ["Mod"], key = "5" }]
+
+[[command]]
+id = "workspace:goto-tab-6"
+name = "Go to tab #6"
+hotkeys = [{ modifiers = ["Mod"], key = "6" }]
+
+[[command]]
+id = "workspace:goto-tab-7"
+name = "Go to tab #7"
+hotkeys = [{ modifiers = ["Mod"], key = "7" }]
+
+[[command]]
+id = "workspace:goto-tab-8"
+name = "Go to tab #8"
+hotkeys = [{ modifiers = ["Mod"], key = "8" }]
+
+[[command]]
+id = "workspace:goto-last-tab"
+name = "Go to last tab"
+hotkeys = [{ modifiers = ["Mod"], key = "9" }]
+
+[[command]]
+id = "workspace:previous-tab"
+name = "Go to previous tab"
+hotkeys = [{ modifiers = ["Ctrl", "Shift"], key = "Tab" }, { modifiers = ["Ctrl"], key = "PageUp" }]
+
+[[command]]
+id = "workspace:new-tab"
+name = "New tab"
+hotkeys = [{ modifiers = ["Mod"], key = "T" }]
+
+[[command]]
+id = "workspace:close"
+name = "Close current tab"
+hotkeys = [{ modifiers = ["Mod"], key = "W" }]
+
+[[command]]
+id = "workspace:close-window"
+name = "Close window"
+hotkeys = [{ modifiers = ["Mod", "Shift"], key = "W" }]
+
+[[command]]
+id = "command-palette:open"
+name = "Open command palette"
+hotkeys = [{ modifiers = ["Mod"], key = "P" }]
+
+[[command]]
+id = "switcher:open"
+name = "Open quick switcher"
+hotkeys = [{ modifiers = ["Mod"], key = "O" }]
+
+[[command]]
+id = "app:go-back"
+name = "Navigate back"
+hotkeys = [{ modifiers = ["Mod", "Alt"], key = "ArrowLeft" }]
+
+[[command]]
+id = "app:go-forward"
+name = "Navigate forward"
+hotkeys = [{ modifiers = ["Mod", "Alt"], key = "ArrowRight" }]
+
+[[command]]
+id = "app:open-settings"
+name = "Open settings"
+hotkeys = [{ modifiers = ["Mod"], key = "," }]
+
+[[command]]
+id = "markdown:toggle-preview"
+name = "Toggle reading view"
+hotkeys = [{ modifiers = ["Mod"], key = "E" }]
+
+[[command]]
+id = "markdown:add-metadata-property"
+name = "Add file property"
+hotkeys = [{ modifiers = ["Mod"], key = ";" }]
+
+[[command]]
+id = "app:open-help"
+name = "Open help"
+hotkeys = [{ modifiers = [], key = "F1" }]
+
+[[command]]
+id = "file-explorer:new-file"
+name = "Create new note"
+hotkeys = [{ modifiers = ["Mod"], key = "N" }]
+
+[[command]]
+id = "file-explorer:new-file-in-new-pane"
+name = "Create note to the right"
+hotkeys = [{ modifiers = ["Mod", "Shift"], key = "N" }]

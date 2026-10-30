@@ -19,6 +19,7 @@ mod micro;
 mod mpv;
 mod nano;
 mod nvim;
+mod obsidian;
 mod pinned;
 // `src/plugins.rs`, declared here because `main.rs` is not this story's to edit.
 #[path = "../plugins.rs"]
@@ -66,6 +67,7 @@ pub const KNOWN: &[&str] = &[
     "micro",
     "gnome",
     "foot",
+    "obsidian",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -96,6 +98,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "yazi" => yazi::sheet(),
         "zathura" => zathura::sheet(ctx),
         "micro" => micro::sheet(),
+        "obsidian" => obsidian::sheet(ctx),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
