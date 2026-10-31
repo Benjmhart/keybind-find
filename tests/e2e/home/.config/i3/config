@@ -1,0 +1,2 @@
+bindsym Mod4+Return exec xterm
+bindsym Mod4+q kill
