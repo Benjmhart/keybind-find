@@ -73,6 +73,21 @@ the user's config) are good models.
 A plugin guide, for providers that live outside this repo, is planned; until it exists, providers are built in as
 above.
 
+## Support level
+
+Every provider in `src/providers/` is built in, but they are not all tested the same way.
+
+- **Used daily by the maintainer:** xmonad, sway, alacritty, nvim, herdr, tmux, bash and zsh, espanso, less, and the
+  browser sheets and Vimium. Their behaviour has been checked against the real programs in daily use.
+- **Best-effort (everything else):** helix, vim, Emacs, nano, micro, mc, ranger, ncmpcpp, yazi, zathura, mpv,
+  Obsidian, VS Code, Zed, kitty, foot, Ghostty, GNOME Terminal, Xfce Terminal, screen, fish, i3, Hyprland, KDE
+  Plasma, Xfce, GNOME and the suckless sheets. Each was written from the program's own source and documentation at a
+  pinned version, and is covered by unit tests on fixtures, plus a test against the real program where one is
+  installed. None is used day to day, so treat it as a starting point: check its behaviour against the real program
+  before relying on it or building on it, and expect the program's newer versions to differ.
+
+If you use one of the best-effort programs, a bug report or a fix from real use is especially welcome.
+
 ## Reporting a bug
 
 Use the bug report template. The two most useful things in it are the output of `keybind-find dump <provider>` for
