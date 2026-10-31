@@ -37,7 +37,7 @@ CRATES="
 	zmij@1.0.23
 "
 
-RUST_MIN_VER="1.98.0"
+RUST_MIN_VER="1.95.0"
 
 inherit cargo optfeature
 

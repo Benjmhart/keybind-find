@@ -5,6 +5,12 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-31
+
+### Changed
+
+- The oldest Rust that builds keybind-find is now 1.95 (`rust-version`, was 1.98), so `cargo install` works with the Rust most distributions ship.
+
 ### Added
 
 - vim: a running vim with a server (`--servername`, or gvim's own) is asked for its maps, mode and filetype over `--remote-expr`, so its buffer's maps and maps made by hand are listed and other modes' maps hidden; without a server, the headless read as before.
@@ -84,5 +90,6 @@ Everything below is new.
 
 - `config.toml` rebinds keybind-find's own picker keys (run, text search, undo, key search, scope); its own keys are listed too.
 
-[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v0.1.0-alpha.1...staging
+[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.0.0...staging
+[1.0.0]: https://github.com/Benjmhart/keybind-find/compare/v0.1.0-alpha.1...v1.0.0
 [0.1.0-alpha.1]: https://github.com/Benjmhart/keybind-find/releases/tag/v0.1.0-alpha.1
