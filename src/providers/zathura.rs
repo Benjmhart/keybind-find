@@ -157,7 +157,10 @@ fn version_of(text: &str) -> Option<String> {
 
 /// The zathurarc files zathura reads, in its order (`config_load_files`), each with whether it's a system file:
 /// `<entry>/zathurarc` for each `$XDG_CONFIG_DIRS` entry (else `/etc/xdg`) from the last, `/etc/zathurarc`, then `zathurarc` in the user's config dir: `$XDG_CONFIG_HOME/zathura` (else
-/// `~/.config/zathura`), the Flatpak's under `~/.var/app`. An empty variable counts as unset.
+/// `~/.config/zathura`), the Flatpak's under `~/.var/app`. An empty variable counts as unset. Native zathura's window
+/// class is the Flatpak's app id too (`org.pwmt.zathura`), so for such a window the native file is read when it
+/// exists and the Flatpak's otherwise. ponytail: someone with both installs gets the native file over the Flatpak's;
+/// tell them apart by the window's process (`/.flatpak-info` in its root) if that bites.
 fn rc_files(env: Env, flatpak: bool, sysconf: &Path) -> Vec<(PathBuf, bool)> {
     let set = |k: &str| env(k).filter(|v| !v.is_empty());
     let dirs = set("XDG_CONFIG_DIRS").unwrap_or_else(|| "/etc/xdg".into());
@@ -170,15 +173,19 @@ fn rc_files(env: Env, flatpak: bool, sysconf: &Path) -> Vec<(PathBuf, bool)> {
         .collect();
     files.push((sysconf.join("zathurarc"), true));
     let home = set("HOME").map(PathBuf::from);
-    let user = if flatpak {
-        home.map(|h| h.join(".var/app").join(FLATPAK).join("config/zathura"))
-    } else {
-        set("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .or_else(|| home.map(|h| h.join(".config")))
-            .map(|d| d.join("zathura"))
+    let native = set("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| home.clone().map(|h| h.join(".config")))
+        .map(|d| d.join("zathura/zathurarc"));
+    let user = match native {
+        Some(n) if flatpak && !n.exists() => home.map(|h| {
+            h.join(".var/app")
+                .join(FLATPAK)
+                .join("config/zathura/zathurarc")
+        }),
+        n => n,
     };
-    files.extend(user.map(|d| (d.join("zathurarc"), false)));
+    files.extend(user.map(|f| (f, false)));
     files
 }
 
@@ -724,12 +731,26 @@ mod tests {
         // 0.5.2 reads /etc/zathurarc too (`GLOBAL_RC`).
         let (s, _, _, _) = read("0.5.2", &env, false, &tmp.join("etc"));
         assert_eq!(find(&s, "normal", "F6"), ["goto top"]);
-        // The Flatpak's file instead of ~/.config's, for the Flatpak's class.
+        // The Flatpak's class is native zathura's too: its native file when there is one (found by an e2e run:
+        // native zathura 2026.10.4's windows are `org.pwmt.zathura`), else the Flatpak's.
         assert!(is_flatpak(Some("org.pwmt.zathura")) && is_flatpak(Some("ORG.PWMT.ZATHURA")));
         assert!(!is_flatpak(Some("Zathura")) && !is_flatpak(None));
         let (s, _, _, _) = read("2026.10.23", &env, true, &tmp.join("etc"));
+        assert_eq!(find(&s, "normal", "F7"), ["recolor"]);
+        assert!(find(&s, "normal", "F8").is_empty());
+        std::fs::rename(
+            tmp.join("home/.config/zathura/zathurarc"),
+            tmp.join("home/.config/zathura/zathurarc.away"),
+        )
+        .unwrap();
+        let (s, _, _, _) = read("2026.10.23", &env, true, &tmp.join("etc"));
         assert_eq!(find(&s, "normal", "F8"), ["reload"]);
         assert_eq!(find(&s, "normal", "F7"), ["goto top"]);
+        std::fs::rename(
+            tmp.join("home/.config/zathura/zathurarc.away"),
+            tmp.join("home/.config/zathura/zathurarc"),
+        )
+        .unwrap();
         // An absolute include, and an unclosed quote: the rest of that file isn't read, as in zathura.
         std::fs::write(
             tmp.join("home/.config/zathura/zathurarc"),
