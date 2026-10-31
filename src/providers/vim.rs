@@ -1,11 +1,14 @@
-//! vim: the user's maps, from `:map`, `:map!`, `:tmap` and `:lmap` in a headless vim (`vim -es`) started with the
-//! user's vimrc. vim's built-in keys are not listed: `:map` shows none, and they are vim's own documentation's.
-//! Shown when vim or vi is the program in the focused terminal, or a gvim window is focused. A `vim` that is nvim
-//! gives nvim's sheet.
+//! vim: the user's maps, from `:map`, `:map!`, `:tmap` and `:lmap`: asked of the running vim over its clientserver
+//! when it has a server (with its buffer's maps, its mode and filetype), else from a headless vim (`vim -es`) started
+//! with the user's vimrc. vim's built-in keys are not listed: `:map` shows none, and they are vim's own
+//! documentation's. Shown when vim or vi is the program in the focused terminal, or a gvim window is focused. A `vim`
+//! that is nvim gives nvim's sheet.
 
 use crate::context::{run_for, run_for_status, Context};
+use crate::scope::Facts;
 use crate::sheet::{Bind, Name, Sheet, Values};
-use anyhow::{bail, Context as _};
+use anyhow::{bail, ensure, Context as _};
+use serde::Deserialize;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -23,19 +26,38 @@ const SENTINEL: &str = "KEYBIND-FIND-VIM";
 /// Marks where they end: a vim that stopped part way through isn't taken for one with fewer maps.
 const END: &str = "KEYBIND-FIND-VIM-DONE";
 
+/// The running vim's answer to `--remote-expr` comes at once; a busy or gone one mustn't hold up the picker.
+const QUERY_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// `--serverlist` only lists a directory (or asks the X server).
+const SERVERLIST_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// What the running vim is asked: its pid (to tell it from another vim of the same name), its mode, its buffer's
+/// filetype and the maps, as `:map` prints them. A constant: no text of the user's goes in.
+const LIVE_EXPR: &str = r#"json_encode({"pid": getpid(), "mode": mode(1), "filetype": &filetype, "maps": execute(["map", "map!", "silent! tmap", "silent! lmap"])})"#;
+
 type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 
 pub fn sheet(ctx: &Context) -> anyhow::Result<Sheet> {
-    let (sheet, notes) = sheet_with(ctx, |_| {}, &|k| std::env::var(k).ok())?;
+    let (sheet, notes) = sheet_with(
+        ctx,
+        crate::context::editor_pid(),
+        Path::new("/proc"),
+        |_| {},
+        &|k| std::env::var(k).ok(),
+    )?;
     for note in notes {
         eprintln!("keybind-find: vim: {note}");
     }
     Ok(sheet)
 }
 
-/// `sheet` with `setup` applied to both runs and `env` for `PATH`, the vimrc and `VIMINIT` (a test seam).
+/// `sheet` for the vim at `pid` (none: `dump vim` from a shell), its process read under `proc`, with `setup`
+/// applied to every run and `env` for `PATH`, the vimrc and `VIMINIT` (test seams).
 fn sheet_with(
     ctx: &Context,
+    pid: Option<u32>,
+    proc: &Path,
     setup: impl Fn(&mut Command),
     env: Env,
 ) -> anyhow::Result<(Sheet, Vec<String>)> {
@@ -61,7 +83,198 @@ fn sheet_with(
     if version.split_whitespace().any(|w| w == "-eval") {
         bail!("{program} is built without +eval (vim-tiny), so its maps can't be read");
     }
-    read(program, TIMEOUT, setup, env)
+    let mut notes = Vec::new();
+    if let Some(pid) = pid {
+        match live(pid, program, proc, &setup) {
+            Ok(Some((sheet, facts, skipped))) => {
+                crate::context::set_facts(facts);
+                notes.extend(skipped_note(skipped));
+                return Ok((sheet, notes));
+            }
+            // No server to ask: the common case, and nothing wrong.
+            Ok(None) => {}
+            Err(e) => notes.push(format!(
+                "the running vim: {e:#}; reading the vimrc headless instead"
+            )),
+        }
+    }
+    let (sheet, more) = read(program, TIMEOUT, setup, env)?;
+    notes.extend(more);
+    Ok((sheet, notes))
+}
+
+/// The line for maps left out, when there are any.
+fn skipped_note(skipped: usize) -> Option<String> {
+    (skipped > 0).then(|| {
+        let maps = if skipped == 1 { "map" } else { "maps" };
+        format!("skipping {skipped} {maps} with no rhs or a key that has no keysym we know")
+    })
+}
+
+/// The running vim at `pid` asked over its clientserver: the sheet (with its buffer's maps), the facts (`mode`,
+/// `filetype`) and the maps left out. `Ok(None)` when it can't be asked: a vim without `+clientserver`, or one that
+/// runs no server. The client is that vim's own executable (`proc/<pid>/exe`, else `program`): socket servers before
+/// patch 9.2.511 don't understand later ones. Each server name is tried in turn (`server_names`), and an answer from
+/// another vim (another pid) is passed over.
+fn live(
+    pid: u32,
+    program: &str,
+    proc: &Path,
+    setup: &impl Fn(&mut Command),
+) -> anyhow::Result<Option<(Sheet, Facts, usize)>> {
+    let dir = proc.join(pid.to_string());
+    let exe = std::fs::read_link(dir.join("exe")).unwrap_or_else(|_| PathBuf::from(program));
+    let nul_list = |name: &str| -> Vec<String> {
+        std::fs::read(dir.join(name))
+            .map(|b| {
+                b.split(|&c| c == 0)
+                    .filter(|a| !a.is_empty())
+                    .map(|a| String::from_utf8_lossy(a).into_owned())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let (cmdline, environ) = (nul_list("cmdline"), nul_list("environ"));
+    // The backend for the client's requests (not for `--version`).
+    let client = |args: &[&str]| {
+        let mut cmd = Command::new(&exe);
+        if let (Some(b), false) = (backend(&cmdline, &environ), args == ["--version"]) {
+            cmd.args(["--clientserver", &b]);
+        }
+        cmd.args(args)
+            .env("MISE_NOT_FOUND_AUTO_INSTALL", "0")
+            .env("LC_ALL", "C.UTF-8")
+            .current_dir("/");
+        // Where the server put its socket: its own runtime and temp directories, not ours.
+        for k in ["XDG_RUNTIME_DIR", "TMPDIR"] {
+            if let Some(v) = environ
+                .iter()
+                .find_map(|e| e.strip_prefix(&format!("{k}=")))
+            {
+                cmd.env(k, v);
+            }
+        }
+        setup(&mut cmd);
+        cmd
+    };
+    let version = run_for(client(&["--version"]), VERSION_TIMEOUT)
+        .with_context(|| format!("running {} --version", exe.display()))?;
+    if !version.split_whitespace().any(|w| w == "+clientserver") {
+        return Ok(None);
+    }
+    let listed = run_for(client(&["--serverlist"]), SERVERLIST_TIMEOUT).unwrap_or_default();
+    let cwd = std::fs::read_link(dir.join("cwd")).ok();
+    let names = server_names(&cmdline, &listed, cwd.as_deref());
+    if names.is_empty() {
+        return Ok(None);
+    }
+    let mut why = Vec::new();
+    for name in &names {
+        let answer = run_for(
+            client(&["--servername", name, "--remote-expr", LIVE_EXPR]),
+            QUERY_TIMEOUT,
+        )
+        .and_then(|json| parse_live(&json, pid));
+        match answer {
+            Ok(found) => return Ok(Some(found)),
+            Err(e) => why.push(format!("{name}: {e:#}")),
+        }
+    }
+    bail!("{}", why.join("; "))
+}
+
+/// The server names to try for a vim with this command line, in order: its `--servername` (a relative socket path
+/// made absolute against the vim's working directory `cwd`), then each name `--serverlist` printed; each once.
+fn server_names(cmdline: &[String], serverlist: &str, cwd: Option<&Path>) -> Vec<String> {
+    let given = cmdline
+        .windows(2)
+        .find(|w| w[0] == "--servername")
+        .map(|w| w[1].clone())
+        .filter(|n| !n.is_empty())
+        .map(|n| match cwd {
+            Some(cwd) if n.starts_with("./") || n.starts_with("../") => {
+                cwd.join(&n).to_string_lossy().into_owned()
+            }
+            _ => n,
+        });
+    let mut names: Vec<String> = Vec::new();
+    for n in given
+        .into_iter()
+        .chain(serverlist.lines().map(|l| l.trim().to_string()))
+    {
+        if !n.is_empty() && !names.contains(&n) {
+            names.push(n);
+        }
+    }
+    names
+}
+
+/// The clientserver backend the vim chose, for its client to use the same: its `--clientserver` argument, else
+/// `VIM_CLIENTSERVER` from its environment.
+fn backend(cmdline: &[String], environ: &[String]) -> Option<String> {
+    cmdline
+        .windows(2)
+        .find(|w| w[0] == "--clientserver")
+        .map(|w| w[1].clone())
+        .or_else(|| {
+            environ
+                .iter()
+                .find_map(|e| e.strip_prefix("VIM_CLIENTSERVER="))
+                .map(str::to_string)
+        })
+        .filter(|b| !b.is_empty())
+}
+
+#[derive(Deserialize)]
+struct Live {
+    pid: u32,
+    mode: String,
+    filetype: String,
+    maps: String,
+}
+
+/// The sheet, facts and maps left out from `LIVE_EXPR`'s answer, which must come from the vim at `pid`. vim exits 0
+/// for a server it can't reach (E573 on stderr), so an empty or non-JSON answer is a failed query.
+fn parse_live(json: &str, pid: u32) -> anyhow::Result<(Sheet, Facts, usize)> {
+    ensure!(!json.trim().is_empty(), "no answer");
+    let live: Live =
+        serde_json::from_str(json.trim()).context("parsing the running vim's answer")?;
+    ensure!(
+        live.pid == pid,
+        "answered by another vim (pid {}, not {pid})",
+        live.pid
+    );
+    let filetype = live.filetype.parse::<Name>().ok();
+    let mut local = vec![("buffer".parse::<Name>()?, "current".parse::<Name>()?)];
+    if let Some(f) = &filetype {
+        local.push(("filetype".parse()?, f.clone()));
+    }
+    let (sheet, skipped) = parse(&live.maps, Some(&local))?;
+    let mut facts = Facts::new();
+    if let Some(mode) = mode_name(&live.mode) {
+        facts.insert("mode".parse()?, mode.parse()?);
+    }
+    if let Some(f) = filetype {
+        facts.insert("filetype".parse()?, f);
+    }
+    Ok((sheet, facts, skipped))
+}
+
+/// `mode(1)` as the category names vim's maps are filed under; `None` for a mode with no maps of its own (`r`, `!`),
+/// which would hide them all.
+fn mode_name(mode: &str) -> Option<&'static str> {
+    if mode.starts_with("no") {
+        return Some("operator");
+    }
+    Some(match mode.chars().next()? {
+        'n' => "normal",
+        'v' | 'V' | '\u{16}' => "visual",
+        's' | 'S' | '\u{13}' => "select",
+        'i' | 'R' => "insert",
+        'c' => "command",
+        't' => "terminal",
+        _ => return None,
+    })
 }
 
 /// `vim`, else `vi`, whichever is on `PATH` first in that order.
@@ -118,15 +331,8 @@ fn read(
     let Some(end) = rest.rfind(&format!("\n{END}")) else {
         bail!("vim stopped before it had listed every map ({status})");
     };
-    let (sheet, skipped) = parse(&rest[..end])?;
-    let notes = (skipped > 0)
-        .then(|| {
-            let maps = if skipped == 1 { "map" } else { "maps" };
-            format!("skipping {skipped} {maps} with no rhs or a key that has no keysym we know")
-        })
-        .into_iter()
-        .collect();
-    Ok((sheet, notes))
+    let (sheet, skipped) = parse(&rest[..end], None)?;
+    Ok((sheet, skipped_note(skipped).into_iter().collect()))
 }
 
 /// The vimrc vim reads, the first that exists of `~/.vimrc`, `~/.vim/vimrc` and `$XDG_CONFIG_HOME/vim/vimrc`
@@ -176,9 +382,10 @@ fn args(vimrc: Option<&Path>) -> Vec<OsString> {
 
 /// The sheet of `:map` output, and the maps skipped for a key with no keysym. Each line is the mode letters (three
 /// columns), the lhs padded to column 15 (or one space after a longer one), two flag columns (`*` no remap, `&`
-/// remaps only script-local maps, `@` buffer-local) and the rhs. `<Plug>` and `<SNR>` maps (a plugin's insides)
-/// and buffer-local ones (a headless vim has no buffer of the user's) are left out, as nvim's are.
-fn parse(text: &str) -> anyhow::Result<(Sheet, usize)> {
+/// remaps only script-local maps, `@` buffer-local) and the rhs. `<Plug>` and `<SNR>` maps (a plugin's insides) are
+/// left out, as nvim's are. Buffer-local maps are kept, with `local`'s scopes added, only when `local` is given (a
+/// running vim's buffer); a headless vim has no buffer of the user's.
+fn parse(text: &str, local: Option<&[(Name, Name)]>) -> anyhow::Result<(Sheet, usize)> {
     let mut sheet = Sheet {
         title: "vim".into(),
         provider: "vim".into(),
@@ -201,7 +408,8 @@ fn parse(text: &str) -> anyhow::Result<(Sheet, usize)> {
         let flags_at = (3 + lhs.chars().count() + 1).max(15);
         let flags: String = chars.iter().skip(flags_at).take(2).collect();
         let rhs: String = chars.iter().skip(flags_at + 2).collect();
-        if flags.contains('@')
+        let buffer = flags.contains('@');
+        if (buffer && local.is_none())
             || [&lhs, &rhs]
                 .iter()
                 .any(|s| s.contains("<Plug>") || s.contains("<SNR>"))
@@ -221,6 +429,15 @@ fn parse(text: &str) -> anyhow::Result<(Sheet, usize)> {
             .iter()
             .map(|m| m.parse::<Name>())
             .collect::<anyhow::Result<Vec<_>>>()?;
+        let mut when: std::collections::BTreeMap<Name, Values> =
+            [("mode".parse()?, Values::try_from(names)?)]
+                .into_iter()
+                .collect();
+        if buffer {
+            for (scope, value) in local.unwrap_or_default() {
+                when.insert(scope.clone(), Values::from(value.clone()));
+            }
+        }
         sheet
             .binds
             .entry(category.to_string())
@@ -229,23 +446,21 @@ fn parse(text: &str) -> anyhow::Result<(Sheet, usize)> {
                 key,
                 desc: rhs.clone(),
                 action: rhs,
-                when: [("mode".parse()?, Values::try_from(names)?)]
-                    .into_iter()
-                    .collect(),
+                when,
             });
     }
     Ok((sheet, skipped))
 }
 
 /// The modes of `:map`'s mode column, by nvim's names, once each in the order normal, visual, select, operator,
-/// insert, command, terminal, language (the first is the bind's category): blank (`:map`) is normal, visual and
-/// operator; `!` is insert and command; `v` is visual and select.
+/// insert, command, terminal, language (the first is the bind's category): blank (`:map`) is normal, visual, select
+/// and operator (`:help map-overview`); `!` is insert and command; `v` is visual and select.
 fn modes(column: &str) -> Vec<&'static str> {
     const ORDER: [&str; 8] = [
         "normal", "visual", "select", "operator", "insert", "command", "terminal", "language",
     ];
     if column.trim().is_empty() {
-        return vec!["normal", "visual", "operator"];
+        return vec!["normal", "visual", "select", "operator"];
     }
     let mut found: Vec<&str> = Vec::new();
     for c in column.chars() {
@@ -290,7 +505,7 @@ mod tests {
     fn parses_captured_map_output() {
         let text = std::fs::read_to_string(fixtures().join("map.txt")).unwrap();
         let at = text.find(SENTINEL).unwrap() + SENTINEL.len();
-        let (s, skipped) = parse(&text[at..]).unwrap();
+        let (s, skipped) = parse(&text[at..], None).unwrap();
         let q = find(&s, "normal", "space q").unwrap();
         assert_eq!((q.desc.as_str(), q.action.as_str()), (":q<CR>", ":q<CR>"));
         assert_eq!(modes_of(q), ["normal"]);
@@ -306,7 +521,7 @@ mod tests {
         // Modes: blank, `nox`, `v`, `x`, `s`, `o`, `!`, `i`, `c`, `t`, `l`.
         assert_eq!(
             modes_of(find(&s, "normal", "g h").unwrap()),
-            ["normal", "visual", "operator"]
+            ["normal", "visual", "select", "operator"]
         );
         assert_eq!(
             modes_of(find(&s, "normal", "Q").unwrap()),
@@ -349,7 +564,7 @@ mod tests {
         // From real vim 9.2: an lhs of 10, 11 and 12 characters; `&` (remaps script-local maps only); an empty rhs;
         // `ov` puts visual first.
         let text = "n  abcdefghij  * x\nn  abcdefghijk * y\nn  abcdefghijkl * z\nn  m1          & q\nn  m2          * \nov m3            w\n";
-        let (s, skipped) = parse(text).unwrap();
+        let (s, skipped) = parse(text, None).unwrap();
         let desc = |k: &str| find(&s, "normal", k).map(|b| b.desc.clone());
         assert_eq!(desc("a b c d e f g h i j").as_deref(), Some("x"));
         assert_eq!(desc("a b c d e f g h i j k").as_deref(), Some("y"));
@@ -364,8 +579,8 @@ mod tests {
 
     #[test]
     fn empty_or_no_maps() {
-        assert!(parse("").unwrap().0.binds.is_empty());
-        let (s, skipped) = parse("\nNo mapping found\n\nNo mapping found\n").unwrap();
+        assert!(parse("", None).unwrap().0.binds.is_empty());
+        let (s, skipped) = parse("\nNo mapping found\n\nNo mapping found\n", None).unwrap();
         assert!(s.binds.is_empty() && skipped == 0);
     }
 
@@ -582,6 +797,8 @@ mod tests {
         let only = bin.display().to_string();
         sheet_with(
             &ctx,
+            None,
+            Path::new("/proc"),
             |c| {
                 c.env("PATH", &path).env("KBF_VERSION", version);
             },
@@ -725,5 +942,341 @@ mod tests {
         for d in [empty, slow] {
             let _ = std::fs::remove_dir_all(d);
         }
+    }
+
+    fn live_fixture() -> String {
+        std::fs::read_to_string(fixtures().join("live-9.2.json")).unwrap()
+    }
+
+    fn when_of(b: &Bind) -> Vec<(String, Vec<String>)> {
+        b.when
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.as_str().to_string(),
+                    v.iter().map(|n| n.as_str().to_string()).collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// AC: the running vim's answer (captured from vim 9.2.1178 with `live.vimrc`, `--noplugin`).
+    #[test]
+    fn the_running_vims_answer() {
+        let json = live_fixture();
+        let pid: u32 = serde_json::from_str::<serde_json::Value>(&json).unwrap()["pid"]
+            .as_u64()
+            .unwrap() as u32;
+        let (s, facts, skipped) = parse_live(&json, pid).unwrap();
+        assert_eq!(skipped, 0);
+        // The buffer's map, scoped to it and its filetype; the global ones as the headless read gives them.
+        let b = find(&s, "normal", "space b").unwrap();
+        assert_eq!(b.desc, r#":echo "buffer"<CR>"#);
+        assert_eq!(
+            when_of(b),
+            [
+                ("buffer".to_string(), vec!["current".to_string()]),
+                ("filetype".into(), vec!["c".into()]),
+                ("mode".into(), vec!["normal".into()]),
+            ]
+        );
+        assert_eq!(when_of(find(&s, "normal", "space w").unwrap()).len(), 1);
+        assert_eq!(find(&s, "insert", "j k").unwrap().desc, "<Esc>");
+        // `<Plug>` maps, and maps onto one, are a plugin's insides.
+        assert!(s
+            .binds
+            .values()
+            .flatten()
+            .all(|b| !b.action.contains("<Plug>")));
+        assert_eq!(s.binds.values().flatten().count(), 3, "{s:?}");
+        let facts: Vec<(&str, &str)> = facts
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        assert_eq!(facts, [("filetype", "c"), ("mode", "normal")]);
+        // Another vim's answer, none, and vim's E573 (exit 0, nothing on stdout) are failures.
+        let e = format!("{:#}", parse_live(&json, pid + 1).unwrap_err());
+        assert!(e.contains("another vim"), "{e}");
+        assert!(format!("{:#}", parse_live("", pid).unwrap_err()).contains("no answer"));
+        assert!(parse_live("E573: Invalid server id used: X", pid).is_err());
+        // No filetype: no `filetype` scope or fact.
+        let (s, facts, _) = parse_live(
+            &format!(
+                r#"{{"pid": {pid}, "mode": "i", "filetype": "", "maps": "n  x           *@y"}}"#
+            ),
+            pid,
+        )
+        .unwrap();
+        assert_eq!(when_of(find(&s, "normal", "x").unwrap()).len(), 2);
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts.values().next().unwrap().as_str(), "insert");
+    }
+
+    #[test]
+    fn mode_table() {
+        for (mode, name) in [
+            ("n", Some("normal")),
+            ("niI", Some("normal")),
+            ("nt", Some("normal")),
+            ("no", Some("operator")),
+            ("nov", Some("operator")),
+            ("v", Some("visual")),
+            ("V", Some("visual")),
+            ("\u{16}", Some("visual")),
+            ("s", Some("select")),
+            ("S", Some("select")),
+            ("\u{13}", Some("select")),
+            ("i", Some("insert")),
+            ("ic", Some("insert")),
+            ("R", Some("insert")),
+            ("Rv", Some("insert")),
+            ("c", Some("command")),
+            ("cv", Some("command")),
+            ("t", Some("terminal")),
+            ("r", None),
+            ("!", None),
+            ("", None),
+        ] {
+            assert_eq!(mode_name(mode), name, "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn server_names_and_backend() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // `--servername` first, then `--serverlist`'s lines, each once.
+        assert_eq!(
+            server_names(&args(&["vim", "--servername", "X", "f"]), "Y\nX\n\n", None),
+            ["X", "Y"]
+        );
+        assert_eq!(server_names(&args(&["vim"]), "A\nB\n", None), ["A", "B"]);
+        assert!(server_names(&args(&["vim", "--servername", ""]), "", None).is_empty());
+        // A relative socket path, against the vim's working directory.
+        assert_eq!(
+            server_names(
+                &args(&["vim", "--servername", "./s"]),
+                "",
+                Some(Path::new("/w"))
+            ),
+            ["/w/./s"]
+        );
+        assert_eq!(
+            backend(
+                &args(&["vim", "--clientserver", "socket"]),
+                &args(&["VIM_CLIENTSERVER=x11"])
+            ),
+            Some("socket".to_string())
+        );
+        assert_eq!(
+            backend(&args(&["vim"]), &args(&["A=b", "VIM_CLIENTSERVER=x11"])),
+            Some("x11".to_string())
+        );
+        assert_eq!(backend(&args(&["vim"]), &args(&["A=b"])), None);
+    }
+
+    /// A stand-in `/proc` for a vim at pid 4242 whose `exe` is `bin`'s fake vim, run with `cmdline`.
+    fn fake_proc(name: &str, bin: &Path, cmdline: &[&str]) -> PathBuf {
+        let proc = std::env::temp_dir().join(format!("kbf-vim-proc-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&proc);
+        let dir = proc.join("4242");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::os::unix::fs::symlink(bin.join("vim"), dir.join("exe")).unwrap();
+        std::fs::write(dir.join("cmdline"), cmdline.join("\0")).unwrap();
+        std::fs::write(dir.join("environ"), "VIM_CLIENTSERVER=socket\0").unwrap();
+        proc
+    }
+
+    /// The fake vim for the live read: `--serverlist` prints `$KBF_SERVERS`, `--remote-expr` runs `$KBF_ANSWER`
+    /// (after checking it was given the backend from the environ), anything else is the headless run.
+    fn live_vim(name: &str) -> PathBuf {
+        fake_vim(
+            name,
+            r#"case "$*" in
+  *--serverlist*) printf '%s\n' "$KBF_SERVERS" ;;
+  "--clientserver socket --servername "*" --remote-expr "*) eval "$KBF_ANSWER" ;;
+  *--remote-expr*) exit 9 ;;
+  *) printf '\nKEYBIND-FIND-VIM\n\nn  gh          * ^\n\nKEYBIND-FIND-VIM-DONE' ;;
+esac"#,
+        )
+    }
+
+    fn run_live_sheet(
+        bin: &Path,
+        proc: &Path,
+        version: &str,
+        servers: &str,
+        answer: &str,
+    ) -> anyhow::Result<(Sheet, Vec<String>)> {
+        let path = format!("{}:/usr/bin:/bin", bin.display());
+        let ctx = Context {
+            window_id: None,
+            class: None,
+            instance: None,
+            title: None,
+            providers: vec![],
+        };
+        let only = bin.display().to_string();
+        sheet_with(
+            &ctx,
+            Some(4242),
+            proc,
+            |c| {
+                c.env("PATH", &path)
+                    .env("KBF_VERSION", version)
+                    .env("KBF_SERVERS", servers)
+                    .env("KBF_ANSWER", answer);
+            },
+            &|k| (k == "PATH").then(|| only.clone()),
+        )
+    }
+
+    /// AC: no server to ask is the headless read, silently; a server that fails is one line, then the headless read.
+    #[test]
+    fn the_live_read_falls_back() {
+        let bin = live_vim("live");
+        let proc = fake_proc("live", &bin, &["vim", "file"]);
+        let cs = "VIM - Vi IMproved 9.2 +eval +clientserver +socketserver";
+        let headless = |r: anyhow::Result<(Sheet, Vec<String>)>| {
+            let (s, notes) = r.unwrap();
+            assert!(find(&s, "normal", "g h").is_some(), "{s:?}");
+            notes
+        };
+        // No +clientserver, or no server name: silent.
+        let notes = headless(run_live_sheet(
+            &bin,
+            &proc,
+            "VIM - Vi IMproved 9.2 +eval -clientserver",
+            "S",
+            "exit 9",
+        ));
+        assert!(notes.is_empty(), "{notes:?}");
+        let notes = headless(run_live_sheet(&bin, &proc, cs, "", "exit 9"));
+        assert!(notes.is_empty(), "{notes:?}");
+        // E573 (exit 0, nothing on stdout), a hang past the limit, another vim's answer: one line naming the server.
+        for (answer, why) in [
+            ("echo 'E573: Invalid server id used: S' >&2", "no answer"),
+            ("sleep 3", "did not answer within 2.0 s"),
+            (
+                r#"printf '{"pid": 1, "mode": "n", "filetype": "", "maps": ""}'"#,
+                "another vim",
+            ),
+        ] {
+            let notes = headless(run_live_sheet(&bin, &proc, cs, "S", answer));
+            assert_eq!(notes.len(), 1, "{answer}: {notes:?}");
+            assert!(
+                notes[0].starts_with("the running vim: S: ")
+                    && notes[0].contains(why)
+                    && notes[0].ends_with("; reading the vimrc headless instead"),
+                "{answer}: {notes:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&proc);
+        let _ = std::fs::remove_dir_all(&bin);
+    }
+
+    /// AC: the `--servername` on the command line first; an answer from the right pid is the live sheet.
+    #[test]
+    fn the_live_read() {
+        let bin = live_vim("live-ok");
+        let proc = fake_proc("live-ok", &bin, &["vim", "--servername", "MINE", "file"]);
+        let path = format!("{}:/usr/bin:/bin", bin.display());
+        let answer = r#"[ "$3 $4" = "--servername MINE" ] || exit 3; printf '{"pid": 4242, "mode": "v", "filetype": "rust", "maps": "n  zz          * :w<CR>"}'"#;
+        let got = live(4242, "vim", &proc, &|c: &mut Command| {
+            c.env("PATH", &path)
+                .env("KBF_VERSION", "VIM 9.2 +clientserver")
+                .env("KBF_SERVERS", "OTHER")
+                .env("KBF_ANSWER", answer);
+        })
+        .unwrap()
+        .unwrap();
+        let _ = std::fs::remove_dir_all(&proc);
+        let _ = std::fs::remove_dir_all(&bin);
+        let (s, facts, _) = got;
+        assert_eq!(find(&s, "normal", "z z").unwrap().desc, ":w<CR>");
+        let facts: Vec<(&str, &str)> = facts
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        assert_eq!(facts, [("filetype", "rust"), ("mode", "visual")]);
+    }
+
+    /// AC: a real vim server, over the socket backend. Skipped (with a message) unless `vim --version` has
+    /// `+clientserver` and `+socketserver` and `script` (util-linux) is there; not asserted under `CI`.
+    #[test]
+    fn real_vim_server() {
+        let version = Command::new("vim").arg("--version").output().ok();
+        let version = version
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default();
+        let has = |f: &str| version.split_whitespace().any(|w| w == f);
+        if !version.starts_with("VIM") || !has("+clientserver") || !has("+socketserver") {
+            eprintln!("skipping: no vim with +clientserver and +socketserver");
+            return;
+        }
+        if Command::new("script").arg("--version").output().is_err() {
+            eprintln!("skipping: no script (util-linux)");
+            return;
+        }
+        // A short directory: a socket path must fit in 108 bytes.
+        let dir = PathBuf::from(format!("/tmp/kbf-v{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("s");
+        let vimrc = fixtures().join("live.vimrc");
+        let mut child = Command::new("script")
+            .args(["-qfc"])
+            .arg(format!(
+                "vim -N --noplugin -u '{}' --servername '{}'",
+                vimrc.display(),
+                socket.display()
+            ))
+            .arg("/dev/null")
+            .env("XDG_RUNTIME_DIR", &dir)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        for _ in 0..100 {
+            if socket.exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let ask = |expr: &str| {
+            Command::new("vim")
+                .args(["--servername"])
+                .arg(&socket)
+                .args(["--remote-expr", expr])
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        };
+        let pid = ask("getpid()").and_then(|p| p.parse::<u32>().ok());
+        let got = pid.map(|pid| live(pid, "vim", Path::new("/proc"), &|_: &mut Command| {}));
+        let _ = Command::new("vim")
+            .args(["--servername"])
+            .arg(&socket)
+            .args(["--remote-send", "<C-\\><C-N>:qa!<CR>"])
+            .output();
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&dir);
+        if std::env::var_os("CI").is_some() {
+            eprintln!("not asserted under CI: {got:?}");
+            return;
+        }
+        let (s, facts, _) = got
+            .expect("the vim server answered its pid")
+            .unwrap()
+            .unwrap();
+        assert_eq!(find(&s, "normal", "space w").unwrap().desc, ":w<CR>");
+        assert!(find(&s, "normal", "space b").is_some());
+        let facts: Vec<(&str, &str)> = facts
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        assert_eq!(facts, [("filetype", "c"), ("mode", "normal")]);
     }
 }

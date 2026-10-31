@@ -30,7 +30,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | GNOME Terminal | its keyboard shortcuts as its preferences set them, from `gsettings` (not on GNOME under Wayland, where the window isn't read) | `gsettings` ([below](#gnome-terminal)) |
 | nvim | your maps from a headless nvim with your config, with each map's `desc` | none |
 | Emacs | the keys active in the buffer you are in, from the running Emacs over its server, with its major mode and evil state; with no server, the global map (and evil's) of your init file from `emacs --batch` | `server-start` in your init, or `emacs --daemon`, for the live read ([below](#emacs)) |
-| vim | your maps (`:map`, `:map!`, `:tmap`, `:lmap`) from a headless vim with your vimrc; not vim's built-in keys | none; it runs your vimrc ([below](#vim)) |
+| vim | your maps (`:map`, `:map!`, `:tmap`, `:lmap`): asked of the running vim when it has a server (with its buffer's maps, mode and filetype), else from a headless vim with your vimrc; not vim's built-in keys | none; without a server it runs your vimrc ([below](#vim)) |
 | nano | its main-menu keys: nano's defaults for its version (7.2, 8.4 and 9.2 built in) with your nanorc's `bind`/`unbind` on top | none ([below](#nano)) |
 | micro | its keys: micro's defaults for its version (2.0.11, 2.0.14 and 2.0.15 built in) with your `bindings.json` on top | none ([below](#micro)) |
 | Midnight Commander | its keys by section (file manager, panel, editor, viewer, …): mc's compiled-in defaults (4.8.33's built in) with the system and your keymap on top | none ([below](#midnight-commander)) |
@@ -275,13 +275,21 @@ out with a count.
 
 ### vim
 
-Over vim or vi in a terminal, or a gvim window (class `Gvim`), keybind-find starts vim headless (`vim -es`) with your
+Over vim or vi in a terminal, or a gvim window (class `Gvim`), keybind-find first asks the running vim, when it runs a
+server: `--remote-expr` for its maps (`:map`, `:map!`, `:tmap`, `:lmap`), its mode and its buffer's filetype, with the
+running vim's own executable as the client. Then the list has the buffer's own maps (tagged `buffer=current`) and
+maps you made by hand, and the maps of other modes are hidden. vim needs `+clientserver` (`vim --version`) and a
+server: gvim starts one by itself; a terminal vim only when started with `--servername NAME` (an alias such as
+`alias vim='vim --servername VIM'`) or when its vimrc calls `remote_startserver('VIM')`, unless it was built with
+`+autoservername`. Arch's `vim` has the socket backend (`+socketserver`, vim 9.1.1651 and later); Debian's `vim` has
+no clientserver, its `vim-gtk3` the X11 one. A server that doesn't answer, or answers for another vim, is a one-line
+note and the headless read. Without a server, keybind-find starts vim headless (`vim -es`) with your
 vimrc (`~/.vimrc`, `~/.vim/vimrc` or `~/.config/vim/vimrc`, the first that exists) on every `Super+/` and lists your
 maps, each tagged with its modes. Your vimrc and plugins run, as at any vim start (but not `VimEnter` autocommands,
 so maps made there are missing); vim gets 10 seconds. A vimrc that prints or has an error is fine: the maps are read all the same. With no vimrc you get what a
 plain vim start sets (`defaults.vim`). vim's own keys aren't listed: they are vim's documentation's (`:help index`),
-and your maps are what you forget. Left out: plugins' `<Plug>` and script-local maps, buffer-local maps (a headless
-vim has no file of yours open), maps made by hand in the running vim, the system vimrc's (`/etc/vimrc`), `$EXINIT`
+and your maps are what you forget. Left out of the headless read: plugins' `<Plug>` and script-local maps,
+buffer-local maps (a headless vim has no file of yours open), maps made by hand in the running vim, the system vimrc's (`/etc/vimrc`), `$EXINIT`
 and `~/.exrc` (with no vimrc), and a gvim's `.gvimrc` and `has('gui_running')` branches. `~/.config/vim/vimrc` is
 read as vim 9.1.0327 and later read it; an older vim ignores it. vim run as `vimdiff`, `view` or `rvim` isn't
 recognised. `HOME`, `XDG_CONFIG_HOME` and `VIMINIT` are keybind-find's (your
