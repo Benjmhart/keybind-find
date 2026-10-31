@@ -127,7 +127,7 @@ fn sheet_with(
     if let (Some(reason), Some((path, _))) = (bad, &config) {
         // helix prints "Bad config: …" and starts with its defaults.
         notes.push(format!(
-            "bad config {}: {reason}; using helix's defaults, as helix does",
+            "bad config {}: {reason}; using helix's defaults",
             path.display()
         ));
     }
@@ -139,12 +139,13 @@ fn sheet_with(
     Ok((sheet, notes))
 }
 
-/// The version in `helix 25.07.1 (a05c151b)`: the first word with a dot that is all numbers.
+/// The version in `helix 25.07.1 (a05c151b)`; `None` for another program's line (`hx` is also a hex viewer's name).
 fn version_of(text: &str) -> Option<String> {
-    text.lines()
-        .next()?
-        .split_whitespace()
-        .find(|w| w.contains('.') && pinned::parse_version(w).is_some())
+    let mut words = text.lines().next()?.split_whitespace();
+    (words.next()? == "helix").then_some(())?;
+    words
+        .next()
+        .filter(|w| w.contains('.') && pinned::parse_version(w).is_some())
         .map(str::to_string)
 }
 
@@ -420,7 +421,7 @@ fn defaults(pinned: &Pinned) -> anyhow::Result<Vec<Node>> {
 /// or `@macro` keys.
 fn check_command(pinned: &Pinned, command: &str) -> anyhow::Result<()> {
     if let Some(rest) = command.strip_prefix(':') {
-        let name = rest.split_whitespace().next().unwrap_or_default();
+        let (name, _) = typable_parts(rest);
         ensure!(!name.is_empty(), "Expected typable command name");
         ensure!(
             typable(pinned, name).is_some(),
@@ -435,6 +436,13 @@ fn check_command(pinned: &Pinned, command: &str) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+/// A typable command's name and arguments, split as helix 25.07.1's `command_line::split` splits them: at the first
+/// space or tab, so `:  w` has no name.
+fn typable_parts(text: &str) -> (&str, &str) {
+    let (name, args) = text.split_once([' ', '\t']).unwrap_or((text, ""));
+    (name, args.trim())
 }
 
 fn typable<'a>(pinned: &'a Pinned, name: &str) -> Option<&'a Typable> {
@@ -508,7 +516,10 @@ fn user_keys(pinned: &Pinned, config: &str) -> anyhow::Result<Vec<Option<Node>>>
     let mut modes: Vec<Option<Node>> = vec![None; MODES.len()];
     for (field, value) in &table {
         match (field.as_str(), value) {
-            ("theme", toml::Value::String(_)) | ("editor", _) => {}
+            // ponytail: `[editor]`'s own options aren't checked (helix refuses an unknown one too); add when a
+            // typo there fools someone.
+            ("theme", toml::Value::String(_)) | ("editor", toml::Value::Table(_)) => {}
+            ("editor", other) => bail!("invalid type: {}, expected a map", other.type_str()),
             ("theme", other) => bail!("invalid type: {}, expected a string", other.type_str()),
             ("keys", toml::Value::Table(keys)) => {
                 for (mode, value) in keys {
@@ -533,7 +544,7 @@ fn user_keys(pinned: &Pinned, config: &str) -> anyhow::Result<Vec<Option<Node>>>
 }
 
 /// The sheet from the pinned defaults with `config` (a `config.toml`) merged; also the keys left out and, for a
-/// config helix would refuse, why (the defaults are then used alone, as helix does).
+/// config helix would refuse, why (the defaults are then used alone).
 fn parse(pinned: &Pinned, config: Option<&str>) -> anyhow::Result<(Sheet, usize, Option<String>)> {
     let mut modes = defaults(pinned)?;
     let bad = match config.map(|c| user_keys(pinned, c)).transpose() {
@@ -592,7 +603,8 @@ fn walk(
                 walk(pinned, mode, child, category, path, sheet, left_out);
             }
             // `no_op` disables a key.
-            Trie::Commands(c) if c.len() == 1 && c[0] == "no_op" => {}
+            // `no_op` disables a key; an empty list does nothing.
+            Trie::Commands(c) if c.is_empty() || (c.len() == 1 && c[0] == "no_op") => {}
             Trie::Commands(_) if path.iter().any(Option::is_none) => *left_out += 1,
             Trie::Commands(commands) => {
                 let mut b = Bind {
@@ -619,9 +631,7 @@ fn walk(
 /// text.
 fn describe(pinned: &Pinned, command: &str) -> String {
     if let Some(rest) = command.strip_prefix(':') {
-        let mut parts = rest.trim_start().splitn(2, char::is_whitespace);
-        let name = parts.next().unwrap_or_default();
-        let args = parts.next().unwrap_or_default().trim();
+        let (name, args) = typable_parts(rest);
         return match typable(pinned, name) {
             Some(t) if args.is_empty() => t.doc.clone(),
             Some(t) => format!(":{} {args}", t.name),
@@ -664,8 +674,8 @@ mod tests {
             .flat_map(|(c, bs)| bs.iter().map(move |b| (c.as_str(), b)))
             .filter(|(_, b)| {
                 b.when
-                    .values()
-                    .any(|v| v.iter().any(|n| n.as_str() == mode))
+                    .iter()
+                    .any(|(k, v)| k.as_str() == "mode" && v.iter().any(|n| n.as_str() == mode))
             })
             .map(|(c, b)| (c, b.key.as_str(), b.desc.as_str(), b.action.as_str()))
             .collect()
@@ -681,9 +691,19 @@ mod tests {
 
     #[test]
     fn pinned_files() {
-        for (v, commit, binds_total) in [
-            ("25.01.1", "e7ac2fcdecfdbf43a4f772e7f7c163b43b3d0b9b", 665),
-            ("25.07.1", "a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b", 671),
+        for (v, commit, binds_total, typables) in [
+            (
+                "25.01.1",
+                "e7ac2fcdecfdbf43a4f772e7f7c163b43b3d0b9b",
+                665,
+                88,
+            ),
+            (
+                "25.07.1",
+                "a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b",
+                671,
+                89,
+            ),
         ] {
             let text = REGISTRY.iter().find(|(r, _)| *r == v).unwrap().1;
             assert!(
@@ -693,6 +713,8 @@ mod tests {
             let p = pinned(v);
             assert_eq!(p.helix_version, v);
             assert_eq!(p.bind.len(), binds_total, "{v}");
+            // Every `TypableCommand` in typed.rs.
+            assert_eq!(p.typable.len(), typables, "{v}");
             for b in &p.bind {
                 assert!(p.commands.contains_key(&b.command), "{v} {}", b.command);
             }
@@ -866,6 +888,11 @@ mod tests {
             ("[keys]\nnormal = \"undo\"\n".into(), "not a table"),
             ("color = 1\n".into(), "unknown field `color`"),
             ("theme = 1\n".into(), "expected a string"),
+            ("editor = 5\n".into(), "expected a map"),
+            (
+                "[keys.normal]\nx = \":  w\"\n".into(),
+                "Expected typable command name",
+            ),
         ] {
             let (s, _, bad) = parse(&p, Some(&config)).unwrap();
             let bad = bad.unwrap_or_default();
@@ -876,11 +903,22 @@ mod tests {
         // Valid edge cases: an empty file, `:w` with spaces, `-` alone, an F key, a sub-mode under a new key.
         let (s, _, bad) = parse(
             &p,
-            Some("[keys.normal]\n\"-\" = \":  w\"\nF24 = \"undo\"\n\"A-minus\" = { \"S-tab\" = \"redo\" }\n"),
+            Some("[keys.normal]\n\"-\" = \":w\"\nE = []\nC-o = \":o a  b\"\nF24 = \"undo\"\n\"A-minus\" = { \"S-tab\" = \"redo\" }\n"),
         )
         .unwrap();
         assert_eq!(bad, None);
-        assert_eq!(get(&s, "normal", "minus").map(|b| b.2), Some(":  w"));
+        assert_eq!(
+            get(&s, "normal", "minus"),
+            Some((
+                "Normal mode",
+                "Write changes to disk. Accepts an optional path (:write some/path.txt)",
+                ":w"
+            ))
+        );
+        // An empty list does nothing: not listed.
+        assert_eq!(get(&s, "normal", "shift+e"), None);
+        // An alias with arguments is described by the command's own name.
+        assert_eq!(get(&s, "normal", "ctrl+o").map(|b| b.1), Some(":open a  b"));
         assert_eq!(get(&s, "normal", "F24").map(|b| b.2), Some("undo"));
         assert_eq!(
             get(&s, "normal", "alt+minus shift+Tab").map(|b| b.2),
@@ -902,6 +940,11 @@ mod tests {
             ("Cmd-s", Some("super+s")),
             ("Meta-s", Some("super+s")),
             ("Win-s", Some("super+s")),
+            ("C-G", Some("ctrl+shift+g")),
+            ("Cmd-G", Some("super+shift+g")),
+            ("esc", Some("Escape")),
+            ("home", Some("Home")),
+            ("end", Some("End")),
             ("ret", Some("Return")),
             ("backspace", Some("BackSpace")),
             ("del", Some("Delete")),
@@ -935,7 +978,7 @@ mod tests {
             version_of("helix 25.07.1 (a05c151b)\n").as_deref(),
             Some("25.07.1")
         );
-        for junk in ["", "helix", "helix x.y (z)"] {
+        for junk in ["", "helix", "helix x.y (z)", "hx 0.6.0"] {
             assert_eq!(version_of(junk), None, "{junk}");
         }
         let none = |_: &str| None;
@@ -958,6 +1001,22 @@ mod tests {
             ["helix's version is unknown: using the defaults of 25.07.1"]
         );
         // `hx`, or Arch's `helix`; an unknown version gets the nearest with a note.
+        // A hex viewer named `hx` is passed over for Arch's `helix`.
+        let bin = fake("hx", "hx 0.6.0");
+        let helix = fake("helix", "helix 25.01.1 (e7ac2fcd)");
+        let both = std::env::join_paths([&bin, &helix]).unwrap();
+        let path = both.to_string_lossy().into_owned();
+        let (s, notes) = sheet_with(
+            REGISTRY,
+            move |c: &mut Command| {
+                c.env("PATH", &path);
+            },
+            &none,
+        )
+        .unwrap();
+        let _ = std::fs::remove_dir_all(&bin);
+        let _ = std::fs::remove_dir_all(&helix);
+        assert_eq!((s.title.as_str(), notes.len()), ("helix 25.01.1", 0));
         for (name, out, title, note) in [
             ("hx", "helix 25.01.1 (e7ac2fcd)", "helix 25.01.1", None),
             ("helix", "helix 25.07.1 (a05c151b)", "helix 25.07.1", None),

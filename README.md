@@ -362,8 +362,9 @@ insert mode, each tagged with its mode, filed under the sub-mode that holds it (
 nearest is used with a note for another version, and the newest when helix isn't found), described by each
 command's own doc. Your `$XDG_CONFIG_HOME/helix/config.toml` (else `~/.config/helix/config.toml`, else the Flatpak's)
 is merged as helix merges it: a table onto a sub-mode adds to it, anything else replaces the key, a list of commands
-is one bind, `no_op` removes a key, and `:typable` commands and `@macros` are shown as written. A config helix would
-refuse (bad TOML, a key or command helix doesn't know) gives helix's defaults and one line saying why, as helix does.
+is one bind, `no_op` removes a key, a `:typable` command is described by its doc (or `:name args` with arguments) and
+an `@macro` by its keys. A config with bad TOML or a key, mode or command helix doesn't know gives helix's defaults and
+one line saying why, as helix does; the options under `[editor]` aren't checked.
 The workspace's `.helix/config.toml` isn't read (keybind-find doesn't know helix's directory), and keys keybind-find
 can't send (`null`, media keys, lone modifiers) are left out with a count.
 
