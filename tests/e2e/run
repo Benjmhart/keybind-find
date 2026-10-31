@@ -3,8 +3,8 @@
 # this checkout (mounted read-only), starts each program in the cases for real and checks what `keybind-find dump`
 # lists for it. Needs only Docker. Exits 0 when every case passes.
 #
-#   tests/e2e/run              every case
-#   tests/e2e/run helix vim    only the cases named
+#   tests/e2e/run                    every case
+#   tests/e2e/run helix vim-live     only the cases named (tests/e2e/cases)
 #   E2E_OUT=/tmp/e2e tests/e2e/run   also keep each case's dump and stderr there
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -12,16 +12,19 @@ repo=$(cd "$here/../.." && pwd)
 image=keybind-find-e2e
 # The first build downloads the programs (an image of about 9 GB); later ones come from Docker's cache.
 docker build -t "$image" "$here" >&2
+# The volumes keep cargo's downloads and build between runs.
+volumes=(-v "$repo:/src:ro" -v keybind-find-e2e-target:/target -v keybind-find-e2e-cargo:/home/tester/.cargo/registry)
+# Building needs the network (crates.io, --locked); the cases run without one.
+docker run --rm "${volumes[@]}" "$image" bash /src/tests/e2e/harness.sh build
 out=()
 if [ -n "${E2E_OUT:-}" ]; then
   mkdir -p "$E2E_OUT"
+  # Written by the image's user, whose uid may not be ours.
+  chmod a+rwx "$E2E_OUT"
   out=(-v "$(cd "$E2E_OUT" && pwd):/tmp/out")
 fi
-# --init reaps what the programs leave behind; the volumes keep cargo's build and downloads between runs.
-exec docker run --rm --init --shm-size=1g \
-  -v "$repo:/src:ro" \
-  -v keybind-find-e2e-target:/target \
-  -v keybind-find-e2e-cargo:/home/tester/.cargo/registry \
-  "${out[@]}" \
+# --init reaps what the programs leave behind. ${out[@]+…}: an empty array under `set -u` (bash before 4.4).
+exec docker run --rm --init --shm-size=1g --network none \
+  "${volumes[@]}" ${out[@]+"${out[@]}"} \
   -e "CASES=$*" \
   "$image" bash /src/tests/e2e/harness.sh

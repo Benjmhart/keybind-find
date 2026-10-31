@@ -1,0 +1,4 @@
+[[keyboard.bindings]]
+key = "X"
+mods = "Control|Shift"
+action = "Quit"
