@@ -93,8 +93,9 @@ package from the Arch Linux Archive's snapshot), builds keybind-find inside from
 for real in a virtual display (Xvfb with i3, and a headless sway) with no network, and checks that `keybind-find dump`
 lists the expected providers, each with binds, and a remapped key from a synthetic config (`tests/e2e/home/`).
 `tests/e2e/run helix vim-live` runs only the cases named; `E2E_OUT=dir` keeps each case's dump and stderr. Nothing is
-installed on your machine and nothing shows on your screen. Run it after changing a best-effort provider; the cases
-are in `tests/e2e/cases`. To test newer programs, move `SNAPSHOT` (and `BASE`) in the Dockerfile to a later date.
+installed on your machine and nothing shows on your screen. Run it after changing a best-effort provider; every release
+runs it before tagging. The cases are in `tests/e2e/cases`. To test newer programs, move `SNAPSHOT` (and `BASE`) in
+the Dockerfile to a later date.
 
 If you use one of the best-effort programs, a bug report or a fix from real use is especially welcome.
 
