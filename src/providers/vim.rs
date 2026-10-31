@@ -157,6 +157,8 @@ fn live(
             cmd.args(["--clientserver", &b]);
         }
         cmd.args(args)
+            // The backend is the server's (`--clientserver` above), never ours.
+            .env_remove("VIM_CLIENTSERVER")
             .env("MISE_NOT_FOUND_AUTO_INSTALL", "0")
             .env("LC_ALL", "C.UTF-8")
             .current_dir("/");
@@ -510,8 +512,10 @@ fn modes(column: &str) -> Vec<&'static str> {
             'i' => &["insert"],
             'c' => &["command"],
             '!' => &["insert", "command"],
-            // `:lmap` applies in insert and command-line mode too (`:help language-mapping`).
-            'l' => &["insert", "command", "language"],
+            // ponytail: `:lmap` also applies in insert and command-line mode, but only while a keymap is on
+            // (`iminsert`); filed there, a `:loadkeymap`'s dozens of maps would crowd the insert list. Ask vim for
+            // `&iminsert` if someone misses their lmaps in insert mode.
+            'l' => &["language"],
             't' => &["terminal"],
             _ => &[],
         });
@@ -585,11 +589,7 @@ mod tests {
             find(&s, "terminal", "Escape Escape").unwrap().desc,
             r"<C-\><C-N>"
         );
-        // `:lmap` applies in insert and command-line mode too, so a mode fact doesn't hide it.
-        assert_eq!(
-            modes_of(find(&s, "insert", "a a").unwrap()),
-            ["insert", "command", "language"]
-        );
+        assert_eq!(modes_of(find(&s, "language", "a a").unwrap()), ["language"]);
         // Left out: `<Plug>` on either side, `<SNR>`, buffer-local; the `é` map (no keysym `nvim::key` knows: it
         // reads ASCII keys only) is skipped and counted.
         let all: Vec<&Bind> = s.binds.values().flatten().collect();
@@ -1263,12 +1263,17 @@ esac"#,
     fn the_live_read() {
         let bin = live_vim("live-ok");
         let proc = fake_proc("live-ok", &bin, &["vim", "--servername", "MINE", "file"]);
-        let answer = r#"[ "$XDG_RUNTIME_DIR" = /kbf-run ] && [ -z "${TMPDIR+x}" ] || exit 4
+        // Run as `/proc/<pid>/exe`, not the `vim` on `PATH`.
+        let answer = r#"case "$0" in */4242/exe) ;; *) exit 5 ;; esac
+[ -z "${VIM_CLIENTSERVER+x}" ] || exit 6
+[ "$XDG_RUNTIME_DIR" = /kbf-run ] && [ -z "${TMPDIR+x}" ] || exit 4
 case "$4" in
   MINE) printf '{"pid": 1, "mode": "n", "filetype": "", "maps": ""}' ;;
   OTHER) printf '{"pid": 4242, "mode": "v", "filetype": "rust", "maps": "n  zz          * :w<CR>"}' ;;
   *) exit 3 ;;
 esac"#;
+        // gvim's comm (a Gvim window's pid).
+        std::fs::write(proc.join("4242/comm"), "gvim\n").unwrap();
         let got = run_live_sheet(&bin, &proc, "VIM 9.2 +eval +clientserver", "OTHER", answer);
         let _ = std::fs::remove_dir_all(&proc);
         let _ = std::fs::remove_dir_all(&bin);

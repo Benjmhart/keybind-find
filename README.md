@@ -282,8 +282,8 @@ maps you made by hand, and the maps of other modes are hidden. vim needs `+clien
 server: gvim starts one by itself; a terminal vim only when started with `--servername NAME` (an alias such as
 `alias vim='vim --servername VIM'`) or when its vimrc calls `remote_startserver('VIM')`, unless it was built with
 `+autoservername`. Arch's `vim` has the socket backend (`+socketserver`, vim 9.1.1651 and later); Debian trixie's
-`vim` (9.1.1230) has no clientserver, its `vim-gtk3` the X11 one. A server that doesn't answer in 2 seconds is a one-line note and the
-headless read; servers that are all other vims' mean this one has none. A vim in a tmux or screen pane is always read headless. Without a server,
+`vim` (9.1.1230) has no clientserver, its `vim-gtk3` the X11 one. Servers that don't answer within 2 seconds in all are a one-line note and
+the headless read; servers that are all other vims' mean this one has none. (A vim inside tmux or screen isn't read: only nvim is, there.) Without a server,
 keybind-find starts vim headless (`vim -es`) with your
 vimrc (`~/.vimrc`, `~/.vim/vimrc` or `~/.config/vim/vimrc`, the first that exists) on every `Super+/` and lists your
 maps, each tagged with its modes. Your vimrc and plugins run, as at any vim start (but not `VimEnter` autocommands,
