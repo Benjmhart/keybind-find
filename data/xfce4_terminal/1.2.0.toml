@@ -1,6 +1,7 @@
-# xfce4-terminal's default menu accelerators, read by keybind-find's xfce4_terminal provider (story 6.31).
-# Generated from action_entries[] in terminal/terminal-window.c at tag xfce4-terminal-1.2.0
-# (commit bcc92696a1526b85875f03c21b265bd376bce00d), GPL-2.0-or-later: every entry with a label (accel "" = none).
+# xfce4-terminal's default menu and scrolling accelerators, read by keybind-find's xfce4_terminal provider (story 6.31).
+# Generated from action_entries[] in terminal/terminal-window.c, then terminal/terminal-widget.c,
+# at tag xfce4-terminal-1.2.0 (commit bcc92696a1526b85875f03c21b265bd376bce00d), GPL-2.0-or-later: every entry with a label
+# (accel "" = none).
 
 [[action]]
 path = "<Actions>/terminal-window/file-menu"
@@ -306,3 +307,23 @@ label = "Go to Tab 8"
 path = "<Actions>/terminal-window/goto-tab-9"
 accel = "<Alt>9"
 label = "Go to Tab 9"
+
+[[action]]
+path = "<Actions>/terminal-widget/shift-up"
+accel = "<Shift>Up"
+label = "Scroll one line Up"
+
+[[action]]
+path = "<Actions>/terminal-widget/shift-down"
+accel = "<Shift>Down"
+label = "Scroll one line Down"
+
+[[action]]
+path = "<Actions>/terminal-widget/shift-pageup"
+accel = "<Shift>Page_Up"
+label = "Scroll one Page Up"
+
+[[action]]
+path = "<Actions>/terminal-widget/shift-pagedown"
+accel = "<Shift>Page_Down"
+label = "Scroll one Page Down"

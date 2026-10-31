@@ -22,8 +22,13 @@ const REGISTRY: &[(&str, &str)] = &[(
 
 const VERSION_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Where the accel paths of the window's actions start.
-const PREFIX: &str = "<Actions>/terminal-window/";
+/// Where the accel paths of the window's actions and the terminal widget's (scrolling) start.
+const PREFIXES: [&str; 2] = ["<Actions>/terminal-window/", "<Actions>/terminal-widget/"];
+
+/// The action's name in an accel path with one of `PREFIXES`.
+fn action_name(path: &str) -> Option<&str> {
+    PREFIXES.iter().find_map(|p| path.strip_prefix(p))
+}
 
 #[derive(Deserialize)]
 struct Pinned {
@@ -122,22 +127,23 @@ fn accels_file(env: Env) -> Option<PathBuf> {
 
 /// The sheet from the pinned actions with the accel map `accels` applied, and how many keys were left out.
 fn parse(pinned: &Pinned, accels: Option<&str>) -> (Sheet, usize) {
-    // (action name, accel, label), in the pinned order; an action the user's map names first goes after them.
+    // (accel path, accel, label), in the pinned order; an action the user's map names first goes after them.
     let mut actions: Vec<(String, String, String)> = pinned
         .action
         .iter()
-        .filter_map(|a| {
-            let name = a.path.strip_prefix(PREFIX)?;
-            Some((name.to_string(), a.accel.clone(), a.label.replace('_', "")))
-        })
+        .filter(|a| action_name(&a.path).is_some())
+        .map(|a| (a.path.clone(), a.accel.clone(), a.label.replace('_', "")))
         .collect();
     for (path, accel) in accel_map(accels.unwrap_or("")) {
-        let Some(name) = path.strip_prefix(PREFIX) else {
+        let Some(name) = action_name(&path) else {
             continue;
         };
-        match actions.iter_mut().find(|(n, _, _)| n == name) {
+        match actions.iter_mut().find(|(p, _, _)| *p == path) {
             Some((_, a, _)) => *a = accel,
-            None => actions.push((name.to_string(), accel, name.to_string())),
+            None => {
+                let name = name.to_string();
+                actions.push((path, accel, name));
+            }
         }
     }
     let mut sheet = Sheet {
@@ -146,7 +152,8 @@ fn parse(pinned: &Pinned, accels: Option<&str>) -> (Sheet, usize) {
         binds: Default::default(),
     };
     let mut left_out = 0;
-    for (name, accel, label) in actions {
+    for (path, accel, label) in actions {
+        let name = action_name(&path).unwrap_or_default().to_string();
         if accel.is_empty() {
             continue;
         }
@@ -310,13 +317,22 @@ mod tests {
             text.contains("tag xfce4-terminal-1.2.0")
                 && text.contains("bcc92696a1526b85875f03c21b265bd376bce00d")
         );
-        assert!(text.contains("terminal/terminal-window.c"));
+        assert!(
+            text.contains("terminal/terminal-window.c")
+                && text.contains("terminal/terminal-widget.c")
+        );
         let p = pinned();
-        // 61 entries in `action_entries[]`, 33 with a default accelerator; every one of them translates.
-        assert_eq!(p.action.len(), 61);
-        assert_eq!(p.action.iter().filter(|a| !a.accel.is_empty()).count(), 33);
+        // 61 entries in terminal-window.c's `action_entries[]`, 33 with a default accelerator, then terminal-widget.c's
+        // 4 (scrolling), all with one; every one of them translates.
+        assert_eq!(p.action.len(), 65);
+        assert_eq!(p.action.iter().filter(|a| !a.accel.is_empty()).count(), 37);
         let (s, left_out) = parse(&p, None);
-        assert_eq!((s.binds["xfce4-terminal"].len(), left_out), (33, 0));
+        assert_eq!((s.binds["xfce4-terminal"].len(), left_out), (37, 0));
+        assert_eq!(get(&s, "shift-up"), [("shift+Up", "Scroll one line Up")]);
+        assert_eq!(
+            get(&s, "shift-pagedown"),
+            [("shift+Next", "Scroll one Page Down")]
+        );
         assert_eq!(get(&s, "new-tab"), [("ctrl+shift+t", "Open Tab")]);
         assert_eq!(get(&s, "prev-tab"), [("ctrl+Prior", "Previous Tab")]);
         assert_eq!(get(&s, "next-tab"), [("ctrl+Next", "Next Tab")]);
@@ -355,7 +371,9 @@ mod tests {
         assert_eq!(get(&s, "detach-tab"), [("ctrl+shift+d", "Detach Tab")]);
         // An action the defaults don't have: its path's last part.
         assert_eq!(get(&s, "some-new-action"), [("super+k", "some-new-action")]);
-        // Outside terminal-window, junk and an unfinished statement: nothing. `<Hyper>`: left out, counted.
+        // The terminal widget's actions too.
+        assert_eq!(get(&s, "shift-up"), [("ctrl+Up", "Scroll one line Up")]);
+        // Outside terminal-window and terminal-widget, junk and an unfinished statement: nothing. `<Hyper>`: left out, counted.
         assert!(get(&s, "whatever").is_empty());
         assert_eq!(get(&s, "zoom-in"), [("ctrl+plus", "Zoom In")]);
         assert!(get(&s, "fullscreen").is_empty());
@@ -583,7 +601,7 @@ mod tests {
             &none,
         )
         .unwrap();
-        assert_eq!(s.binds["xfce4-terminal"].len(), 33);
+        assert_eq!(s.binds["xfce4-terminal"].len(), 37);
         assert_eq!(
             notes,
             ["xfce4_terminal's version is unknown: using the defaults of 1.2.0"]
