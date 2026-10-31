@@ -605,9 +605,7 @@ Other channels:
 
 - a static binary and a `.deb` on the [GitHub release page](https://github.com/Benjmhart/keybind-find/releases)
 - crates.io: `cargo install keybind-find`
-- Arch (AUR): `keybind-find`, or `keybind-find-bin` for the prebuilt binary
 - Nix: `nix run github:Benjmhart/keybind-find`
-- Gentoo: the GURU overlay
 
 ## Bind it to `Super+/`
 

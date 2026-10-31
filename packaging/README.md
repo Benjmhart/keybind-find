@@ -3,6 +3,10 @@
 Recipes for distributions, kept here and submitted to each distribution on release day. Nothing in this directory
 is built by `cargo` or CI.
 
+**Not submitted.** For 1.0.0 none of these went out (2026-10-31): AUR account registration was closed, and GURU and
+Debian were dropped; crates.io, the GitHub release and the Nix flake are the channels. The recipes stay as starting
+points for a packager.
+
 | Recipe | What it is | Where it goes |
 |---|---|---|
 | `aur/keybind-find/` | Arch `PKGBUILD` + `.SRCINFO`: builds the release's source tarball, runs the tests | AUR package `keybind-find` |
