@@ -104,8 +104,28 @@ fn sheet_with(
             .ok()
             .and_then(|t| version_of(&t))
     });
-    let (v, text, note) = pinned::select("helix", registry, installed.as_deref())
-        .context("no pinned helix keymap")?;
+    // A release of the same year and month (`25.07` and its patch release `25.07.1`) shares its keymap; otherwise the
+    // shared rules (an older one first) would pick another month's.
+    let same_month = installed.as_deref().and_then(|i| {
+        let want = pinned::parse_version(i)?;
+        registry.iter().rev().find_map(|&(v, t)| {
+            let p = pinned::parse_version(v)?;
+            (p != want && p.get(..2) == want.get(..2)).then(|| {
+                (
+                    v,
+                    t,
+                    Some(format!(
+                        "helix {i}: using the defaults of {v}, the same month's release"
+                    )),
+                )
+            })
+        })
+    });
+    let (v, text, note) = match same_month {
+        Some(found) => found,
+        None => pinned::select("helix", registry, installed.as_deref())
+            .context("no pinned helix keymap")?,
+    };
     let pinned: Pinned =
         toml::from_str(text).with_context(|| format!("reading data/helix/{v}.toml"))?;
     ensure!(
@@ -602,7 +622,6 @@ fn walk(
                 };
                 walk(pinned, mode, child, category, path, sheet, left_out);
             }
-            // `no_op` disables a key.
             // `no_op` disables a key; an empty list does nothing.
             Trie::Commands(c) if c.is_empty() || (c.len() == 1 && c[0] == "no_op") => {}
             Trie::Commands(_) if path.iter().any(Option::is_none) => *left_out += 1,
@@ -889,6 +908,8 @@ mod tests {
             ("color = 1\n".into(), "unknown field `color`"),
             ("theme = 1\n".into(), "expected a string"),
             ("editor = 5\n".into(), "expected a map"),
+            ("keys = 1\n".into(), "expected a map"),
+            ("[keys.normal]\nx = [\"undo\", 1]\n".into(), "strings only"),
             (
                 "[keys.normal]\nx = \":  w\"\n".into(),
                 "Expected typable command name",
@@ -903,7 +924,7 @@ mod tests {
         // Valid edge cases: an empty file, `:w` with spaces, `-` alone, an F key, a sub-mode under a new key.
         let (s, _, bad) = parse(
             &p,
-            Some("[keys.normal]\n\"-\" = \":w\"\nE = []\nC-o = \":o a  b\"\nF24 = \"undo\"\n\"A-minus\" = { \"S-tab\" = \"redo\" }\n"),
+            Some("[keys.normal]\n\"-\" = \":w\"\nE = []\nC-w = \":w\\tb \"\nw = { a = \"undo\" }\nC-o = \":o a  b\"\nF24 = \"undo\"\n\"A-minus\" = { \"S-tab\" = \"redo\" }\n"),
         )
         .unwrap();
         assert_eq!(bad, None);
@@ -914,6 +935,16 @@ mod tests {
                 "Write changes to disk. Accepts an optional path (:write some/path.txt)",
                 ":w"
             ))
+        );
+        // Split at a tab too; arguments trimmed.
+        assert_eq!(get(&s, "normal", "ctrl+w").map(|b| b.1), Some(":write b"));
+        // A table onto a key bound to a command replaces it.
+        assert_eq!(get(&s, "normal", "w a").map(|b| b.2), Some("undo"));
+        assert_eq!(get(&s, "normal", "w"), None);
+        // An unknown `[editor]` option isn't checked.
+        assert_eq!(
+            parse(&p, Some("[editor]\nno-such-option = 1\n")).unwrap().2,
+            None
         );
         // An empty list does nothing: not listed.
         assert_eq!(get(&s, "normal", "shift+e"), None);
@@ -1022,6 +1053,12 @@ mod tests {
             ("helix", "helix 25.07.1 (a05c151b)", "helix 25.07.1", None),
             (
                 "hx",
+                "helix 25.07",
+                "helix 25.07.1",
+                Some("helix 25.07: using the defaults of 25.07.1, the same month's release"),
+            ),
+            (
+                "hx",
                 "helix 25.10.0 (0123abcd)",
                 "helix 25.07.1",
                 Some("helix 25.10.0: using the defaults of 25.07.1; add data/helix/25.10.0.toml"),
@@ -1127,9 +1164,12 @@ mod tests {
                 .arg("--version")
                 .stdin(std::process::Stdio::null())
                 .output()
-                .is_ok_and(|o| o.status.success())
+                .is_ok_and(|o| {
+                    o.status.success() && version_of(&String::from_utf8_lossy(&o.stdout)).is_some()
+                })
         }) else {
-            eprintln!("skipping: neither hx nor helix is installed");
+            // Neither, or an `hx` that is another program (a hex viewer).
+            eprintln!("skipping: helix is not installed (as hx or helix)");
             return;
         };
         let mut cmd = Command::new(program);
