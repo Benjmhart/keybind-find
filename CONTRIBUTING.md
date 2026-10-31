@@ -50,7 +50,7 @@ the user's config) are good models.
 3. **Register it** in [`src/providers/mod.rs`](src/providers/mod.rs): `mod <name>;`, its name in `KNOWN`, and an arm
    in `providers::sheet`. `keybind-find dump <name>` works from then on.
 4. **When it applies:** add it in `providers_for` in [`src/context.rs`](src/context.rs), keyed on the focused window's
-   class, or on the program running inside alacritty (the only terminal whose child is read so far). A program found
+   class, or on the program running inside a terminal (any class in `TERMINALS` there). A program found
    inside a herdr or tmux pane is added in `add_nested_nvim` there. `providers_for` lists programs from the outside
    in: the window manager and espanso, then the app and what runs inside it, with `vimium` and `sheets` last; put a
    new app provider inside the class block, before those two. The ranking in [`src/usage.rs`](src/usage.rs) gives the
@@ -70,8 +70,9 @@ the user's config) are good models.
    [CHANGELOG.md](CHANGELOG.md), and, if it runs a new program or reads a new file, the lists in
    [SECURITY.md](SECURITY.md).
 
-A plugin guide, for providers that live outside this repo, is planned; until it exists, providers are built in as
-above.
+A provider can also live outside this repo, as a plugin: a small program of its own that prints a sheet. See
+[docs/plugins.md](docs/plugins.md). A program few people use, or one you'd rather maintain yourself, is a good fit
+for a plugin.
 
 ## Support level
 
