@@ -34,6 +34,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Fixed
 
+- A GTK terminal (GNOME Terminal, Terminator) lost the program inside to its image-loader sandbox (`bwrap`), a second child with no tty: only children with a tty count now.
 - Wayland: `XDG_CURRENT_DESKTOP=KDE` or `GNOME` names KDE or GNOME only while Plasma or GNOME Shell runs, and `SWAYSOCK`, `NIRI_SOCKET` or `HYPRLAND_INSTANCE_SIGNATURE` only while its socket exists, so other compositors no longer have their picks refused.
 - mpv: a key your script binds at load no longer goes missing now and then; the sheet is read once the bindings settle.
 

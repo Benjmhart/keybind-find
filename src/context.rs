@@ -1195,6 +1195,17 @@ fn foreground(
             children.extend(text.split_whitespace().map(str::to_string));
         }
     }
+    // A helper a GUI toolkit starts beside the shell (GTK's image-loader sandbox, `bwrap`) has no terminal: when any
+    // child has one, only those count.
+    let has_tty = |c: &String| {
+        std::fs::read_to_string(proc.join(format!("{c}/stat")))
+            .ok()
+            .and_then(|s| stat_field(&s, 4))
+            .is_some_and(|tty| tty != 0)
+    };
+    if children.iter().any(has_tty) {
+        children.retain(has_tty);
+    }
     // A terminal that serves several windows, tabs or splits from one process (alacritty's daemon mode,
     // `foot --server`, gnome-terminal-server, kitty's tabs) has several children; only kitty can say which is focused.
     let child = match children.as_slice() {
@@ -3753,6 +3764,43 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    /// A GTK terminal's image-loader sandbox (`bwrap`, no tty) beside the shell isn't a second window: only children
+    /// with a tty count when there are any (a stand-in `/proc`).
+    #[test]
+    fn a_toolkit_helper_beside_the_shell_is_not_a_window() {
+        let tmp = std::env::temp_dir().join(format!("kbf-helper-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let proc = tmp.join("proc");
+        let task = proc.join("300/task/300");
+        std::fs::create_dir_all(&task).unwrap();
+        let child = |pid: &str, comm: &str, tty: u32| {
+            let dir = proc.join(pid);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("comm"), format!("{comm}\n")).unwrap();
+            std::fs::write(
+                dir.join("stat"),
+                format!("{pid} ({comm}) S 300 {pid} {pid} {tty} {pid} 4194304"),
+            )
+            .unwrap();
+        };
+        child("3001", "zsh", 34816);
+        child("3002", "bwrap", 0);
+        std::fs::write(task.join("children"), "3002 3001").unwrap();
+        let none = |_: &str| None;
+        let comm =
+            || foreground(300, "Gnome-terminal", None, &none, &proc).map(|f| f.map(|f| f.comm));
+        assert_eq!(comm().unwrap().as_deref(), Some("zsh"));
+        // Two shells with a tty (two windows) are still several.
+        child("3003", "bash", 34817);
+        std::fs::write(task.join("children"), "3002 3001 3003").unwrap();
+        assert!(format!("{:#}", comm().unwrap_err()).contains("has 2 children"));
+        // Children none of which has a tty are all counted, as before.
+        child("3001", "zsh", 0);
+        child("3003", "bash", 0);
+        assert!(format!("{:#}", comm().unwrap_err()).contains("has 3 children"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     /// The `WINDOWID` match, on a stand-in `/proc` (stand-in processes under `setsid sh` have no tty, which the match
     /// requires): a terminal (200) whose children each serve a window.
     #[test]
@@ -3815,12 +3863,13 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         assert_eq!(comm("kitty", Some("22")).unwrap().as_deref(), Some("htop"));
         assert!(format!("{:#}", comm("kitty", Some("44")).unwrap_err())
             .contains("allow_remote_control"));
-        // No match, or no X id (sway, Hyprland, KDE): the several-children line.
+        // No match, or no X id (sway, Hyprland, KDE): the several-children line, counting the shells (the helper
+        // without a tty isn't one).
         for x in [Some("44"), None] {
             let e = format!("{:#}", comm("Xfce4-terminal", x).unwrap_err());
             assert_eq!(
                 e,
-                "pid 200 has 3 children (one process serving several windows or tabs?)"
+                "pid 200 has 2 children (one process serving several windows or tabs?)"
             );
         }
         // A claim on a window the terminal no longer has (htop's tab dragged into window 11, its window 22 closed):
@@ -3843,9 +3892,12 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         assert!(comm("Xfce4-terminal", Some("11")).is_err());
         child("2004", "vim", 34818, Some("A=b\0"));
         assert!(comm("Xfce4-terminal", Some("11")).is_err());
-        // Nor a child whose stat can't be read.
+        // A child whose stat can't be read has exited: it is no tab, and no longer counts.
         std::fs::remove_file(proc.join("2004/stat")).unwrap();
-        assert!(comm("Xfce4-terminal", Some("11")).is_err());
+        assert_eq!(
+            comm("Xfce4-terminal", Some("11")).unwrap().as_deref(),
+            Some("zsh")
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
