@@ -281,14 +281,15 @@ running vim's own executable as the client. Then the list has the buffer's own m
 maps you made by hand, and the maps of other modes are hidden. vim needs `+clientserver` (`vim --version`) and a
 server: gvim starts one by itself; a terminal vim only when started with `--servername NAME` (an alias such as
 `alias vim='vim --servername VIM'`) or when its vimrc calls `remote_startserver('VIM')`, unless it was built with
-`+autoservername`. Arch's `vim` has the socket backend (`+socketserver`, vim 9.1.1651 and later); Debian's `vim` has
-no clientserver, its `vim-gtk3` the X11 one. A server that doesn't answer, or answers for another vim, is a one-line
-note and the headless read. Without a server, keybind-find starts vim headless (`vim -es`) with your
+`+autoservername`. Arch's `vim` has the socket backend (`+socketserver`, vim 9.1.1651 and later); Debian trixie's
+`vim` (9.1.1230) has no clientserver, its `vim-gtk3` the X11 one. A server that doesn't answer in 2 seconds is a one-line note and the
+headless read; servers that are all other vims' mean this one has none. A vim in a tmux or screen pane is always read headless. Without a server,
+keybind-find starts vim headless (`vim -es`) with your
 vimrc (`~/.vimrc`, `~/.vim/vimrc` or `~/.config/vim/vimrc`, the first that exists) on every `Super+/` and lists your
 maps, each tagged with its modes. Your vimrc and plugins run, as at any vim start (but not `VimEnter` autocommands,
 so maps made there are missing); vim gets 10 seconds. A vimrc that prints or has an error is fine: the maps are read all the same. With no vimrc you get what a
 plain vim start sets (`defaults.vim`). vim's own keys aren't listed: they are vim's documentation's (`:help index`),
-and your maps are what you forget. Left out of the headless read: plugins' `<Plug>` and script-local maps,
+and your maps are what you forget. Left out: plugins' `<Plug>` and script-local maps; and from the headless read,
 buffer-local maps (a headless vim has no file of yours open), maps made by hand in the running vim, the system vimrc's (`/etc/vimrc`), `$EXINIT`
 and `~/.exrc` (with no vimrc), and a gvim's `.gvimrc` and `has('gui_running')` branches. `~/.config/vim/vimrc` is
 read as vim 9.1.0327 and later read it; an older vim ignores it. vim run as `vimdiff`, `view` or `rvim` isn't
