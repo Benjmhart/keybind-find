@@ -1,6 +1,6 @@
 [package]
 name = "keybind-find"
-version = "0.1.0-alpha.1"
+version = "1.0.0"
 edition = "2021"
 description = "Search the keybindings for the focused window and run the one you pick"
 license = "MIT"
@@ -9,8 +9,8 @@ homepage = "https://github.com/Benjmhart/keybind-find"
 readme = "README.md"
 keywords = ["keybindings", "cheatsheet", "command-palette", "xmonad", "linux"]
 categories = ["command-line-utilities"]
-# The toolchain pinned in mise.toml.
-rust-version = "1.98"
+# The oldest Rust that builds it (2026-10-31: 1.94 lacks `if let` guards); mise.toml pins a newer one for the gate.
+rust-version = "1.95"
 # `data/` is built in with `include_str!`. `tests/` fixtures are only read under `#[cfg(test)]`, so the packaged crate
 # builds without them (but its tests can't run). `docs/*.md` leaves out `docs/media/`. The `ci` task checks the list against
 # this one.

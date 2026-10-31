@@ -19,11 +19,6 @@
           };
           cargoLock.lockFile = ./Cargo.lock;
 
-          # ponytail: Cargo.toml's rust-version is the toolchain mise pins (1.98), newer than nixpkgs' default rustc
-          # (1.95 on 26.05); the code builds on older ones (tried: 1.86, 1.91). `rustPackages_1_98` would avoid the flag but tie
-          # the overlay to nixpkgs that have it. Drop the flag once rust-version is lowered.
-          cargoBuildFlags = [ "--ignore-rust-version" ];
-
           # ponytail: the tests need a pinned nvim (mise.toml) and run in CI (ci.yml), not in the sandbox.
           doCheck = false;
 

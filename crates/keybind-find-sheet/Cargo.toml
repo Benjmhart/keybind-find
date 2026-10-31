@@ -9,7 +9,8 @@ homepage = "https://github.com/Benjmhart/keybind-find"
 readme = "README.md"
 keywords = ["keybindings", "cheatsheet", "keybind-find", "plugin"]
 categories = ["command-line-utilities"]
-rust-version = "1.98"
+# The oldest Rust that builds it (2026-10-31: `PanicHookInfo::payload_as_str` is 1.91).
+rust-version = "1.91"
 include = ["/src/**", "/tests/**", "/README.md", "/LICENSE", "/Cargo.toml"]
 
 [dependencies]

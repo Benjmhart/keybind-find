@@ -592,7 +592,7 @@ falls back to fuzzel, with one line saying to install them or set `[picker]` ([d
 
 ## Install
 
-From source, now:
+From source:
 
 ```sh
 cargo install --path .
@@ -601,14 +601,13 @@ cargo install --path .
 This puts `keybind-find` in `~/.cargo/bin`. Your window manager starts it, so that directory must be on the `PATH`
 the window manager was started with, not only your shell's. If it isn't, use the full path in the binding below.
 
-Other channels; those still planned are marked:
+Other channels:
 
 - a static binary and a `.deb` on the [GitHub release page](https://github.com/Benjmhart/keybind-find/releases)
-  (pre-releases for now)
-- crates.io: `cargo install keybind-find` *(from 1.0.0)*
-- Arch (AUR): `keybind-find`, or `keybind-find-bin` for the prebuilt binary *(from 1.0.0)*
-- Nix: `nix run github:Benjmhart/keybind-find` *(from 1.0.0)*
-- Gentoo: the GURU overlay *(from 1.0.0)*
+- crates.io: `cargo install keybind-find`
+- Arch (AUR): `keybind-find`, or `keybind-find-bin` for the prebuilt binary
+- Nix: `nix run github:Benjmhart/keybind-find`
+- Gentoo: the GURU overlay
 
 ## Bind it to `Super+/`
 
