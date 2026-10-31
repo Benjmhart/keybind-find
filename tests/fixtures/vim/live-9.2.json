@@ -1,0 +1,1 @@
+{"pid":98520,"maps":"\n\nn  <Space>b    *@:echo \"buffer\"<CR>\nn  <Space>p      <Plug>(kbf-test)\nn  <Space>w    * :w<CR>\nn  <Plug>(kbf-test) * :echo \"plug\"<CR>\n\ni  jk          * <Esc>\n\nNo mapping found\n\nNo mapping found","mode":"n","filetype":"c"}

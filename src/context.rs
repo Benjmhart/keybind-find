@@ -132,8 +132,8 @@ fn found_nvim(pid: u32) {
     let _ = NVIM_PID.set(pid);
 }
 
-/// The pid of the editor found in the focused window, for an editor provider other than nvim to ask it: Emacs in the
-/// terminal's foreground, or an Emacs window's own pid (an `emacsclient -c` frame's is the daemon's).
+/// The pid of the editor found in the focused window, for an editor provider other than nvim to ask it: Emacs or vim
+/// in the terminal's foreground, or an Emacs or gvim window's own pid (an `emacsclient -c` frame's is the daemon's).
 /// ponytail: beside `Context`, like `NVIM_PID`; first found wins.
 static EDITOR_PID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
 
@@ -160,11 +160,19 @@ fn is_emacs_window(class: &str) -> bool {
     class.eq_ignore_ascii_case("emacs")
 }
 
-/// The pid of an Emacs window (an `emacsclient -c` frame's is the daemon's), for the emacs provider to ask.
-fn emacs_window_pid(props: &Props) -> Option<u32> {
-    props
-        .pid
-        .filter(|_| props.class.as_deref().is_some_and(is_emacs_window))
+/// An editor leading a terminal's foreground group, by comm: Emacs, or vim (`vi` too: the vim provider's names).
+fn is_editor_comm(comm: &str) -> bool {
+    EMACS_COMMS.contains(&comm) || matches!(comm, "vim" | "vi")
+}
+
+/// The pid of an Emacs window (an `emacsclient -c` frame's is the daemon's) or a gvim window, for its provider to ask.
+fn editor_window_pid(props: &Props) -> Option<u32> {
+    props.pid.filter(|_| {
+        props
+            .class
+            .as_deref()
+            .is_some_and(|c| is_emacs_window(c) || c.eq_ignore_ascii_case("Gvim"))
+    })
 }
 
 /// The window `detect` found, as a plugin's request and a JSON picker's request carry it.
@@ -797,7 +805,7 @@ fn program_in(
     pid_source: &str,
     x_window: Option<&str>,
 ) -> anyhow::Result<Option<Foreground>> {
-    if let Some(pid) = emacs_window_pid(props) {
+    if let Some(pid) = editor_window_pid(props) {
         found_editor(pid);
     }
     let Some(class) = props.class.as_deref().filter(|c| is_terminal(c)) else {
@@ -1219,7 +1227,7 @@ fn foreground_of(child: &str, proc: &std::path::Path) -> Option<Foreground> {
             if let (Ok(pid), "nvim") = (pid.parse(), comm.as_str()) {
                 found_nvim(pid);
             }
-            if let (Ok(pid), true) = (pid.parse(), EMACS_COMMS.contains(&comm.as_str())) {
+            if let (Ok(pid), true) = (pid.parse(), is_editor_comm(&comm)) {
                 found_editor(pid);
             }
             return Some(Foreground { comm, group });
@@ -3386,17 +3394,35 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
     }
 
     #[test]
-    fn emacs_window_pid_by_class() {
+    fn editor_window_pid_by_class() {
         let props = |class: &str, pid| Props {
             class: Some(class.into()),
             instance: None,
             pid,
             title: None,
         };
-        assert_eq!(emacs_window_pid(&props("Emacs", Some(42))), Some(42));
-        assert_eq!(emacs_window_pid(&props("emacs", Some(42))), Some(42));
-        assert_eq!(emacs_window_pid(&props("emacs", None)), None);
-        assert_eq!(emacs_window_pid(&props("Alacritty", Some(42))), None);
+        for class in ["Emacs", "emacs", "Gvim", "gvim"] {
+            assert_eq!(
+                editor_window_pid(&props(class, Some(42))),
+                Some(42),
+                "{class}"
+            );
+            assert_eq!(editor_window_pid(&props(class, None)), None, "{class}");
+        }
+        assert_eq!(editor_window_pid(&props("Alacritty", Some(42))), None);
+    }
+
+    /// The foreground leaders recorded as the editor (`foreground_of` records the first; tested end to end for
+    /// Emacs below, since the slot is the test process's first-found).
+    #[test]
+    fn editor_comms() {
+        for comm in ["vim", "vi", "emacs", "emacsclient", "emacs-nox"] {
+            assert!(is_editor_comm(comm), "{comm}");
+        }
+        // nvim has its own slot; others aren't editors with a provider to ask.
+        for comm in ["nvim", "gvim", "view", "zsh", "Vim"] {
+            assert!(!is_editor_comm(comm), "{comm}");
+        }
     }
 
     /// Emacs leading the terminal's foreground group is recorded for the emacs provider (a stand-in `/proc`; no other
