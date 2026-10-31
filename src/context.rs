@@ -1257,7 +1257,7 @@ fn focused_child(
 /// when every child with a tty has one, no two share a window (no tabs anywhere), and each names a live window of
 /// `pid` (`xdotool search --pid`, through `env`'s `PATH`); otherwise none. ponytail: two tabs swapped between two
 /// windows (their other tabs closed) still pass and give each window the other's program; nothing in `/proc` or X says
-/// which window a tab is in now. Only for an X window id: sway's and
+/// which window a tab is in now. A tab held open after its command exits has no child, so it claims nothing. Only for an X window id: sway's and
 /// Hyprland's ids aren't X ids, so their callers pass none.
 fn window_id_child(
     pid: u32,

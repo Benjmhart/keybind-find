@@ -62,7 +62,8 @@ GNOME Terminal, Xfce Terminal, WezTerm, Ghostty and Terminator), keybind-find fi
 terminal puts the window's id in each shell's environment (`WINDOWID`: Xfce Terminal, kitty, urxvt, alacritty), every
 window of that process runs one shell, and each of those windows still exists (`xdotool search --pid`: a tab dragged
 to another window keeps its old id; after tabs are swapped between two windows whose other tabs then close, each
-window still names the other's program); otherwise (tabs anywhere in that process, or a Wayland window) it prints a one-line warning and shows the list without
+window still names the other's program, and a tab held open after its command exits has no shell to count, so its
+window gets its other tab's program); otherwise (tabs anywhere in that process, or a Wayland window) it prints a one-line warning and shows the list without
 the program inside (the terminal's own keys, alacritty's, Ghostty's, kitty's, foot's, GNOME Terminal's or Xfce Terminal's, are still listed).
 kitty can say which tab has focus when its remote control is on ([below](#kitty)). espanso's `word: true` matches (they
 wait for a space or punctuation after the trigger) and regex matches (no literal trigger) can't be typed, picks do nothing while the espanso service is stopped, and matches limited by `filter_exec` aren't
