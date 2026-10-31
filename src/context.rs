@@ -2400,7 +2400,8 @@ mod tests {
         let found = loop {
             let found =
                 read_hyprland_focus(&mut ctx, &hypr_window("kitty", sh.0.id(), false)).unwrap();
-            if found.is_some() || Instant::now() > deadline {
+            // Until sh's child has exec'd: before that its name is still `sh`.
+            if found.as_ref().is_some_and(|f| f.comm == "cat") || Instant::now() > deadline {
                 break found;
             }
             std::thread::sleep(Duration::from_millis(20));
@@ -2489,7 +2490,8 @@ mod tests {
         kde(&mut ctx);
         let found = loop {
             let found = read_kde_focus(&mut ctx, &out).unwrap();
-            if found.is_some() || Instant::now() > deadline {
+            // Until sh's child has exec'd: before that its name is still `sh`.
+            if found.as_ref().is_some_and(|f| f.comm == "cat") || Instant::now() > deadline {
                 break found;
             }
             std::thread::sleep(Duration::from_millis(20));
