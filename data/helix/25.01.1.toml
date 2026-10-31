@@ -1,0 +1,4863 @@
+# helix 25.01.1's default keymap, commands and typable commands, read by keybind-find's helix provider (story 6.32).
+# Generated from helix-editor/helix tag 25.01.1 (commit e7ac2fcdecfdbf43a4f772e7f7c163b43b3d0b9b), MPL-2.0: helix-term/src/keymap/default.rs
+# (normal; select = normal merged with select's own; insert), helix-term/src/commands.rs (static_commands!) and
+# helix-term/src/commands/typed.rs (TYPABLE_COMMAND_LIST).
+
+helix_version = "25.01.1"
+source = "helix-editor/helix 25.01.1 e7ac2fcdecfdbf43a4f772e7f7c163b43b3d0b9b"
+
+[[bind]]
+mode = "normal"
+keys = "h"
+command = "move_char_left"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "left"
+command = "move_char_left"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "j"
+command = "move_visual_line_down"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "down"
+command = "move_visual_line_down"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "k"
+command = "move_visual_line_up"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "up"
+command = "move_visual_line_up"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "l"
+command = "move_char_right"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "right"
+command = "move_char_right"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "t"
+command = "find_till_char"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "f"
+command = "find_next_char"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "T"
+command = "till_prev_char"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "F"
+command = "find_prev_char"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "r"
+command = "replace"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "R"
+command = "replace_with_yanked"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-."
+command = "repeat_last_motion"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "~"
+command = "switch_case"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "`"
+command = "switch_to_lowercase"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-`"
+command = "switch_to_uppercase"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "home"
+command = "goto_line_start"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "end"
+command = "goto_line_end"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "w"
+command = "move_next_word_start"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "b"
+command = "move_prev_word_start"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "e"
+command = "move_next_word_end"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "W"
+command = "move_next_long_word_start"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "B"
+command = "move_prev_long_word_start"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "E"
+command = "move_next_long_word_end"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "v"
+command = "select_mode"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "G"
+command = "goto_line"
+category = "Normal mode"
+
+[[node]]
+mode = "normal"
+keys = "g"
+label = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g g"
+command = "goto_file_start"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g e"
+command = "goto_last_line"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g f"
+command = "goto_file"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g h"
+command = "goto_line_start"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g l"
+command = "goto_line_end"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g s"
+command = "goto_first_nonwhitespace"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g d"
+command = "goto_definition"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g D"
+command = "goto_declaration"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g y"
+command = "goto_type_definition"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g r"
+command = "goto_reference"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g i"
+command = "goto_implementation"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g t"
+command = "goto_window_top"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g c"
+command = "goto_window_center"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g b"
+command = "goto_window_bottom"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g a"
+command = "goto_last_accessed_file"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g m"
+command = "goto_last_modified_file"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g n"
+command = "goto_next_buffer"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g p"
+command = "goto_previous_buffer"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g k"
+command = "move_line_up"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g j"
+command = "move_line_down"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g ."
+command = "goto_last_modification"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = "g w"
+command = "goto_word"
+category = "Goto"
+
+[[bind]]
+mode = "normal"
+keys = ":"
+command = "command_mode"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "i"
+command = "insert_mode"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "I"
+command = "insert_at_line_start"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "a"
+command = "append_mode"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A"
+command = "insert_at_line_end"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "o"
+command = "open_below"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "O"
+command = "open_above"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "d"
+command = "delete_selection"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-d"
+command = "delete_selection_noyank"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "c"
+command = "change_selection"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-c"
+command = "change_selection_noyank"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "C"
+command = "copy_selection_on_next_line"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-C"
+command = "copy_selection_on_prev_line"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "s"
+command = "select_regex"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-s"
+command = "split_selection_on_newline"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-minus"
+command = "merge_selections"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-_"
+command = "merge_consecutive_selections"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "S"
+command = "split_selection"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = ";"
+command = "collapse_selection"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-;"
+command = "flip_selections"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-o"
+command = "expand_selection"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-up"
+command = "expand_selection"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-i"
+command = "shrink_selection"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-down"
+command = "shrink_selection"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-I"
+command = "select_all_children"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-S-down"
+command = "select_all_children"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-p"
+command = "select_prev_sibling"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-left"
+command = "select_prev_sibling"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-n"
+command = "select_next_sibling"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-right"
+command = "select_next_sibling"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-e"
+command = "move_parent_node_end"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-b"
+command = "move_parent_node_start"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-a"
+command = "select_all_siblings"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "%"
+command = "select_all"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "x"
+command = "extend_line_below"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "X"
+command = "extend_to_line_bounds"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-x"
+command = "shrink_to_line_bounds"
+category = "Normal mode"
+
+[[node]]
+mode = "normal"
+keys = "m"
+label = "Match"
+
+[[bind]]
+mode = "normal"
+keys = "m m"
+command = "match_brackets"
+category = "Match"
+
+[[bind]]
+mode = "normal"
+keys = "m s"
+command = "surround_add"
+category = "Match"
+
+[[bind]]
+mode = "normal"
+keys = "m r"
+command = "surround_replace"
+category = "Match"
+
+[[bind]]
+mode = "normal"
+keys = "m d"
+command = "surround_delete"
+category = "Match"
+
+[[bind]]
+mode = "normal"
+keys = "m a"
+command = "select_textobject_around"
+category = "Match"
+
+[[bind]]
+mode = "normal"
+keys = "m i"
+command = "select_textobject_inner"
+category = "Match"
+
+[[node]]
+mode = "normal"
+keys = "["
+label = "Left bracket"
+
+[[bind]]
+mode = "normal"
+keys = "[ d"
+command = "goto_prev_diag"
+category = "Left bracket"
+
+[[bind]]
+mode = "normal"
+keys = "[ D"
+command = "goto_first_diag"
+category = "Left bracket"
+
+[[bind]]
+mode = "normal"
+keys = "[ g"
+command = "goto_prev_change"
+category = "Left bracket"
+
+[[bind]]
+mode = "normal"
+keys = "[ G"
+command = "goto_first_change"
+category = "Left bracket"
+
+[[bind]]
+mode = "normal"
+keys = "[ f"
+command = "goto_prev_function"
+category = "Left bracket"
+
+[[bind]]
+mode = "normal"
+keys = "[ t"
+command = "goto_prev_class"
+category = "Left bracket"
+
+[[bind]]
+mode = "normal"
+keys = "[ a"
+command = "goto_prev_parameter"
+category = "Left bracket"
+
+[[bind]]
+mode = "normal"
+keys = "[ c"
+command = "goto_prev_comment"
+category = "Left bracket"
+
+[[bind]]
+mode = "normal"
+keys = "[ e"
+command = "goto_prev_entry"
+category = "Left bracket"
+
+[[bind]]
+mode = "normal"
+keys = "[ T"
+command = "goto_prev_test"
+category = "Left bracket"
+
+[[bind]]
+mode = "normal"
+keys = "[ p"
+command = "goto_prev_paragraph"
+category = "Left bracket"
+
+[[bind]]
+mode = "normal"
+keys = "[ space"
+command = "add_newline_above"
+category = "Left bracket"
+
+[[node]]
+mode = "normal"
+keys = "]"
+label = "Right bracket"
+
+[[bind]]
+mode = "normal"
+keys = "] d"
+command = "goto_next_diag"
+category = "Right bracket"
+
+[[bind]]
+mode = "normal"
+keys = "] D"
+command = "goto_last_diag"
+category = "Right bracket"
+
+[[bind]]
+mode = "normal"
+keys = "] g"
+command = "goto_next_change"
+category = "Right bracket"
+
+[[bind]]
+mode = "normal"
+keys = "] G"
+command = "goto_last_change"
+category = "Right bracket"
+
+[[bind]]
+mode = "normal"
+keys = "] f"
+command = "goto_next_function"
+category = "Right bracket"
+
+[[bind]]
+mode = "normal"
+keys = "] t"
+command = "goto_next_class"
+category = "Right bracket"
+
+[[bind]]
+mode = "normal"
+keys = "] a"
+command = "goto_next_parameter"
+category = "Right bracket"
+
+[[bind]]
+mode = "normal"
+keys = "] c"
+command = "goto_next_comment"
+category = "Right bracket"
+
+[[bind]]
+mode = "normal"
+keys = "] e"
+command = "goto_next_entry"
+category = "Right bracket"
+
+[[bind]]
+mode = "normal"
+keys = "] T"
+command = "goto_next_test"
+category = "Right bracket"
+
+[[bind]]
+mode = "normal"
+keys = "] p"
+command = "goto_next_paragraph"
+category = "Right bracket"
+
+[[bind]]
+mode = "normal"
+keys = "] space"
+command = "add_newline_below"
+category = "Right bracket"
+
+[[bind]]
+mode = "normal"
+keys = "/"
+command = "search"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "?"
+command = "rsearch"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "n"
+command = "search_next"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "N"
+command = "search_prev"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "*"
+command = "search_selection_detect_word_boundaries"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-*"
+command = "search_selection"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "u"
+command = "undo"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "U"
+command = "redo"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-u"
+command = "earlier"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-U"
+command = "later"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "y"
+command = "yank"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "p"
+command = "paste_after"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "P"
+command = "paste_before"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "Q"
+command = "record_macro"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "q"
+command = "replay_macro"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = ">"
+command = "indent"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "<"
+command = "unindent"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "="
+command = "format_selections"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "J"
+command = "join_selections"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-J"
+command = "join_selections_space"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "K"
+command = "keep_selections"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-K"
+command = "remove_selections"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = ","
+command = "keep_primary_selection"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-,"
+command = "remove_primary_selection"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "&"
+command = "align_selections"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "_"
+command = "trim_selections"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "("
+command = "rotate_selections_backward"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = ")"
+command = "rotate_selections_forward"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-("
+command = "rotate_selection_contents_backward"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-)"
+command = "rotate_selection_contents_forward"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-:"
+command = "ensure_selections_forward"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "esc"
+command = "normal_mode"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "C-b"
+command = "page_up"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "pageup"
+command = "page_up"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "C-f"
+command = "page_down"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "pagedown"
+command = "page_down"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "C-u"
+command = "page_cursor_half_up"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "C-d"
+command = "page_cursor_half_down"
+category = "Normal mode"
+
+[[node]]
+mode = "normal"
+keys = "C-w"
+label = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w C-w"
+command = "rotate_view"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w w"
+command = "rotate_view"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w C-s"
+command = "hsplit"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w s"
+command = "hsplit"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w C-v"
+command = "vsplit"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w v"
+command = "vsplit"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w C-t"
+command = "transpose_view"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w t"
+command = "transpose_view"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w f"
+command = "goto_file_hsplit"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w F"
+command = "goto_file_vsplit"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w C-q"
+command = "wclose"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w q"
+command = "wclose"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w C-o"
+command = "wonly"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w o"
+command = "wonly"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w C-h"
+command = "jump_view_left"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w h"
+command = "jump_view_left"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w left"
+command = "jump_view_left"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w C-j"
+command = "jump_view_down"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w j"
+command = "jump_view_down"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w down"
+command = "jump_view_down"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w C-k"
+command = "jump_view_up"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w k"
+command = "jump_view_up"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w up"
+command = "jump_view_up"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w C-l"
+command = "jump_view_right"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w l"
+command = "jump_view_right"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w right"
+command = "jump_view_right"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w L"
+command = "swap_view_right"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w K"
+command = "swap_view_up"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w H"
+command = "swap_view_left"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "C-w J"
+command = "swap_view_down"
+category = "Window"
+
+[[node]]
+mode = "normal"
+keys = "C-w n"
+label = "New split scratch buffer"
+
+[[bind]]
+mode = "normal"
+keys = "C-w n C-s"
+command = "hsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "normal"
+keys = "C-w n s"
+command = "hsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "normal"
+keys = "C-w n C-v"
+command = "vsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "normal"
+keys = "C-w n v"
+command = "vsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "normal"
+keys = "C-c"
+command = "toggle_comments"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "C-i"
+command = "jump_forward"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "tab"
+command = "jump_forward"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "C-o"
+command = "jump_backward"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "C-s"
+command = "save_selection"
+category = "Normal mode"
+
+[[node]]
+mode = "normal"
+keys = "space"
+label = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space f"
+command = "file_picker"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space F"
+command = "file_picker_in_current_directory"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space b"
+command = "buffer_picker"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space j"
+command = "jumplist_picker"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space s"
+command = "symbol_picker"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space S"
+command = "workspace_symbol_picker"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space d"
+command = "diagnostics_picker"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space D"
+command = "workspace_diagnostics_picker"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space g"
+command = "changed_file_picker"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space a"
+command = "code_action"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space '"
+command = "last_picker"
+category = "Space"
+
+[[node]]
+mode = "normal"
+keys = "space G"
+label = "Debug (experimental)"
+
+[[bind]]
+mode = "normal"
+keys = "space G l"
+command = "dap_launch"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "normal"
+keys = "space G r"
+command = "dap_restart"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "normal"
+keys = "space G b"
+command = "dap_toggle_breakpoint"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "normal"
+keys = "space G c"
+command = "dap_continue"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "normal"
+keys = "space G h"
+command = "dap_pause"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "normal"
+keys = "space G i"
+command = "dap_step_in"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "normal"
+keys = "space G o"
+command = "dap_step_out"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "normal"
+keys = "space G n"
+command = "dap_next"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "normal"
+keys = "space G v"
+command = "dap_variables"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "normal"
+keys = "space G t"
+command = "dap_terminate"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "normal"
+keys = "space G C-c"
+command = "dap_edit_condition"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "normal"
+keys = "space G C-l"
+command = "dap_edit_log"
+category = "Debug (experimental)"
+
+[[node]]
+mode = "normal"
+keys = "space G s"
+label = "Switch"
+
+[[bind]]
+mode = "normal"
+keys = "space G s t"
+command = "dap_switch_thread"
+category = "Switch"
+
+[[bind]]
+mode = "normal"
+keys = "space G s f"
+command = "dap_switch_stack_frame"
+category = "Switch"
+
+[[bind]]
+mode = "normal"
+keys = "space G e"
+command = "dap_enable_exceptions"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "normal"
+keys = "space G E"
+command = "dap_disable_exceptions"
+category = "Debug (experimental)"
+
+[[node]]
+mode = "normal"
+keys = "space w"
+label = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w C-w"
+command = "rotate_view"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w w"
+command = "rotate_view"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w C-s"
+command = "hsplit"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w s"
+command = "hsplit"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w C-v"
+command = "vsplit"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w v"
+command = "vsplit"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w C-t"
+command = "transpose_view"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w t"
+command = "transpose_view"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w f"
+command = "goto_file_hsplit"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w F"
+command = "goto_file_vsplit"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w C-q"
+command = "wclose"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w q"
+command = "wclose"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w C-o"
+command = "wonly"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w o"
+command = "wonly"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w C-h"
+command = "jump_view_left"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w h"
+command = "jump_view_left"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w left"
+command = "jump_view_left"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w C-j"
+command = "jump_view_down"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w j"
+command = "jump_view_down"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w down"
+command = "jump_view_down"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w C-k"
+command = "jump_view_up"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w k"
+command = "jump_view_up"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w up"
+command = "jump_view_up"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w C-l"
+command = "jump_view_right"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w l"
+command = "jump_view_right"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w right"
+command = "jump_view_right"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w H"
+command = "swap_view_left"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w J"
+command = "swap_view_down"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w K"
+command = "swap_view_up"
+category = "Window"
+
+[[bind]]
+mode = "normal"
+keys = "space w L"
+command = "swap_view_right"
+category = "Window"
+
+[[node]]
+mode = "normal"
+keys = "space w n"
+label = "New split scratch buffer"
+
+[[bind]]
+mode = "normal"
+keys = "space w n C-s"
+command = "hsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "normal"
+keys = "space w n s"
+command = "hsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "normal"
+keys = "space w n C-v"
+command = "vsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "normal"
+keys = "space w n v"
+command = "vsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "normal"
+keys = "space y"
+command = "yank_to_clipboard"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space Y"
+command = "yank_main_selection_to_clipboard"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space p"
+command = "paste_clipboard_after"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space P"
+command = "paste_clipboard_before"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space R"
+command = "replace_selections_with_clipboard"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space /"
+command = "global_search"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space k"
+command = "hover"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space r"
+command = "rename_symbol"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space h"
+command = "select_references_to_symbol_under_cursor"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space c"
+command = "toggle_comments"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space C"
+command = "toggle_block_comments"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space A-c"
+command = "toggle_line_comments"
+category = "Space"
+
+[[bind]]
+mode = "normal"
+keys = "space ?"
+command = "command_palette"
+category = "Space"
+
+[[node]]
+mode = "normal"
+keys = "z"
+label = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z z"
+command = "align_view_center"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z c"
+command = "align_view_center"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z t"
+command = "align_view_top"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z b"
+command = "align_view_bottom"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z m"
+command = "align_view_middle"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z k"
+command = "scroll_up"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z up"
+command = "scroll_up"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z j"
+command = "scroll_down"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z down"
+command = "scroll_down"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z C-b"
+command = "page_up"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z pageup"
+command = "page_up"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z C-f"
+command = "page_down"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z pagedown"
+command = "page_down"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z C-u"
+command = "page_cursor_half_up"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z backspace"
+command = "page_cursor_half_up"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z C-d"
+command = "page_cursor_half_down"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z space"
+command = "page_cursor_half_down"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z /"
+command = "search"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z ?"
+command = "rsearch"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z n"
+command = "search_next"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "z N"
+command = "search_prev"
+category = "View"
+
+[[node]]
+mode = "normal"
+keys = "Z"
+label = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z z"
+command = "align_view_center"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z c"
+command = "align_view_center"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z t"
+command = "align_view_top"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z b"
+command = "align_view_bottom"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z m"
+command = "align_view_middle"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z k"
+command = "scroll_up"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z up"
+command = "scroll_up"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z j"
+command = "scroll_down"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z down"
+command = "scroll_down"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z C-b"
+command = "page_up"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z pageup"
+command = "page_up"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z C-f"
+command = "page_down"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z pagedown"
+command = "page_down"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z C-u"
+command = "page_cursor_half_up"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z backspace"
+command = "page_cursor_half_up"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z C-d"
+command = "page_cursor_half_down"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z space"
+command = "page_cursor_half_down"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z /"
+command = "search"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z ?"
+command = "rsearch"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z n"
+command = "search_next"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "Z N"
+command = "search_prev"
+category = "View"
+
+[[bind]]
+mode = "normal"
+keys = "\""
+command = "select_register"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "|"
+command = "shell_pipe"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-|"
+command = "shell_pipe_to"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "!"
+command = "shell_insert_output"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "A-!"
+command = "shell_append_output"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "$"
+command = "shell_keep_pipe"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "C-z"
+command = "suspend"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "C-a"
+command = "increment"
+category = "Normal mode"
+
+[[bind]]
+mode = "normal"
+keys = "C-x"
+command = "decrement"
+category = "Normal mode"
+
+[[bind]]
+mode = "select"
+keys = "h"
+command = "extend_char_left"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "left"
+command = "extend_char_left"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "j"
+command = "extend_visual_line_down"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "down"
+command = "extend_visual_line_down"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "k"
+command = "extend_visual_line_up"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "up"
+command = "extend_visual_line_up"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "l"
+command = "extend_char_right"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "right"
+command = "extend_char_right"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "t"
+command = "extend_till_char"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "f"
+command = "extend_next_char"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "T"
+command = "extend_till_prev_char"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "F"
+command = "extend_prev_char"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "r"
+command = "replace"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "R"
+command = "replace_with_yanked"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-."
+command = "repeat_last_motion"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "~"
+command = "switch_case"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "`"
+command = "switch_to_lowercase"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-`"
+command = "switch_to_uppercase"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "home"
+command = "extend_to_line_start"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "end"
+command = "extend_to_line_end"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "w"
+command = "extend_next_word_start"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "b"
+command = "extend_prev_word_start"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "e"
+command = "extend_next_word_end"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "W"
+command = "extend_next_long_word_start"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "B"
+command = "extend_prev_long_word_start"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "E"
+command = "extend_next_long_word_end"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "v"
+command = "normal_mode"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "G"
+command = "goto_line"
+category = "Select mode"
+
+[[node]]
+mode = "select"
+keys = "g"
+label = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g g"
+command = "goto_file_start"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g e"
+command = "goto_last_line"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g f"
+command = "goto_file"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g h"
+command = "goto_line_start"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g l"
+command = "goto_line_end"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g s"
+command = "goto_first_nonwhitespace"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g d"
+command = "goto_definition"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g D"
+command = "goto_declaration"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g y"
+command = "goto_type_definition"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g r"
+command = "goto_reference"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g i"
+command = "goto_implementation"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g t"
+command = "goto_window_top"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g c"
+command = "goto_window_center"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g b"
+command = "goto_window_bottom"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g a"
+command = "goto_last_accessed_file"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g m"
+command = "goto_last_modified_file"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g n"
+command = "goto_next_buffer"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g p"
+command = "goto_previous_buffer"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g k"
+command = "extend_line_up"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g j"
+command = "extend_line_down"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g ."
+command = "goto_last_modification"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = "g w"
+command = "extend_to_word"
+category = "Goto"
+
+[[bind]]
+mode = "select"
+keys = ":"
+command = "command_mode"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "i"
+command = "insert_mode"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "I"
+command = "insert_at_line_start"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "a"
+command = "append_mode"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A"
+command = "insert_at_line_end"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "o"
+command = "open_below"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "O"
+command = "open_above"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "d"
+command = "delete_selection"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-d"
+command = "delete_selection_noyank"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "c"
+command = "change_selection"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-c"
+command = "change_selection_noyank"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "C"
+command = "copy_selection_on_next_line"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-C"
+command = "copy_selection_on_prev_line"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "s"
+command = "select_regex"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-s"
+command = "split_selection_on_newline"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-minus"
+command = "merge_selections"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-_"
+command = "merge_consecutive_selections"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "S"
+command = "split_selection"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = ";"
+command = "collapse_selection"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-;"
+command = "flip_selections"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-o"
+command = "expand_selection"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-up"
+command = "expand_selection"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-i"
+command = "shrink_selection"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-down"
+command = "shrink_selection"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-I"
+command = "select_all_children"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-S-down"
+command = "select_all_children"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-p"
+command = "select_prev_sibling"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-left"
+command = "select_prev_sibling"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-n"
+command = "select_next_sibling"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-right"
+command = "select_next_sibling"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-e"
+command = "extend_parent_node_end"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-b"
+command = "extend_parent_node_start"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-a"
+command = "select_all_siblings"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "%"
+command = "select_all"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "x"
+command = "extend_line_below"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "X"
+command = "extend_to_line_bounds"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-x"
+command = "shrink_to_line_bounds"
+category = "Select mode"
+
+[[node]]
+mode = "select"
+keys = "m"
+label = "Match"
+
+[[bind]]
+mode = "select"
+keys = "m m"
+command = "match_brackets"
+category = "Match"
+
+[[bind]]
+mode = "select"
+keys = "m s"
+command = "surround_add"
+category = "Match"
+
+[[bind]]
+mode = "select"
+keys = "m r"
+command = "surround_replace"
+category = "Match"
+
+[[bind]]
+mode = "select"
+keys = "m d"
+command = "surround_delete"
+category = "Match"
+
+[[bind]]
+mode = "select"
+keys = "m a"
+command = "select_textobject_around"
+category = "Match"
+
+[[bind]]
+mode = "select"
+keys = "m i"
+command = "select_textobject_inner"
+category = "Match"
+
+[[node]]
+mode = "select"
+keys = "["
+label = "Left bracket"
+
+[[bind]]
+mode = "select"
+keys = "[ d"
+command = "goto_prev_diag"
+category = "Left bracket"
+
+[[bind]]
+mode = "select"
+keys = "[ D"
+command = "goto_first_diag"
+category = "Left bracket"
+
+[[bind]]
+mode = "select"
+keys = "[ g"
+command = "goto_prev_change"
+category = "Left bracket"
+
+[[bind]]
+mode = "select"
+keys = "[ G"
+command = "goto_first_change"
+category = "Left bracket"
+
+[[bind]]
+mode = "select"
+keys = "[ f"
+command = "goto_prev_function"
+category = "Left bracket"
+
+[[bind]]
+mode = "select"
+keys = "[ t"
+command = "goto_prev_class"
+category = "Left bracket"
+
+[[bind]]
+mode = "select"
+keys = "[ a"
+command = "goto_prev_parameter"
+category = "Left bracket"
+
+[[bind]]
+mode = "select"
+keys = "[ c"
+command = "goto_prev_comment"
+category = "Left bracket"
+
+[[bind]]
+mode = "select"
+keys = "[ e"
+command = "goto_prev_entry"
+category = "Left bracket"
+
+[[bind]]
+mode = "select"
+keys = "[ T"
+command = "goto_prev_test"
+category = "Left bracket"
+
+[[bind]]
+mode = "select"
+keys = "[ p"
+command = "goto_prev_paragraph"
+category = "Left bracket"
+
+[[bind]]
+mode = "select"
+keys = "[ space"
+command = "add_newline_above"
+category = "Left bracket"
+
+[[node]]
+mode = "select"
+keys = "]"
+label = "Right bracket"
+
+[[bind]]
+mode = "select"
+keys = "] d"
+command = "goto_next_diag"
+category = "Right bracket"
+
+[[bind]]
+mode = "select"
+keys = "] D"
+command = "goto_last_diag"
+category = "Right bracket"
+
+[[bind]]
+mode = "select"
+keys = "] g"
+command = "goto_next_change"
+category = "Right bracket"
+
+[[bind]]
+mode = "select"
+keys = "] G"
+command = "goto_last_change"
+category = "Right bracket"
+
+[[bind]]
+mode = "select"
+keys = "] f"
+command = "goto_next_function"
+category = "Right bracket"
+
+[[bind]]
+mode = "select"
+keys = "] t"
+command = "goto_next_class"
+category = "Right bracket"
+
+[[bind]]
+mode = "select"
+keys = "] a"
+command = "goto_next_parameter"
+category = "Right bracket"
+
+[[bind]]
+mode = "select"
+keys = "] c"
+command = "goto_next_comment"
+category = "Right bracket"
+
+[[bind]]
+mode = "select"
+keys = "] e"
+command = "goto_next_entry"
+category = "Right bracket"
+
+[[bind]]
+mode = "select"
+keys = "] T"
+command = "goto_next_test"
+category = "Right bracket"
+
+[[bind]]
+mode = "select"
+keys = "] p"
+command = "goto_next_paragraph"
+category = "Right bracket"
+
+[[bind]]
+mode = "select"
+keys = "] space"
+command = "add_newline_below"
+category = "Right bracket"
+
+[[bind]]
+mode = "select"
+keys = "/"
+command = "search"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "?"
+command = "rsearch"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "n"
+command = "extend_search_next"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "N"
+command = "extend_search_prev"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "*"
+command = "search_selection_detect_word_boundaries"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-*"
+command = "search_selection"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "u"
+command = "undo"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "U"
+command = "redo"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-u"
+command = "earlier"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-U"
+command = "later"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "y"
+command = "yank"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "p"
+command = "paste_after"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "P"
+command = "paste_before"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "Q"
+command = "record_macro"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "q"
+command = "replay_macro"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = ">"
+command = "indent"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "<"
+command = "unindent"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "="
+command = "format_selections"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "J"
+command = "join_selections"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-J"
+command = "join_selections_space"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "K"
+command = "keep_selections"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-K"
+command = "remove_selections"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = ","
+command = "keep_primary_selection"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-,"
+command = "remove_primary_selection"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "&"
+command = "align_selections"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "_"
+command = "trim_selections"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "("
+command = "rotate_selections_backward"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = ")"
+command = "rotate_selections_forward"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-("
+command = "rotate_selection_contents_backward"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-)"
+command = "rotate_selection_contents_forward"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-:"
+command = "ensure_selections_forward"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "esc"
+command = "exit_select_mode"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "C-b"
+command = "page_up"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "pageup"
+command = "page_up"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "C-f"
+command = "page_down"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "pagedown"
+command = "page_down"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "C-u"
+command = "page_cursor_half_up"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "C-d"
+command = "page_cursor_half_down"
+category = "Select mode"
+
+[[node]]
+mode = "select"
+keys = "C-w"
+label = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w C-w"
+command = "rotate_view"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w w"
+command = "rotate_view"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w C-s"
+command = "hsplit"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w s"
+command = "hsplit"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w C-v"
+command = "vsplit"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w v"
+command = "vsplit"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w C-t"
+command = "transpose_view"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w t"
+command = "transpose_view"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w f"
+command = "goto_file_hsplit"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w F"
+command = "goto_file_vsplit"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w C-q"
+command = "wclose"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w q"
+command = "wclose"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w C-o"
+command = "wonly"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w o"
+command = "wonly"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w C-h"
+command = "jump_view_left"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w h"
+command = "jump_view_left"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w left"
+command = "jump_view_left"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w C-j"
+command = "jump_view_down"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w j"
+command = "jump_view_down"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w down"
+command = "jump_view_down"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w C-k"
+command = "jump_view_up"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w k"
+command = "jump_view_up"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w up"
+command = "jump_view_up"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w C-l"
+command = "jump_view_right"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w l"
+command = "jump_view_right"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w right"
+command = "jump_view_right"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w L"
+command = "swap_view_right"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w K"
+command = "swap_view_up"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w H"
+command = "swap_view_left"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "C-w J"
+command = "swap_view_down"
+category = "Window"
+
+[[node]]
+mode = "select"
+keys = "C-w n"
+label = "New split scratch buffer"
+
+[[bind]]
+mode = "select"
+keys = "C-w n C-s"
+command = "hsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "select"
+keys = "C-w n s"
+command = "hsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "select"
+keys = "C-w n C-v"
+command = "vsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "select"
+keys = "C-w n v"
+command = "vsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "select"
+keys = "C-c"
+command = "toggle_comments"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "C-i"
+command = "jump_forward"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "tab"
+command = "jump_forward"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "C-o"
+command = "jump_backward"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "C-s"
+command = "save_selection"
+category = "Select mode"
+
+[[node]]
+mode = "select"
+keys = "space"
+label = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space f"
+command = "file_picker"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space F"
+command = "file_picker_in_current_directory"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space b"
+command = "buffer_picker"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space j"
+command = "jumplist_picker"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space s"
+command = "symbol_picker"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space S"
+command = "workspace_symbol_picker"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space d"
+command = "diagnostics_picker"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space D"
+command = "workspace_diagnostics_picker"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space g"
+command = "changed_file_picker"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space a"
+command = "code_action"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space '"
+command = "last_picker"
+category = "Space"
+
+[[node]]
+mode = "select"
+keys = "space G"
+label = "Debug (experimental)"
+
+[[bind]]
+mode = "select"
+keys = "space G l"
+command = "dap_launch"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "select"
+keys = "space G r"
+command = "dap_restart"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "select"
+keys = "space G b"
+command = "dap_toggle_breakpoint"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "select"
+keys = "space G c"
+command = "dap_continue"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "select"
+keys = "space G h"
+command = "dap_pause"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "select"
+keys = "space G i"
+command = "dap_step_in"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "select"
+keys = "space G o"
+command = "dap_step_out"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "select"
+keys = "space G n"
+command = "dap_next"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "select"
+keys = "space G v"
+command = "dap_variables"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "select"
+keys = "space G t"
+command = "dap_terminate"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "select"
+keys = "space G C-c"
+command = "dap_edit_condition"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "select"
+keys = "space G C-l"
+command = "dap_edit_log"
+category = "Debug (experimental)"
+
+[[node]]
+mode = "select"
+keys = "space G s"
+label = "Switch"
+
+[[bind]]
+mode = "select"
+keys = "space G s t"
+command = "dap_switch_thread"
+category = "Switch"
+
+[[bind]]
+mode = "select"
+keys = "space G s f"
+command = "dap_switch_stack_frame"
+category = "Switch"
+
+[[bind]]
+mode = "select"
+keys = "space G e"
+command = "dap_enable_exceptions"
+category = "Debug (experimental)"
+
+[[bind]]
+mode = "select"
+keys = "space G E"
+command = "dap_disable_exceptions"
+category = "Debug (experimental)"
+
+[[node]]
+mode = "select"
+keys = "space w"
+label = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w C-w"
+command = "rotate_view"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w w"
+command = "rotate_view"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w C-s"
+command = "hsplit"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w s"
+command = "hsplit"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w C-v"
+command = "vsplit"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w v"
+command = "vsplit"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w C-t"
+command = "transpose_view"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w t"
+command = "transpose_view"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w f"
+command = "goto_file_hsplit"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w F"
+command = "goto_file_vsplit"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w C-q"
+command = "wclose"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w q"
+command = "wclose"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w C-o"
+command = "wonly"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w o"
+command = "wonly"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w C-h"
+command = "jump_view_left"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w h"
+command = "jump_view_left"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w left"
+command = "jump_view_left"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w C-j"
+command = "jump_view_down"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w j"
+command = "jump_view_down"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w down"
+command = "jump_view_down"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w C-k"
+command = "jump_view_up"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w k"
+command = "jump_view_up"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w up"
+command = "jump_view_up"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w C-l"
+command = "jump_view_right"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w l"
+command = "jump_view_right"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w right"
+command = "jump_view_right"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w H"
+command = "swap_view_left"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w J"
+command = "swap_view_down"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w K"
+command = "swap_view_up"
+category = "Window"
+
+[[bind]]
+mode = "select"
+keys = "space w L"
+command = "swap_view_right"
+category = "Window"
+
+[[node]]
+mode = "select"
+keys = "space w n"
+label = "New split scratch buffer"
+
+[[bind]]
+mode = "select"
+keys = "space w n C-s"
+command = "hsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "select"
+keys = "space w n s"
+command = "hsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "select"
+keys = "space w n C-v"
+command = "vsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "select"
+keys = "space w n v"
+command = "vsplit_new"
+category = "New split scratch buffer"
+
+[[bind]]
+mode = "select"
+keys = "space y"
+command = "yank_to_clipboard"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space Y"
+command = "yank_main_selection_to_clipboard"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space p"
+command = "paste_clipboard_after"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space P"
+command = "paste_clipboard_before"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space R"
+command = "replace_selections_with_clipboard"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space /"
+command = "global_search"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space k"
+command = "hover"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space r"
+command = "rename_symbol"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space h"
+command = "select_references_to_symbol_under_cursor"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space c"
+command = "toggle_comments"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space C"
+command = "toggle_block_comments"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space A-c"
+command = "toggle_line_comments"
+category = "Space"
+
+[[bind]]
+mode = "select"
+keys = "space ?"
+command = "command_palette"
+category = "Space"
+
+[[node]]
+mode = "select"
+keys = "z"
+label = "View"
+
+[[bind]]
+mode = "select"
+keys = "z z"
+command = "align_view_center"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z c"
+command = "align_view_center"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z t"
+command = "align_view_top"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z b"
+command = "align_view_bottom"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z m"
+command = "align_view_middle"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z k"
+command = "scroll_up"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z up"
+command = "scroll_up"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z j"
+command = "scroll_down"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z down"
+command = "scroll_down"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z C-b"
+command = "page_up"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z pageup"
+command = "page_up"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z C-f"
+command = "page_down"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z pagedown"
+command = "page_down"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z C-u"
+command = "page_cursor_half_up"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z backspace"
+command = "page_cursor_half_up"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z C-d"
+command = "page_cursor_half_down"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z space"
+command = "page_cursor_half_down"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z /"
+command = "search"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z ?"
+command = "rsearch"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z n"
+command = "search_next"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "z N"
+command = "search_prev"
+category = "View"
+
+[[node]]
+mode = "select"
+keys = "Z"
+label = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z z"
+command = "align_view_center"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z c"
+command = "align_view_center"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z t"
+command = "align_view_top"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z b"
+command = "align_view_bottom"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z m"
+command = "align_view_middle"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z k"
+command = "scroll_up"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z up"
+command = "scroll_up"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z j"
+command = "scroll_down"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z down"
+command = "scroll_down"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z C-b"
+command = "page_up"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z pageup"
+command = "page_up"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z C-f"
+command = "page_down"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z pagedown"
+command = "page_down"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z C-u"
+command = "page_cursor_half_up"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z backspace"
+command = "page_cursor_half_up"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z C-d"
+command = "page_cursor_half_down"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z space"
+command = "page_cursor_half_down"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z /"
+command = "search"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z ?"
+command = "rsearch"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z n"
+command = "search_next"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "Z N"
+command = "search_prev"
+category = "View"
+
+[[bind]]
+mode = "select"
+keys = "\""
+command = "select_register"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "|"
+command = "shell_pipe"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-|"
+command = "shell_pipe_to"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "!"
+command = "shell_insert_output"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "A-!"
+command = "shell_append_output"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "$"
+command = "shell_keep_pipe"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "C-z"
+command = "suspend"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "C-a"
+command = "increment"
+category = "Select mode"
+
+[[bind]]
+mode = "select"
+keys = "C-x"
+command = "decrement"
+category = "Select mode"
+
+[[bind]]
+mode = "insert"
+keys = "esc"
+command = "normal_mode"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "C-s"
+command = "commit_undo_checkpoint"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "C-x"
+command = "completion"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "C-r"
+command = "insert_register"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "C-w"
+command = "delete_word_backward"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "A-backspace"
+command = "delete_word_backward"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "A-d"
+command = "delete_word_forward"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "A-del"
+command = "delete_word_forward"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "C-u"
+command = "kill_to_line_start"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "C-k"
+command = "kill_to_line_end"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "C-h"
+command = "delete_char_backward"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "backspace"
+command = "delete_char_backward"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "S-backspace"
+command = "delete_char_backward"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "C-d"
+command = "delete_char_forward"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "del"
+command = "delete_char_forward"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "C-j"
+command = "insert_newline"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "ret"
+command = "insert_newline"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "tab"
+command = "smart_tab"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "S-tab"
+command = "insert_tab"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "up"
+command = "move_visual_line_up"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "down"
+command = "move_visual_line_down"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "left"
+command = "move_char_left"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "right"
+command = "move_char_right"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "pageup"
+command = "page_up"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "pagedown"
+command = "page_down"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "home"
+command = "goto_line_start"
+category = "Insert mode"
+
+[[bind]]
+mode = "insert"
+keys = "end"
+command = "goto_line_end_newline"
+category = "Insert mode"
+
+[commands]
+no_op = "Do nothing"
+move_char_left = "Move left"
+move_char_right = "Move right"
+move_line_up = "Move up"
+move_line_down = "Move down"
+move_visual_line_up = "Move up"
+move_visual_line_down = "Move down"
+extend_char_left = "Extend left"
+extend_char_right = "Extend right"
+extend_line_up = "Extend up"
+extend_line_down = "Extend down"
+extend_visual_line_up = "Extend up"
+extend_visual_line_down = "Extend down"
+copy_selection_on_next_line = "Copy selection on next line"
+copy_selection_on_prev_line = "Copy selection on previous line"
+move_next_word_start = "Move to start of next word"
+move_prev_word_start = "Move to start of previous word"
+move_next_word_end = "Move to end of next word"
+move_prev_word_end = "Move to end of previous word"
+move_next_long_word_start = "Move to start of next long word"
+move_prev_long_word_start = "Move to start of previous long word"
+move_next_long_word_end = "Move to end of next long word"
+move_prev_long_word_end = "Move to end of previous long word"
+move_next_sub_word_start = "Move to start of next sub word"
+move_prev_sub_word_start = "Move to start of previous sub word"
+move_next_sub_word_end = "Move to end of next sub word"
+move_prev_sub_word_end = "Move to end of previous sub word"
+move_parent_node_end = "Move to end of the parent node"
+move_parent_node_start = "Move to beginning of the parent node"
+extend_next_word_start = "Extend to start of next word"
+extend_prev_word_start = "Extend to start of previous word"
+extend_next_word_end = "Extend to end of next word"
+extend_prev_word_end = "Extend to end of previous word"
+extend_next_long_word_start = "Extend to start of next long word"
+extend_prev_long_word_start = "Extend to start of previous long word"
+extend_next_long_word_end = "Extend to end of next long word"
+extend_prev_long_word_end = "Extend to end of prev long word"
+extend_next_sub_word_start = "Extend to start of next sub word"
+extend_prev_sub_word_start = "Extend to start of previous sub word"
+extend_next_sub_word_end = "Extend to end of next sub word"
+extend_prev_sub_word_end = "Extend to end of prev sub word"
+extend_parent_node_end = "Extend to end of the parent node"
+extend_parent_node_start = "Extend to beginning of the parent node"
+find_till_char = "Move till next occurrence of char"
+find_next_char = "Move to next occurrence of char"
+extend_till_char = "Extend till next occurrence of char"
+extend_next_char = "Extend to next occurrence of char"
+till_prev_char = "Move till previous occurrence of char"
+find_prev_char = "Move to previous occurrence of char"
+extend_till_prev_char = "Extend till previous occurrence of char"
+extend_prev_char = "Extend to previous occurrence of char"
+repeat_last_motion = "Repeat last motion"
+replace = "Replace with new char"
+switch_case = "Switch (toggle) case"
+switch_to_uppercase = "Switch to uppercase"
+switch_to_lowercase = "Switch to lowercase"
+page_up = "Move page up"
+page_down = "Move page down"
+half_page_up = "Move half page up"
+half_page_down = "Move half page down"
+page_cursor_up = "Move page and cursor up"
+page_cursor_down = "Move page and cursor down"
+page_cursor_half_up = "Move page and cursor half up"
+page_cursor_half_down = "Move page and cursor half down"
+select_all = "Select whole document"
+select_regex = "Select all regex matches inside selections"
+split_selection = "Split selections on regex matches"
+split_selection_on_newline = "Split selection on newlines"
+merge_selections = "Merge selections"
+merge_consecutive_selections = "Merge consecutive selections"
+search = "Search for regex pattern"
+rsearch = "Reverse search for regex pattern"
+search_next = "Select next search match"
+search_prev = "Select previous search match"
+extend_search_next = "Add next search match to selection"
+extend_search_prev = "Add previous search match to selection"
+search_selection = "Use current selection as search pattern"
+search_selection_detect_word_boundaries = "Use current selection as the search pattern, automatically wrapping with `\\b` on word boundaries"
+make_search_word_bounded = "Modify current search to make it word bounded"
+global_search = "Global search in workspace folder"
+extend_line = "Select current line, if already selected, extend to another line based on the anchor"
+extend_line_below = "Select current line, if already selected, extend to next line"
+extend_line_above = "Select current line, if already selected, extend to previous line"
+select_line_above = "Select current line, if already selected, extend or shrink line above based on the anchor"
+select_line_below = "Select current line, if already selected, extend or shrink line below based on the anchor"
+extend_to_line_bounds = "Extend selection to line bounds"
+shrink_to_line_bounds = "Shrink selection to line bounds"
+delete_selection = "Delete selection"
+delete_selection_noyank = "Delete selection without yanking"
+change_selection = "Change selection"
+change_selection_noyank = "Change selection without yanking"
+collapse_selection = "Collapse selection into single cursor"
+flip_selections = "Flip selection cursor and anchor"
+ensure_selections_forward = "Ensure all selections face forward"
+insert_mode = "Insert before selection"
+append_mode = "Append after selection"
+command_mode = "Enter command mode"
+file_picker = "Open file picker"
+file_picker_in_current_buffer_directory = "Open file picker at current buffer's directory"
+file_picker_in_current_directory = "Open file picker at current working directory"
+code_action = "Perform code action"
+buffer_picker = "Open buffer picker"
+jumplist_picker = "Open jumplist picker"
+symbol_picker = "Open symbol picker"
+changed_file_picker = "Open changed file picker"
+select_references_to_symbol_under_cursor = "Select symbol references"
+workspace_symbol_picker = "Open workspace symbol picker"
+diagnostics_picker = "Open diagnostic picker"
+workspace_diagnostics_picker = "Open workspace diagnostic picker"
+last_picker = "Open last picker"
+insert_at_line_start = "Insert at start of line"
+insert_at_line_end = "Insert at end of line"
+open_below = "Open new line below selection"
+open_above = "Open new line above selection"
+normal_mode = "Enter normal mode"
+select_mode = "Enter selection extend mode"
+exit_select_mode = "Exit selection mode"
+goto_definition = "Goto definition"
+goto_declaration = "Goto declaration"
+add_newline_above = "Add newline above"
+add_newline_below = "Add newline below"
+goto_type_definition = "Goto type definition"
+goto_implementation = "Goto implementation"
+goto_file_start = "Goto line number <n> else file start"
+goto_file_end = "Goto file end"
+goto_file = "Goto files/URLs in selections"
+goto_file_hsplit = "Goto files in selections (hsplit)"
+goto_file_vsplit = "Goto files in selections (vsplit)"
+goto_reference = "Goto references"
+goto_window_top = "Goto window top"
+goto_window_center = "Goto window center"
+goto_window_bottom = "Goto window bottom"
+goto_last_accessed_file = "Goto last accessed file"
+goto_last_modified_file = "Goto last modified file"
+goto_last_modification = "Goto last modification"
+goto_line = "Goto line"
+goto_last_line = "Goto last line"
+goto_first_diag = "Goto first diagnostic"
+goto_last_diag = "Goto last diagnostic"
+goto_next_diag = "Goto next diagnostic"
+goto_prev_diag = "Goto previous diagnostic"
+goto_next_change = "Goto next change"
+goto_prev_change = "Goto previous change"
+goto_first_change = "Goto first change"
+goto_last_change = "Goto last change"
+goto_line_start = "Goto line start"
+goto_line_end = "Goto line end"
+goto_next_buffer = "Goto next buffer"
+goto_previous_buffer = "Goto previous buffer"
+goto_line_end_newline = "Goto newline at line end"
+goto_first_nonwhitespace = "Goto first non-blank in line"
+trim_selections = "Trim whitespace from selections"
+extend_to_line_start = "Extend to line start"
+extend_to_first_nonwhitespace = "Extend to first non-blank in line"
+extend_to_line_end = "Extend to line end"
+extend_to_line_end_newline = "Extend to line end"
+signature_help = "Show signature help"
+smart_tab = "Insert tab if all cursors have all whitespace to their left; otherwise, run a separate command."
+insert_tab = "Insert tab char"
+insert_newline = "Insert newline char"
+delete_char_backward = "Delete previous char"
+delete_char_forward = "Delete next char"
+delete_word_backward = "Delete previous word"
+delete_word_forward = "Delete next word"
+kill_to_line_start = "Delete till start of line"
+kill_to_line_end = "Delete till end of line"
+undo = "Undo change"
+redo = "Redo change"
+earlier = "Move backward in history"
+later = "Move forward in history"
+commit_undo_checkpoint = "Commit changes to new checkpoint"
+yank = "Yank selection"
+yank_to_clipboard = "Yank selections to clipboard"
+yank_to_primary_clipboard = "Yank selections to primary clipboard"
+yank_joined = "Join and yank selections"
+yank_joined_to_clipboard = "Join and yank selections to clipboard"
+yank_main_selection_to_clipboard = "Yank main selection to clipboard"
+yank_joined_to_primary_clipboard = "Join and yank selections to primary clipboard"
+yank_main_selection_to_primary_clipboard = "Yank main selection to primary clipboard"
+replace_with_yanked = "Replace with yanked text"
+replace_selections_with_clipboard = "Replace selections by clipboard content"
+replace_selections_with_primary_clipboard = "Replace selections by primary clipboard"
+paste_after = "Paste after selection"
+paste_before = "Paste before selection"
+paste_clipboard_after = "Paste clipboard after selections"
+paste_clipboard_before = "Paste clipboard before selections"
+paste_primary_clipboard_after = "Paste primary clipboard after selections"
+paste_primary_clipboard_before = "Paste primary clipboard before selections"
+indent = "Indent selection"
+unindent = "Unindent selection"
+format_selections = "Format selection"
+join_selections = "Join lines inside selection"
+join_selections_space = "Join lines inside selection and select spaces"
+keep_selections = "Keep selections matching regex"
+remove_selections = "Remove selections matching regex"
+align_selections = "Align selections in column"
+keep_primary_selection = "Keep primary selection"
+remove_primary_selection = "Remove primary selection"
+completion = "Invoke completion popup"
+hover = "Show docs for item under cursor"
+toggle_comments = "Comment/uncomment selections"
+toggle_line_comments = "Line comment/uncomment selections"
+toggle_block_comments = "Block comment/uncomment selections"
+rotate_selections_forward = "Rotate selections forward"
+rotate_selections_backward = "Rotate selections backward"
+rotate_selection_contents_forward = "Rotate selection contents forward"
+rotate_selection_contents_backward = "Rotate selections contents backward"
+reverse_selection_contents = "Reverse selections contents"
+expand_selection = "Expand selection to parent syntax node"
+shrink_selection = "Shrink selection to previously expanded syntax node"
+select_next_sibling = "Select next sibling in the syntax tree"
+select_prev_sibling = "Select previous sibling the in syntax tree"
+select_all_siblings = "Select all siblings of the current node"
+select_all_children = "Select all children of the current node"
+jump_forward = "Jump forward on jumplist"
+jump_backward = "Jump backward on jumplist"
+save_selection = "Save current selection to jumplist"
+jump_view_right = "Jump to right split"
+jump_view_left = "Jump to left split"
+jump_view_up = "Jump to split above"
+jump_view_down = "Jump to split below"
+swap_view_right = "Swap with right split"
+swap_view_left = "Swap with left split"
+swap_view_up = "Swap with split above"
+swap_view_down = "Swap with split below"
+transpose_view = "Transpose splits"
+rotate_view = "Goto next window"
+rotate_view_reverse = "Goto previous window"
+hsplit = "Horizontal bottom split"
+hsplit_new = "Horizontal bottom split scratch buffer"
+vsplit = "Vertical right split"
+vsplit_new = "Vertical right split scratch buffer"
+wclose = "Close window"
+wonly = "Close windows except current"
+select_register = "Select register"
+insert_register = "Insert register"
+align_view_middle = "Align view middle"
+align_view_top = "Align view top"
+align_view_center = "Align view center"
+align_view_bottom = "Align view bottom"
+scroll_up = "Scroll view up"
+scroll_down = "Scroll view down"
+match_brackets = "Goto matching bracket"
+surround_add = "Surround add"
+surround_replace = "Surround replace"
+surround_delete = "Surround delete"
+select_textobject_around = "Select around object"
+select_textobject_inner = "Select inside object"
+goto_next_function = "Goto next function"
+goto_prev_function = "Goto previous function"
+goto_next_class = "Goto next type definition"
+goto_prev_class = "Goto previous type definition"
+goto_next_parameter = "Goto next parameter"
+goto_prev_parameter = "Goto previous parameter"
+goto_next_comment = "Goto next comment"
+goto_prev_comment = "Goto previous comment"
+goto_next_test = "Goto next test"
+goto_prev_test = "Goto previous test"
+goto_next_entry = "Goto next pairing"
+goto_prev_entry = "Goto previous pairing"
+goto_next_paragraph = "Goto next paragraph"
+goto_prev_paragraph = "Goto previous paragraph"
+dap_launch = "Launch debug target"
+dap_restart = "Restart debugging session"
+dap_toggle_breakpoint = "Toggle breakpoint"
+dap_continue = "Continue program execution"
+dap_pause = "Pause program execution"
+dap_step_in = "Step in"
+dap_step_out = "Step out"
+dap_next = "Step to next"
+dap_variables = "List variables"
+dap_terminate = "End debug session"
+dap_edit_condition = "Edit breakpoint condition on current line"
+dap_edit_log = "Edit breakpoint log message on current line"
+dap_switch_thread = "Switch current thread"
+dap_switch_stack_frame = "Switch stack frame"
+dap_enable_exceptions = "Enable exception breakpoints"
+dap_disable_exceptions = "Disable exception breakpoints"
+shell_pipe = "Pipe selections through shell command"
+shell_pipe_to = "Pipe selections into shell command ignoring output"
+shell_insert_output = "Insert shell command output before selections"
+shell_append_output = "Append shell command output after selections"
+shell_keep_pipe = "Filter selections with shell predicate"
+suspend = "Suspend and return to shell"
+rename_symbol = "Rename symbol"
+increment = "Increment item under cursor"
+decrement = "Decrement item under cursor"
+record_macro = "Record macro"
+replay_macro = "Replay macro"
+command_palette = "Open command palette"
+goto_word = "Jump to a two-character label"
+extend_to_word = "Extend to a two-character label"
+goto_next_tabstop = "goto next snippet placeholder"
+goto_prev_tabstop = "goto next snippet placeholder"
+
+[[typable]]
+name = "quit"
+aliases = ["q"]
+doc = "Close the current view."
+
+[[typable]]
+name = "quit!"
+aliases = ["q!"]
+doc = "Force close the current view, ignoring unsaved changes."
+
+[[typable]]
+name = "open"
+aliases = ["o", "edit", "e"]
+doc = "Open a file from disk into the current view."
+
+[[typable]]
+name = "buffer-close"
+aliases = ["bc", "bclose"]
+doc = "Close the current buffer."
+
+[[typable]]
+name = "buffer-close!"
+aliases = ["bc!", "bclose!"]
+doc = "Close the current buffer forcefully, ignoring unsaved changes."
+
+[[typable]]
+name = "buffer-close-others"
+aliases = ["bco", "bcloseother"]
+doc = "Close all buffers but the currently focused one."
+
+[[typable]]
+name = "buffer-close-others!"
+aliases = ["bco!", "bcloseother!"]
+doc = "Force close all buffers but the currently focused one."
+
+[[typable]]
+name = "buffer-close-all"
+aliases = ["bca", "bcloseall"]
+doc = "Close all buffers without quitting."
+
+[[typable]]
+name = "buffer-close-all!"
+aliases = ["bca!", "bcloseall!"]
+doc = "Force close all buffers ignoring unsaved changes without quitting."
+
+[[typable]]
+name = "buffer-next"
+aliases = ["bn", "bnext"]
+doc = "Goto next buffer."
+
+[[typable]]
+name = "buffer-previous"
+aliases = ["bp", "bprev"]
+doc = "Goto previous buffer."
+
+[[typable]]
+name = "write"
+aliases = ["w"]
+doc = "Write changes to disk. Accepts an optional path (:write some/path.txt)"
+
+[[typable]]
+name = "write!"
+aliases = ["w!"]
+doc = "Force write changes to disk creating necessary subdirectories. Accepts an optional path (:write! some/path.txt)"
+
+[[typable]]
+name = "write-buffer-close"
+aliases = ["wbc"]
+doc = "Write changes to disk and closes the buffer. Accepts an optional path (:write-buffer-close some/path.txt)"
+
+[[typable]]
+name = "write-buffer-close!"
+aliases = ["wbc!"]
+doc = "Force write changes to disk creating necessary subdirectories and closes the buffer. Accepts an optional path (:write-buffer-close! some/path.txt)"
+
+[[typable]]
+name = "new"
+aliases = ["n"]
+doc = "Create a new scratch buffer."
+
+[[typable]]
+name = "format"
+aliases = ["fmt"]
+doc = "Format the file using an external formatter or language server."
+
+[[typable]]
+name = "indent-style"
+aliases = []
+doc = "Set the indentation style for editing. ('t' for tabs or 1-16 for number of spaces.)"
+
+[[typable]]
+name = "line-ending"
+aliases = []
+doc = "Set the document's default line ending. Options: crlf, lf."
+
+[[typable]]
+name = "earlier"
+aliases = ["ear"]
+doc = "Jump back to an earlier point in edit history. Accepts a number of steps or a time span."
+
+[[typable]]
+name = "later"
+aliases = ["lat"]
+doc = "Jump to a later point in edit history. Accepts a number of steps or a time span."
+
+[[typable]]
+name = "write-quit"
+aliases = ["wq", "x"]
+doc = "Write changes to disk and close the current view. Accepts an optional path (:wq some/path.txt)"
+
+[[typable]]
+name = "write-quit!"
+aliases = ["wq!", "x!"]
+doc = "Write changes to disk and close the current view forcefully. Accepts an optional path (:wq! some/path.txt)"
+
+[[typable]]
+name = "write-all"
+aliases = ["wa"]
+doc = "Write changes from all buffers to disk."
+
+[[typable]]
+name = "write-all!"
+aliases = ["wa!"]
+doc = "Forcefully write changes from all buffers to disk creating necessary subdirectories."
+
+[[typable]]
+name = "write-quit-all"
+aliases = ["wqa", "xa"]
+doc = "Write changes from all buffers to disk and close all views."
+
+[[typable]]
+name = "write-quit-all!"
+aliases = ["wqa!", "xa!"]
+doc = "Write changes from all buffers to disk and close all views forcefully (ignoring unsaved changes)."
+
+[[typable]]
+name = "quit-all"
+aliases = ["qa"]
+doc = "Close all views."
+
+[[typable]]
+name = "quit-all!"
+aliases = ["qa!"]
+doc = "Force close all views ignoring unsaved changes."
+
+[[typable]]
+name = "cquit"
+aliases = ["cq"]
+doc = "Quit with exit code (default 1). Accepts an optional integer exit code (:cq 2)."
+
+[[typable]]
+name = "cquit!"
+aliases = ["cq!"]
+doc = "Force quit with exit code (default 1) ignoring unsaved changes. Accepts an optional integer exit code (:cq! 2)."
+
+[[typable]]
+name = "theme"
+aliases = []
+doc = "Change the editor theme (show current theme if no name specified)."
+
+[[typable]]
+name = "yank-join"
+aliases = []
+doc = "Yank joined selections. A separator can be provided as first argument. Default value is newline."
+
+[[typable]]
+name = "clipboard-yank"
+aliases = []
+doc = "Yank main selection into system clipboard."
+
+[[typable]]
+name = "clipboard-yank-join"
+aliases = []
+doc = "Yank joined selections into system clipboard. A separator can be provided as first argument. Default value is newline."
+
+[[typable]]
+name = "primary-clipboard-yank"
+aliases = []
+doc = "Yank main selection into system primary clipboard."
+
+[[typable]]
+name = "primary-clipboard-yank-join"
+aliases = []
+doc = "Yank joined selections into system primary clipboard. A separator can be provided as first argument. Default value is newline."
+
+[[typable]]
+name = "clipboard-paste-after"
+aliases = []
+doc = "Paste system clipboard after selections."
+
+[[typable]]
+name = "clipboard-paste-before"
+aliases = []
+doc = "Paste system clipboard before selections."
+
+[[typable]]
+name = "clipboard-paste-replace"
+aliases = []
+doc = "Replace selections with content of system clipboard."
+
+[[typable]]
+name = "primary-clipboard-paste-after"
+aliases = []
+doc = "Paste primary clipboard after selections."
+
+[[typable]]
+name = "primary-clipboard-paste-before"
+aliases = []
+doc = "Paste primary clipboard before selections."
+
+[[typable]]
+name = "primary-clipboard-paste-replace"
+aliases = []
+doc = "Replace selections with content of system primary clipboard."
+
+[[typable]]
+name = "show-clipboard-provider"
+aliases = []
+doc = "Show clipboard provider name in status bar."
+
+[[typable]]
+name = "change-current-directory"
+aliases = ["cd"]
+doc = "Change the current working directory."
+
+[[typable]]
+name = "show-directory"
+aliases = ["pwd"]
+doc = "Show the current working directory."
+
+[[typable]]
+name = "encoding"
+aliases = []
+doc = "Set encoding. Based on `https://encoding.spec.whatwg.org`."
+
+[[typable]]
+name = "character-info"
+aliases = ["char"]
+doc = "Get info about the character under the primary cursor."
+
+[[typable]]
+name = "reload"
+aliases = ["rl"]
+doc = "Discard changes and reload from the source file."
+
+[[typable]]
+name = "reload-all"
+aliases = ["rla"]
+doc = "Discard changes and reload all documents from the source files."
+
+[[typable]]
+name = "update"
+aliases = ["u"]
+doc = "Write changes only if the file has been modified."
+
+[[typable]]
+name = "lsp-workspace-command"
+aliases = []
+doc = "Open workspace command picker"
+
+[[typable]]
+name = "lsp-restart"
+aliases = []
+doc = "Restarts the language servers used by the current doc"
+
+[[typable]]
+name = "lsp-stop"
+aliases = []
+doc = "Stops the language servers that are used by the current doc"
+
+[[typable]]
+name = "tree-sitter-scopes"
+aliases = []
+doc = "Display tree sitter scopes, primarily for theming and development."
+
+[[typable]]
+name = "tree-sitter-highlight-name"
+aliases = []
+doc = "Display name of tree-sitter highlight scope under the cursor."
+
+[[typable]]
+name = "debug-start"
+aliases = ["dbg"]
+doc = "Start a debug session from a given template with given parameters."
+
+[[typable]]
+name = "debug-remote"
+aliases = ["dbg-tcp"]
+doc = "Connect to a debug adapter by TCP address and start a debugging session from a given template with given parameters."
+
+[[typable]]
+name = "debug-eval"
+aliases = []
+doc = "Evaluate expression in current debug context."
+
+[[typable]]
+name = "vsplit"
+aliases = ["vs"]
+doc = "Open the file in a vertical split."
+
+[[typable]]
+name = "vsplit-new"
+aliases = ["vnew"]
+doc = "Open a scratch buffer in a vertical split."
+
+[[typable]]
+name = "hsplit"
+aliases = ["hs", "sp"]
+doc = "Open the file in a horizontal split."
+
+[[typable]]
+name = "hsplit-new"
+aliases = ["hnew"]
+doc = "Open a scratch buffer in a horizontal split."
+
+[[typable]]
+name = "tutor"
+aliases = []
+doc = "Open the tutorial."
+
+[[typable]]
+name = "goto"
+aliases = ["g"]
+doc = "Goto line number."
+
+[[typable]]
+name = "set-language"
+aliases = ["lang"]
+doc = "Set the language of current buffer (show current language if no value specified)."
+
+[[typable]]
+name = "set-option"
+aliases = ["set"]
+doc = "Set a config option at runtime.\nFor example to disable smart case search, use `:set search.smart-case false`."
+
+[[typable]]
+name = "toggle-option"
+aliases = ["toggle"]
+doc = "Toggle a boolean config option at runtime.\nFor example to toggle smart case search, use `:toggle search.smart-case`."
+
+[[typable]]
+name = "get-option"
+aliases = ["get"]
+doc = "Get the current value of a config option."
+
+[[typable]]
+name = "sort"
+aliases = []
+doc = "Sort ranges in selection."
+
+[[typable]]
+name = "rsort"
+aliases = []
+doc = "Sort ranges in selection in reverse order."
+
+[[typable]]
+name = "reflow"
+aliases = []
+doc = "Hard-wrap the current selection of lines to a given width."
+
+[[typable]]
+name = "tree-sitter-subtree"
+aliases = ["ts-subtree"]
+doc = "Display the smallest tree-sitter subtree that spans the primary selection, primarily for debugging queries."
+
+[[typable]]
+name = "config-reload"
+aliases = []
+doc = "Refresh user config."
+
+[[typable]]
+name = "config-open"
+aliases = []
+doc = "Open the user config.toml file."
+
+[[typable]]
+name = "config-open-workspace"
+aliases = []
+doc = "Open the workspace config.toml file."
+
+[[typable]]
+name = "log-open"
+aliases = []
+doc = "Open the helix log file."
+
+[[typable]]
+name = "insert-output"
+aliases = []
+doc = "Run shell command, inserting output before each selection."
+
+[[typable]]
+name = "append-output"
+aliases = []
+doc = "Run shell command, appending output after each selection."
+
+[[typable]]
+name = "pipe"
+aliases = []
+doc = "Pipe each selection to the shell command."
+
+[[typable]]
+name = "pipe-to"
+aliases = []
+doc = "Pipe each selection to the shell command, ignoring output."
+
+[[typable]]
+name = "run-shell-command"
+aliases = ["sh"]
+doc = "Run a shell command"
+
+[[typable]]
+name = "reset-diff-change"
+aliases = ["diffget", "diffg"]
+doc = "Reset the diff change at the cursor position."
+
+[[typable]]
+name = "clear-register"
+aliases = []
+doc = "Clear given register. If no argument is provided, clear all registers."
+
+[[typable]]
+name = "redraw"
+aliases = []
+doc = "Clear and re-render the whole UI"
+
+[[typable]]
+name = "move"
+aliases = ["mv"]
+doc = "Move the current buffer and its corresponding file to a different path"
+
+[[typable]]
+name = "yank-diagnostic"
+aliases = []
+doc = "Yank diagnostic(s) under primary cursor to register, or clipboard by default"
+
+[[typable]]
+name = "read"
+aliases = ["r"]
+doc = "Load a file into buffer"

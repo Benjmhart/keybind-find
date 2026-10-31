@@ -7,6 +7,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Added
 
+- helix: its keys in normal, select and insert mode from the default keymap pinned per version (25.01.1, 25.07.1) with your `config.toml` keys merged as helix merges them, when helix is in the focused terminal.
 - Xfce Terminal: its menu and scrolling shortcuts from defaults pinned per version (1.2.0) with your `accels.scm` on top; and on X11 the program in the focused window of a terminal serving several windows from one process (Xfce Terminal, kitty, urxvtd, …) is found by the `WINDOWID` in its environment, when no window of that process has tabs and each window it names still exists.
 - ranger: its file-browser keys from the default rc.conf pinned at 1.9.4 (the same since 1.9.3) with `/etc/ranger/rc.conf` and your `rc.conf` on top, read into ranger's key tree, when ranger is in the focused terminal.
 - ncmpcpp: its keys from defaults pinned at 0.10.1 (the same since 0.9.2) with your `bindings` files on top, read as ncmpcpp reads them, when ncmpcpp is in the focused terminal.
