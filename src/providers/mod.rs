@@ -11,6 +11,7 @@ mod foot;
 mod ghostty;
 mod gnome;
 mod gnome_terminal;
+mod helix;
 mod herdr;
 mod hyprland;
 mod i3;
@@ -86,6 +87,7 @@ pub const KNOWN: &[&str] = &[
     "ncmpcpp",
     "ranger",
     "xfce4_terminal",
+    "helix",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -125,6 +127,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "ncmpcpp" => ncmpcpp::sheet(),
         "ranger" => ranger::sheet(),
         "xfce4_terminal" => xfce4_terminal::sheet(),
+        "helix" => helix::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",

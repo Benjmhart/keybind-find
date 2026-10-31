@@ -1,0 +1,35 @@
+# A synthetic helix config.toml for keybind-find's tests (story 6.32).
+theme = "onedark"
+
+[editor]
+line-number = "relative"
+
+[keys.normal]
+# A key replaced, by a typable command without arguments.
+C-s = ":w"
+# Replaced through helix's own spelling: S-r is R.
+S-r = "redo"
+# A list of commands, one bind.
+K = ["select_mode", "goto_line_end"]
+# no_op removes the key.
+x = "no_op"
+# A new sub-mode: a typable command with arguments and a macro.
+"+" = { a = ":open file", m = "@miw" }
+# Keys helix takes that keybind-find can't send: left out and counted.
+"null" = "undo"
+C-leftshift = "undo"
+
+# Merged into the Goto sub-mode: the rest of it stays.
+[keys.normal.g]
+z = "goto_definition"
+
+# Merged into the Space sub-mode.
+[keys.normal.space]
+f = "file_picker_in_current_directory"
+
+# A sub-mode replaced by a command: select's Goto keys are gone.
+[keys.select]
+g = "goto_definition"
+
+[keys.insert]
+j = { k = "normal_mode" }

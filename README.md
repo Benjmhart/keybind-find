@@ -36,6 +36,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | Midnight Commander | its keys by section (file manager, panel, editor, viewer, …): mc's compiled-in defaults (4.8.33's built in) with the system and your keymap on top | none ([below](#midnight-commander)) |
 | yazi | its keys: yazi's default keymap for its version (25.4.8, 25.5.31 and 26.9.1 built in) with your `keymap.toml` merged in | none ([below](#yazi)) |
 | ranger | its file-browser keys: ranger's default rc.conf (1.9.4's built in, the same since 1.9.3) with `/etc/ranger/rc.conf` and yours on top | none ([below](#ranger)) |
+| helix | its keys in normal, select and insert mode: helix's default keymap for its version (25.01.1 and 25.07.1 built in) with your `config.toml` keys merged in | none ([below](#helix)) |
 | ncmpcpp | its keys: ncmpcpp's defaults (0.10.1's built in, the same since 0.9.2) with your `bindings` files on top | none ([below](#ncmpcpp)) |
 | herdr | herdr's defaults for its version, your `config.toml` and plugin commands | none |
 | tmux | the running server's `list-keys`, so your prefix and bindings, with each key's note | none |
@@ -54,7 +55,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | espanso | `espanso match list`; picking a match types its trigger | none |
 | anything else | a sheet you write, or a script that prints one | [docs/sheets.md](docs/sheets.md) |
 
-nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
+nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, helix, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
 sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
@@ -353,6 +354,20 @@ the task view's `tmap`), with the command as the description and its first word 
 is any command. Keys keybind-find can't send (`<any>` bookmark keys,
 `<bg>`, a `<number>` key code) are left out with a count; an unknown `<name>` is its characters, as in ranger.
 
+### helix
+
+Over helix in a terminal (`hx`, or `helix` as Arch installs it), keybind-find lists its keys in normal, select and
+insert mode, each tagged with its mode, filed under the sub-mode that holds it (`Goto`, `Space`, `Window`, `View`,
+…). The defaults are helix's keymap for your version (from `hx --version`; 25.01.1's and 25.07.1's are built in, the
+nearest is used with a note for another version, and the newest when helix isn't found), described by each
+command's own doc. Your `$XDG_CONFIG_HOME/helix/config.toml` (else `~/.config/helix/config.toml`, else the Flatpak's)
+is merged as helix merges it: a table onto a sub-mode adds to it, anything else replaces the key, a list of commands
+is one bind, `no_op` removes a key, a `:typable` command is described by its doc (or `:name args` with arguments) and
+an `@macro` by its keys. A config with bad TOML or a key, mode or command helix doesn't know gives helix's defaults and
+one line saying why, as helix does; the options under `[editor]` aren't checked.
+The workspace's `.helix/config.toml` isn't read (keybind-find doesn't know helix's directory), and keys keybind-find
+can't send (`null`, media keys, lone modifiers) are left out with a count.
+
 ### ncmpcpp
 
 Over ncmpcpp in a terminal, keybind-find lists its keys without running it: ncmpcpp's defaults (from 0.10.1's source,
@@ -649,6 +664,7 @@ keybind-find keys            # grab the keyboard, print each key you press in bi
 | `hyprctl` | Hyprland: its binds and the focused window | `hyprland` | `hyprland` |
 | `xfconf-query` | Xfce: its keyboard shortcuts | `xfconf` | `xfconf` |
 | `gsettings` | GNOME and GNOME Terminal: their shortcuts | `glib2` | `libglib2.0-bin` |
+| `hx` or `helix` | helix: its version (else the newest defaults) | `helix` | `hx` |
 | `xfce4-terminal` | Xfce Terminal: its version (else the newest defaults) | `xfce4-terminal` | `xfce4-terminal` |
 | `kdotool` | KDE Plasma 6 on Wayland: the focused window | AUR `kdotool`, or `cargo install kdotool` | not packaged: `cargo install kdotool` |
 | `notify-send` | errors shown when run from a hotkey | `libnotify` | `libnotify-bin` |

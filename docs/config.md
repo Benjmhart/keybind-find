@@ -77,14 +77,14 @@ written in Rust. Its sheet is listed under the plugin's `name`, and a pick sends
 
 ### Installing one
 
-A plugin is installed as an executable named `keybind-find-<name>` on `PATH` (`cargo install keybind-find-helix`),
+A plugin is installed as an executable named `keybind-find-<name>` on `PATH` (`cargo install keybind-find-kakoune`),
 or any executable in `~/.config/keybind-find/plugins/`. Super+/ runs only the plugins a stanza names; `plugin list`
 and `plugin add` ask every installed one for `--manifest`.
 
 - `keybind-find plugin list` shows each installed plugin, whether a stanza runs it, and what its manifest says.
 - `keybind-find plugin add <name>` appends a commented stanza for it to `config.toml`, with the plugin's default
   `inputs` and `match`, and prints it. It only appends: your comments and order stay as they are. `program` is
-  written as the plugin's path (`~/.cargo/bin/keybind-find-helix`), since Super+/ may not have your shell's `PATH`.
+  written as the plugin's path (`~/.cargo/bin/keybind-find-kakoune`), since Super+/ may not have your shell's `PATH`.
   The file is created if missing. A config that already has a stanza of that name (ignoring case) or for that
   program, that isn't valid TOML, or whose `plugin` isn't `[[plugin]]` stanzas, is refused and left as it is.
 
@@ -92,8 +92,8 @@ A stanza that leaves out `inputs` (or gives an empty list) or `match` takes the 
 sets wins. The defaults come from the plugin's answer to `--manifest`:
 
 ```json
-{"version": 1, "name": "helix", "description": "Helix's keymap", "inputs": ["~/.config/helix/config.toml"],
- "match": {"program": ["hx"]}, "queries": [], "homepage": "https://example.com/keybind-find-helix"}
+{"version": 1, "name": "kakoune", "description": "Kakoune's keymap", "inputs": ["~/.config/kak/kakrc"],
+ "match": {"program": ["kak"]}, "queries": [], "homepage": "https://example.com/keybind-find-kakoune"}
 ```
 
 `description`, `inputs`, `match` (lists of `class`, `program` and `window_title` values), `queries` (programs it asks

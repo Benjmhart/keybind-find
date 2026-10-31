@@ -700,6 +700,8 @@ fn providers_for(
             Some("ncmpcpp") => providers.push("ncmpcpp"),
             // A Python script: its comm is the script's name.
             Some("ranger") => providers.push("ranger"),
+            // `hx` upstream and on Debian; Arch installs it as `helix`.
+            Some("hx" | "helix") => providers.push("helix"),
             _ => {}
         }
         // `man`, `git log` and `systemctl status` lead the pipeline that less runs in.
@@ -1477,6 +1479,13 @@ mod tests {
             x(Some("Alacritty"), Some("herdr")),
             ["xmonad", "espanso", "alacritty", "herdr", "sheets"]
         );
+        // helix: `hx` upstream and on Debian, `helix` on Arch; after the terminal's keys, before `sheets`.
+        for comm in ["hx", "helix"] {
+            assert_eq!(
+                x(Some("Alacritty"), Some(comm)),
+                ["xmonad", "espanso", "alacritty", "helix", "sheets"]
+            );
+        }
         assert_eq!(
             x(Some("Alacritty"), Some("tmux")),
             ["xmonad", "espanso", "alacritty", "tmux", "sheets"]
@@ -1921,6 +1930,8 @@ mod tests {
                 (Some("mcdiff"), vec!["mc"]),
                 (Some("ncmpcpp"), vec!["ncmpcpp"]),
                 (Some("ranger"), vec!["ranger"]),
+                (Some("hx"), vec!["helix"]),
+                (Some("helix"), vec!["helix"]),
                 (Some("python3"), vec![]),
                 (None, vec![]),
             ] {

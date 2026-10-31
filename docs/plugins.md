@@ -129,10 +129,10 @@ In this repository, `templates/check.sh` runs every template's test and `check-p
 
 ## Naming and publishing
 
-- **Name:** call the executable `keybind-find-<name>`, where `<name>` is the program it reads (`keybind-find-helix`).
+- **Name:** call the executable `keybind-find-<name>`, where `<name>` is the program it reads (`keybind-find-kakoune`).
   `keybind-find plugin list` finds every executable of that form on `PATH`, and any executable in
   `~/.config/keybind-find/plugins/`.
-- **Publish** wherever your language's users install from: crates.io (`cargo install keybind-find-helix`), PyPI,
+- **Publish** wherever your language's users install from: crates.io (`cargo install keybind-find-kakoune`), PyPI,
   LuaRocks, npm, or a plain repository with a release. Rust plugins depend on
   [`keybind-find-sheet`](../crates/keybind-find-sheet/), which has the types, the key checks, a ready-made `run`
   (and `run_request`, used by the template, for a plugin that joins its inputs itself or reads none), and
