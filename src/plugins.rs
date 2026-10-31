@@ -1763,8 +1763,9 @@ mod tests {
 
     #[test]
     fn a_stanza_takes_the_defaults_it_leaves_out() {
-        let manifest =
-            || -> anyhow::Result<keybind_find_sheet::Manifest> { Ok(serde_json::from_str(KAKOUNE)?) };
+        let manifest = || -> anyhow::Result<keybind_find_sheet::Manifest> {
+            Ok(serde_json::from_str(KAKOUNE)?)
+        };
         let stanza = |inputs: &[&str], matches: Option<Match>| Plugin {
             name: "kakoune".into(),
             program: "keybind-find-kakoune".into(),
@@ -1924,7 +1925,9 @@ mod tests {
             "{out}"
         );
         // A second add of the same name is refused and changes nothing (ignoring case, as the config does).
-        let e = add_stanza(&env, "KAKOUNE", &config).unwrap_err().to_string();
+        let e = add_stanza(&env, "KAKOUNE", &config)
+            .unwrap_err()
+            .to_string();
         assert!(
             e.contains("already has a [[plugin]] named \"kakoune\""),
             "{e}"
@@ -1957,8 +1960,13 @@ mod tests {
             "[[plugin]]\nname = \"kak\"\nprogram = \"keybind-find-kakoune\"\n",
         )
         .unwrap();
-        let e = add_stanza(&env, "kakoune", &config).unwrap_err().to_string();
-        assert!(e.contains("already runs") && e.contains("as \"kak\""), "{e}");
+        let e = add_stanza(&env, "kakoune", &config)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("already runs") && e.contains("as \"kak\""),
+            "{e}"
+        );
         // A `plugin` that isn't [[plugin]] stanzas: appending would break the whole config, so nothing is written.
         for text in [
             "plugin = []\n",
@@ -1966,7 +1974,9 @@ mod tests {
             "[plugin]\nname = \"a\"\n",
         ] {
             std::fs::write(&config, text).unwrap();
-            let e = add_stanza(&env, "kakoune", &config).unwrap_err().to_string();
+            let e = add_stanza(&env, "kakoune", &config)
+                .unwrap_err()
+                .to_string();
             assert!(e.contains("can't append"), "{text}: {e}");
             assert_eq!(std::fs::read_to_string(&config).unwrap(), text);
         }
@@ -1990,7 +2000,9 @@ mod tests {
             .to_string()
             .contains("no installed plugin"));
         std::fs::write(&config, "[keys\n").unwrap();
-        let e = add_stanza(&env, "kakoune", &config).unwrap_err().to_string();
+        let e = add_stanza(&env, "kakoune", &config)
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("not valid TOML"), "{e}");
         assert_eq!(std::fs::read_to_string(&config).unwrap(), "[keys\n");
     }
@@ -2119,9 +2131,7 @@ mod tests {
         assert!(r.ok, "{lines:#?}");
         assert_eq!(lines.last().unwrap(), "ok: no problems");
         assert!(
-            lines.contains(
-                &"note: input ~/.config/kak/kakrc not found here; not sent".into()
-            ),
+            lines.contains(&"note: input ~/.config/kak/kakrc not found here; not sent".into()),
             "{lines:#?}"
         );
         assert!(r.manifest_ms.is_some() && r.run_ms.is_some());
