@@ -27,7 +27,10 @@ const PREFIXES: [&str; 2] = ["<Actions>/terminal-window/", "<Actions>/terminal-w
 
 /// The action's name in an accel path with one of `PREFIXES`.
 fn action_name(path: &str) -> Option<&str> {
-    PREFIXES.iter().find_map(|p| path.strip_prefix(p))
+    PREFIXES
+        .iter()
+        .find_map(|p| path.strip_prefix(p))
+        .filter(|n| !n.is_empty())
 }
 
 #[derive(Deserialize)]
@@ -373,8 +376,9 @@ mod tests {
         assert_eq!(get(&s, "some-new-action"), [("super+k", "some-new-action")]);
         // The terminal widget's actions too.
         assert_eq!(get(&s, "shift-up"), [("ctrl+Up", "Scroll one line Up")]);
-        // Outside terminal-window and terminal-widget, junk and an unfinished statement: nothing. `<Hyper>`: left out, counted.
+        // Outside terminal-window and terminal-widget, a path with no action name, junk and an unfinished statement: nothing. `<Hyper>`: left out, counted.
         assert!(get(&s, "whatever").is_empty());
+        assert!(get(&s, "").is_empty());
         assert_eq!(get(&s, "zoom-in"), [("ctrl+plus", "Zoom In")]);
         assert!(get(&s, "fullscreen").is_empty());
         assert_eq!(left_out, 1);

@@ -1252,10 +1252,12 @@ fn focused_child(
         .ok_or(hint)
 }
 
-/// The child of terminal `pid` whose environment has `WINDOWID=<x_window>` (xfce4-terminal, kitty, urxvt and xterm
-/// set it per window, at exec). `WINDOWID` stays put when a tab is dragged to another window, so it is trusted only
+/// The child of terminal `pid` whose environment has `WINDOWID=<x_window>` (xfce4-terminal, kitty, urxvt, alacritty
+/// and xterm set it per window, at exec). `WINDOWID` stays put when a tab is dragged to another window, so it is trusted only
 /// when every child with a tty has one, no two share a window (no tabs anywhere), and each names a live window of
-/// `pid` (`xdotool search --pid`, through `env`'s `PATH`); otherwise none. Only for an X window id: sway's and
+/// `pid` (`xdotool search --pid`, through `env`'s `PATH`); otherwise none. ponytail: two tabs swapped between two
+/// windows (their other tabs closed) still pass and give each window the other's program; nothing in `/proc` or X says
+/// which window a tab is in now. Only for an X window id: sway's and
 /// Hyprland's ids aren't X ids, so their callers pass none.
 fn window_id_child(
     pid: u32,
@@ -1266,11 +1268,9 @@ fn window_id_child(
 ) -> Option<String> {
     let mut claims = Vec::new();
     for c in children {
-        // A helper the terminal runs without a tty isn't a window's program.
-        let tty = std::fs::read_to_string(proc.join(format!("{c}/stat")))
-            .ok()
-            .and_then(|s| stat_field(&s, 4));
-        if tty.is_none_or(|t| t == 0) {
+        // A helper the terminal runs without a tty isn't a window's program; a child that can't be read can't be checked.
+        let stat = std::fs::read_to_string(proc.join(format!("{c}/stat"))).ok()?;
+        if stat_field(&stat, 4)? == 0 {
             continue;
         }
         let environ = std::fs::read(proc.join(format!("{c}/environ"))).ok()?;
@@ -3790,6 +3790,9 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         // no guess, nor without xdotool.
         std::fs::write(&live, "11\n").unwrap();
         assert!(comm("Xfce4-terminal", Some("11")).is_err());
+        // xdotool finding no window of it (it exits 1, printing nothing).
+        std::fs::write(&live, "").unwrap();
+        assert!(comm("Xfce4-terminal", Some("11")).is_err());
         std::fs::write(&live, "11\n22\n").unwrap();
         let none = |_: &str| None;
         assert!(foreground(200, "Xfce4-terminal", Some("11"), &none, &proc).is_err());
@@ -3802,6 +3805,9 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         child("2004", "vim", 34818, None);
         assert!(comm("Xfce4-terminal", Some("11")).is_err());
         child("2004", "vim", 34818, Some("A=b\0"));
+        assert!(comm("Xfce4-terminal", Some("11")).is_err());
+        // Nor a child whose stat can't be read.
+        std::fs::remove_file(proc.join("2004/stat")).unwrap();
         assert!(comm("Xfce4-terminal", Some("11")).is_err());
         let _ = std::fs::remove_dir_all(&tmp);
     }

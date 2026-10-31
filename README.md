@@ -26,7 +26,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | Ghostty | its keys from `ghostty +list-keybinds`, as your config sets them | none ([below](#ghostty)) |
 | kitty | its default shortcuts for its version (0.49.2 built in) with your `kitty.conf` maps on top | none; the program in a tab needs remote control ([below](#kitty)) |
 | foot | its default key, search and URL bindings for its version (1.28.0 built in) with your `foot.ini` on top, and its text bindings | none ([below](#foot)) |
-| Xfce Terminal | its menu shortcuts: xfce4-terminal's defaults for its version (1.2.0 built in) with your `accels.scm` on top | none ([below](#xfce-terminal)) |
+| Xfce Terminal | its menu and scrolling shortcuts: xfce4-terminal's defaults for its version (1.2.0 built in) with your `accels.scm` on top | none ([below](#xfce-terminal)) |
 | GNOME Terminal | its keyboard shortcuts as its preferences set them, from `gsettings` (not on GNOME under Wayland, where the window isn't read) | `gsettings` ([below](#gnome-terminal)) |
 | nvim | your maps from a headless nvim with your config, with each map's `desc` | none |
 | Emacs | the keys active in the buffer you are in, from the running Emacs over its server, with its major mode and evil state; with no server, the global map (and evil's) of your init file from `emacs --batch` | `server-start` in your init, or `emacs --daemon`, for the live read ([below](#emacs)) |
@@ -60,8 +60,9 @@ sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a scr
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
 GNOME Terminal, Xfce Terminal, WezTerm, Ghostty and Terminator), keybind-find finds the focused one on X11 when the
 terminal puts the window's id in each shell's environment (`WINDOWID`: Xfce Terminal, kitty, urxvt, alacritty), every
-window of that process runs one shell, and each of those windows still exists (`xdotool search --pid`, since a tab
-dragged to another window keeps its old id); otherwise (tabs anywhere in that process, or a Wayland window) it prints a one-line warning and shows the list without
+window of that process runs one shell, and each of those windows still exists (`xdotool search --pid`: a tab dragged
+to another window keeps its old id; after tabs are swapped between two windows whose other tabs then close, each
+window still names the other's program); otherwise (tabs anywhere in that process, or a Wayland window) it prints a one-line warning and shows the list without
 the program inside (the terminal's own keys, alacritty's, Ghostty's, kitty's, foot's, GNOME Terminal's or Xfce Terminal's, are still listed).
 kitty can say which tab has focus when its remote control is on ([below](#kitty)). espanso's `word: true` matches (they
 wait for a space or punctuation after the trigger) and regex matches (no literal trigger) can't be typed, picks do nothing while the espanso service is stopped, and matches limited by `filter_exec` aren't
@@ -485,8 +486,8 @@ the program inside.
 In an Xfce Terminal window (X11 class `Xfce4-terminal`, Wayland app id `xfce4-terminal`), keybind-find lists its menu
 and scrolling shortcuts (`shift+Up`, `shift+Prior`, …): the defaults of your xfce4-terminal's version (from `xfce4-terminal --version`; 1.2.0's are built in, the
 nearest is used with a note for another version, and the newest when it isn't installed) with your
-`~/.config/xfce4/terminal/accels.scm` on top (`$XDG_CONFIG_HOME`, else the first in `$XDG_CONFIG_DIRS`, as Xfce looks
-for it), which Edit → Preferences → Shortcuts writes: a changed shortcut replaces the default, an empty one removes
+`~/.config/xfce4/terminal/accels.scm` on top (the first found under `$XDG_CONFIG_HOME` or `~/.config`, then each
+`$XDG_CONFIG_DIRS` entry, then `/etc/xdg`, as Xfce looks for it), which Edit → Preferences → Shortcuts writes: a changed shortcut replaces the default, an empty one removes
 it. Shortcuts keybind-find can't send (`<Hyper>`, `<Meta>`) are left out with a count. xfce4-terminal runs one process
 for all its windows: on X11 the program in the focused window is found by `WINDOWID` when no window of that process
 has tabs; otherwise, or under Wayland, only Xfce Terminal's own shortcuts are listed.

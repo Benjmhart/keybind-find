@@ -11,6 +11,7 @@
 (gtk_accel_path "<Actions>/terminal-window/detach-tab" "<Ctrl><Shft>D")
 (gtk_accel_path "<Actions>/terminal-window/some-new-action" "<Super>k")
 (gtk_accel_path "<Actions>/terminal-widget/shift-up" "<Control>Up")
+(gtk_accel_path "<Actions>/terminal-widget/" "<Control>y")
 (gtk_accel_path "<Actions>/terminal-preferences/whatever" "<Control>x")
 this line is junk
 (gtk_accel_path "<Actions>/terminal-window/zoom-in"
