@@ -29,13 +29,17 @@ run (Return, KP_Enter), text search (Escape) and undo (BackSpace); in text searc
 (`ctrl-s`), run (Return) and close (Escape). Each shows the key in force; picking one runs nothing. They are listed
 only in the fzf picker, since the other pickers don't have these keys.
 
-xmonad tiles a new window unless told otherwise, so float this one. In your `manageHook`:
+xmonad tiles a new window unless told otherwise, so float this one. In your `manageHook`, centred at its own size
+(140 columns by 30 lines of alacritty's font) but never more than 90% of the screen, so it fits a small or high-DPI
+screen:
 
 ```haskell
-className =? "keybind-find" --> doCenterFloat
+className =? "keybind-find" --> doFloatDep (\(W.RationalRect _ _ w h) ->
+  let w' = min w 0.9; h' = min h 0.9 in W.RationalRect ((1 - w') / 2) ((1 - h') / 2) w' h')
 ```
 
-(`doCenterFloat` is from `XMonad.Hooks.ManageHelpers`.)
+(`doFloatDep` is from `XMonad.Hooks.ManageHelpers`; `W` is `import qualified XMonad.StackSet as W`. Plain
+`doCenterFloat` keeps the window's full size, which can be larger than the screen.)
 
 The picker is chosen in this order:
 

@@ -622,8 +622,8 @@ Other channels:
 
 Prefer another key? Change only that one binding; keybind-find doesn't care which key started it.
 
-Under xmonad, float the picker window: `className =? "keybind-find" --> doCenterFloat` in your `manageHook`
-(`doCenterFloat` is from `XMonad.Hooks.ManageHelpers`).
+Under xmonad, float the picker window, centred and no larger than the screen: the `manageHook` line is in
+[docs/picker.md](docs/picker.md).
 
 ## Using it
 
