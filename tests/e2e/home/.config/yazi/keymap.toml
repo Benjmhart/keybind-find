@@ -1,0 +1,4 @@
+[[mgr.prepend_keymap]]
+on = "X"
+run = "quit"
+desc = "e2e quit"

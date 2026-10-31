@@ -1,0 +1,53 @@
+# The e2e cases, sourced by harness.sh twice (PHASE=x11, then PHASE=wayland). Each names its case, the providers
+# that must answer (each with at least one bind), and one key from tests/e2e/home that must be listed:
+# "PROVIDER|KEY|part of its description[|scope=value,...]". x: under i3 (the focused window found through xdotool);
+# w: under sway; d: one provider dumped directly, after a setup command (its desktop can't run here).
+if [ "$PHASE" = x11 ]; then
+  # Programs in a terminal with no keys of its own (xterm), and i3's own keys.
+  x xterm-zsh      "i3 zsh"     "i3|super+Return|exec xterm"        -- xterm -e zsh
+  x zsh            "i3 zsh"     "zsh|ctrl+x k|kill-whole-line"      -- xterm -e zsh
+  x bash           "i3 bash"    "bash|ctrl+x k|kill-whole-line"     -- xterm -e bash
+  x fish           "i3 fish"    "fish|alt+k|kill-whole-line"        -- xterm -e fish
+  x helix          "i3 helix"   "helix|ctrl+s|Write changes"        -- xterm -e helix /tmp/e2e.rs
+  x vim-headless   "i3 vim"     "vim|space w|:w<CR>"                -- xterm -e vim /tmp/e2e.c
+  # The buffer's own map, which only the running vim has: proves the live read.
+  x vim-live       "i3 vim"     'vim|space b|:echo "buffer"|buffer=current,filetype=c' -- xterm -e vim --servername E2E /tmp/e2e.c
+  x nano           "i3 nano"    "nano|ctrl+s|Save file"             -- xterm -e nano /tmp/e2e.c
+  x micro          "i3 micro"   "micro|alt+s|Save"                  -- xterm -e micro /tmp/e2e.c
+  x mc             "i3 mc"      "mc|alt+y|Quit"                     -- xterm -e mc
+  x ranger         "i3 ranger"  "ranger|shift+x|quit"               -- xterm -e ranger
+  x ncmpcpp        "i3 ncmpcpp" "ncmpcpp|shift+x|quit"              -- xterm -e ncmpcpp
+  x yazi           "i3 yazi"    "yazi|shift+x|e2e quit"             -- xterm -e yazi
+  x emacs-nw       "i3 emacs"   "emacs|ctrl+c k|kill-buffer"        -- xterm -e emacs -nw /tmp/e2e.c
+  # c-mode's map, which only the running Emacs's C buffer has (the batch read lists the global map): proves the
+  # server path.
+  wanted emacsclient-t && emacs --daemon >/dev/null 2>&1
+  x emacsclient-t  "i3 emacs"   "emacs|ctrl+c j|kill-buffer"        -- xterm -e emacsclient -t /tmp/e2e.c
+  x screen         "i3 screen"  "screen|ctrl+a shift+x|quit"        -- xterm -e screen
+  x tmux           "i3 tmux"    "tmux|ctrl+b X|kill-server"         -- xterm -e tmux
+  x less           "i3 less"    "less|X|quit"                       -- xterm -e less /etc/os-release
+  # Terminals with keys of their own, a shell inside.
+  x alacritty      "i3 alacritty zsh"       "alacritty|ctrl+shift+x|Quit"          -- alacritty -e zsh
+  x kitty          "i3 kitty zsh"           "kitty|ctrl+shift+x|close_window"      -- kitty zsh
+  x ghostty        "i3 ghostty zsh"         "ghostty|ctrl+shift+x|close_surface"   -- ghostty -e zsh
+  x xfce4-terminal "i3 xfce4_terminal zsh"  "xfce4_terminal|ctrl+shift+n|Open Tab" -- xfce4-terminal --disable-server -x zsh
+  wanted gnome-terminal && gsettings set org.gnome.Terminal.Legacy.Keybindings:/org/gnome/terminal/legacy/keybindings/ close-tab '<Control><Shift>x'
+  x gnome-terminal "i3 gnome-terminal zsh"  "gnome-terminal|ctrl+shift+x|close tab" -- gnome-terminal --wait -- zsh
+  x urxvt          "i3 zsh"                 "zsh|ctrl+x k|kill-whole-line"         -- urxvt -e zsh
+  x terminator     "i3 zsh"                 "zsh|ctrl+x k|kill-whole-line"         -- terminator -x zsh
+  x wezterm        "i3 zsh"                 "zsh|ctrl+x k|kill-whole-line"         -- wezterm start --always-new-process -- zsh
+  # Apps by window class.
+  x zathura        "i3 zathura"  "zathura|shift+x|quit"                   -- zathura
+  x mpv            "i3 mpv"      "mpv|shift+x|quit"                       -- mpv --idle --force-window
+  x code           "i3 vscode"   "vscode|ctrl+shift+x|workbench.action.quit" -- code --no-sandbox --disable-gpu --new-window /tmp/e2e.rs
+  x obsidian       "i3 obsidian" "obsidian|ctrl+shift+x|app:quit"         -- obsidian --no-sandbox
+  x zed            "i3 zed"      "zed|ctrl+shift+x|CloseWindow"           -- zeditor --foreground /tmp/e2e.rs
+  # Desktops that can't run here: their providers, from the settings store.
+  d xfce   xfce  "xfce|super+t|xterm"   -- sh -c "xfconf-query -c xfce4-keyboard-shortcuts -p '/commands/custom/<Super>t' -n -t string -s xterm && xfconf-query -c xfce4-keyboard-shortcuts -p /commands/custom/override -n -t bool -s true"
+  d gnome  gnome "gnome|super+q|close"  -- gsettings set org.gnome.desktop.wm.keybindings close "['<Super>q']"
+else
+  w foot-zsh       "sway foot zsh"       "sway|super+Return|exec foot"      -- foot zsh
+  w foot-helix     "sway foot helix"     "foot|ctrl+shift+y|Spawns a new"   -- foot helix /tmp/e2e.rs
+  w alacritty-way  "sway alacritty zsh"  "alacritty|ctrl+shift+x|Quit"      -- alacritty -e zsh
+  w kitty-way      "sway kitty zsh"      "kitty|ctrl+shift+x|close_window"  -- kitty zsh
+fi
