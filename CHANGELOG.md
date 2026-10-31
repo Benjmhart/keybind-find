@@ -9,6 +9,7 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Changed
 
+- The xmonad float rule in the docs caps the picker at 90% of the screen; `doCenterFloat` alone let it run off a small or high-DPI screen.
 - The oldest Rust that builds keybind-find is now 1.95 (`rust-version`, was 1.98), so `cargo install` works with the Rust most distributions ship.
 
 ### Added
