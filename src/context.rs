@@ -657,6 +657,8 @@ const TERMINAL_KEYS: &[(&str, &str)] = &[
     // gnome-terminal's X11 class and its Wayland app id; one `gnome-terminal-server` serves every window.
     ("Gnome-terminal", "gnome-terminal"),
     ("org.gnome.Terminal", "gnome-terminal"),
+    // X11's class; its Wayland app id is `xfce4-terminal` (GTK's program name), the same ignoring case.
+    ("Xfce4-terminal", "xfce4_terminal"),
 ];
 
 /// `child` is the terminal's foreground program (its group's leader), `group` every program in that group.
@@ -1188,7 +1190,7 @@ fn foreground(
     let child = match children.as_slice() {
         [] => return Ok(None),
         [child] => child.clone(),
-        _ => focused_child(class, x_window, &children, env, proc).map_err(|hint| {
+        _ => focused_child(pid, class, x_window, &children, env, proc).map_err(|hint| {
             anyhow::anyhow!(
                 "pid {pid} has {} children (one process serving several windows or tabs?){hint}",
                 children.len()
@@ -1227,19 +1229,82 @@ fn foreground_of(child: &str, proc: &std::path::Path) -> Option<Foreground> {
 /// The rest of the several-children warning when kitty can't be asked.
 const KITTY_HINT: &str = "; to find the program in kitty's focused tab, set `allow_remote_control socket-only` and `listen_on unix:@kitty` in kitty.conf";
 
-/// Which of a terminal's `children` has focus, asked of the terminal; `Err` holds what to add to the several-children
-/// warning. kitty (the only one so far): its remote-control address from a child's environment, `kitten @ ls` (1 s,
-/// never with a password, so kitty never asks the user), and the focused window's pid, which must be one of `children`.
+/// Which of a terminal's `children` has focus; `Err` holds what to add to the several-children warning. kitty asked
+/// first, then (on X11, for any terminal) the one child whose environment's `WINDOWID` is the focused window's id.
 fn focused_child(
+    pid: u32,
     class: &str,
     x_window: Option<&str>,
     children: &[String],
     env: crate::providers::kitty::Env,
     proc: &std::path::Path,
 ) -> Result<String, &'static str> {
-    if !class.eq_ignore_ascii_case("kitty") {
-        return Err("");
+    let hint = if class.eq_ignore_ascii_case("kitty") {
+        match kitty_child(x_window, children, env, proc) {
+            Ok(child) => return Ok(child),
+            Err(hint) => hint,
+        }
+    } else {
+        ""
+    };
+    x_window
+        .and_then(|id| window_id_child(pid, id, children, env, proc))
+        .ok_or(hint)
+}
+
+/// The child of terminal `pid` whose environment has `WINDOWID=<x_window>` (xfce4-terminal, kitty, urxvt, alacritty
+/// and xterm set it per window, at exec). `WINDOWID` stays put when a tab is dragged to another window, so it is trusted only
+/// when every child with a tty has one, no two share a window (no tabs anywhere), and each names a live window of
+/// `pid` (`xdotool search --pid`, through `env`'s `PATH`); otherwise none. ponytail: two tabs swapped between two
+/// windows (their other tabs closed) still pass and give each window the other's program; nothing in `/proc` or X says
+/// which window a tab is in now. A tab held open after its command exits has no child, so it claims nothing. Only for an X window id: sway's and
+/// Hyprland's ids aren't X ids, so their callers pass none.
+fn window_id_child(
+    pid: u32,
+    x_window: &str,
+    children: &[String],
+    env: crate::providers::kitty::Env,
+    proc: &std::path::Path,
+) -> Option<String> {
+    let mut claims = Vec::new();
+    for c in children {
+        // A helper the terminal runs without a tty isn't a window's program; a child that can't be read can't be checked.
+        let stat = std::fs::read_to_string(proc.join(format!("{c}/stat"))).ok()?;
+        if stat_field(&stat, 4)? == 0 {
+            continue;
+        }
+        let environ = std::fs::read(proc.join(format!("{c}/environ"))).ok()?;
+        let id = environ
+            .split(|b| *b == 0)
+            .find_map(|v| v.strip_prefix(b"WINDOWID="))?;
+        let id = String::from_utf8_lossy(id).into_owned();
+        if claims.iter().any(|(_, i)| *i == id) {
+            return None;
+        }
+        claims.push((c, id));
     }
+    let child = claims.iter().find(|(_, i)| i == x_window)?.0.clone();
+    let xdotool = crate::providers::kitty::program("xdotool", env)?;
+    let mut cmd = Command::new(xdotool);
+    cmd.args(["search", "--pid", &pid.to_string()])
+        .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
+    let live = run_for(cmd, Duration::from_secs(1)).ok()?;
+    let live: Vec<&str> = live.split_whitespace().collect();
+    claims
+        .iter()
+        .all(|(_, i)| live.contains(&i.as_str()))
+        .then_some(child)
+}
+
+/// kitty's focused window, asked of kitty: its remote-control address from a child's environment, `kitten @ ls`
+/// (1 s, never with a password, so kitty never asks the user), and the focused window's pid, which must be one of
+/// `children`.
+fn kitty_child(
+    x_window: Option<&str>,
+    children: &[String],
+    env: crate::providers::kitty::Env,
+    proc: &std::path::Path,
+) -> Result<String, &'static str> {
     let address = children
         .iter()
         .find_map(|c| kitty_listen_on(proc, c))
@@ -1483,6 +1548,17 @@ mod tests {
             assert_eq!(x(Some(class), None), ["xmonad", "espanso", "zed", "sheets"]);
         }
         assert!(!x(Some("dev.zed.Zed-Other"), None).contains(&"zed"));
+        // Xfce Terminal: its own keys (X11 class or Wayland app id), then the program inside.
+        for class in ["Xfce4-terminal", "xfce4-terminal"] {
+            assert_eq!(
+                x(Some(class), Some("htop")),
+                ["xmonad", "espanso", "xfce4_terminal", "sheets"]
+            );
+            assert_eq!(
+                x(Some(class), Some("nvim")),
+                ["xmonad", "espanso", "xfce4_terminal", "nvim", "sheets"]
+            );
+        }
         // An Xfce X11 session: xfwm4's keys from the `xfce` provider.
         assert_eq!(
             providers_for(
@@ -3637,6 +3713,102 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             took >= Duration::from_millis(900) && took < Duration::from_secs(3),
             "{took:?}"
         );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// The `WINDOWID` match, on a stand-in `/proc` (stand-in processes under `setsid sh` have no tty, which the match
+    /// requires): a terminal (200) whose children each serve a window.
+    #[test]
+    fn the_child_of_the_focused_x_window_by_windowid() {
+        let tmp = std::env::temp_dir().join(format!("kbf-windowid-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let proc = tmp.join("proc");
+        let task = proc.join("200/task/200");
+        std::fs::create_dir_all(&task).unwrap();
+        // (pid, comm, tty_nr, environ): a helper without a tty that also says WINDOWID=22.
+        let child = |pid: &str, comm: &str, tty: u32, environ: Option<&str>| {
+            let dir = proc.join(pid);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("comm"), format!("{comm}\n")).unwrap();
+            // Its own group leads its terminal (tpgid = pid).
+            std::fs::write(
+                dir.join("stat"),
+                format!("{pid} ({comm}) S 200 {pid} {pid} {tty} {pid} 4194304"),
+            )
+            .unwrap();
+            match environ {
+                Some(e) => std::fs::write(dir.join("environ"), e).unwrap(),
+                None => {
+                    let _ = std::fs::remove_file(dir.join("environ"));
+                }
+            }
+        };
+        child("2001", "zsh", 34816, Some("A=b\0WINDOWID=11\0"));
+        child("2002", "htop", 34817, Some("WINDOWID=22\0B=c\0"));
+        child("2003", "helper", 0, Some("WINDOWID=22\0"));
+        std::fs::write(task.join("children"), "2001 2002 2003").unwrap();
+        // A stand-in xdotool: the terminal's live windows are in `live`.
+        let bin = tmp.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let live = tmp.join("live");
+        write_script(
+            &bin.join("xdotool"),
+            &format!(
+                "#!/bin/sh\n[ \"$*\" = 'search --pid 200' ] || exit 1\ncat '{}'\n",
+                live.display()
+            ),
+        );
+        std::fs::write(&live, "11\n22\n33\n").unwrap();
+        let path = bin.to_string_lossy().into_owned();
+        let env = |k: &str| (k == "PATH").then(|| path.clone());
+        let comm = |class: &str, x: Option<&str>| {
+            foreground(200, class, x, &env, &proc).map(|f| f.map(|f| f.comm))
+        };
+        // The focused X window's child; the helper without a tty doesn't count.
+        assert_eq!(
+            comm("Xfce4-terminal", Some("22")).unwrap().as_deref(),
+            Some("htop")
+        );
+        assert_eq!(
+            comm("Xfce4-terminal", Some("11")).unwrap().as_deref(),
+            Some("zsh")
+        );
+        // Any terminal, and kitty after its own (failing) ask: its hint stays when nothing matches.
+        assert_eq!(comm("URxvt", Some("22")).unwrap().as_deref(), Some("htop"));
+        assert_eq!(comm("kitty", Some("22")).unwrap().as_deref(), Some("htop"));
+        assert!(format!("{:#}", comm("kitty", Some("44")).unwrap_err())
+            .contains("allow_remote_control"));
+        // No match, or no X id (sway, Hyprland, KDE): the several-children line.
+        for x in [Some("44"), None] {
+            let e = format!("{:#}", comm("Xfce4-terminal", x).unwrap_err());
+            assert_eq!(
+                e,
+                "pid 200 has 3 children (one process serving several windows or tabs?)"
+            );
+        }
+        // A claim on a window the terminal no longer has (htop's tab dragged into window 11, its window 22 closed):
+        // no guess, nor without xdotool.
+        std::fs::write(&live, "11\n").unwrap();
+        assert!(comm("Xfce4-terminal", Some("11")).is_err());
+        // xdotool finding no window of it (it exits 1, printing nothing).
+        std::fs::write(&live, "").unwrap();
+        assert!(comm("Xfce4-terminal", Some("11")).is_err());
+        std::fs::write(&live, "11\n22\n").unwrap();
+        let none = |_: &str| None;
+        assert!(foreground(200, "Xfce4-terminal", Some("11"), &none, &proc).is_err());
+        // Two tabs in one window, anywhere: no guess for any window.
+        child("2004", "vim", 34818, Some("WINDOWID=22\0"));
+        std::fs::write(task.join("children"), "2001 2002 2003 2004").unwrap();
+        assert!(comm("Xfce4-terminal", Some("22")).is_err());
+        assert!(comm("Xfce4-terminal", Some("11")).is_err());
+        // A child with a tty and an unreadable environ, or none naming a window, can't be checked: no guess.
+        child("2004", "vim", 34818, None);
+        assert!(comm("Xfce4-terminal", Some("11")).is_err());
+        child("2004", "vim", 34818, Some("A=b\0"));
+        assert!(comm("Xfce4-terminal", Some("11")).is_err());
+        // Nor a child whose stat can't be read.
+        std::fs::remove_file(proc.join("2004/stat")).unwrap();
+        assert!(comm("Xfce4-terminal", Some("11")).is_err());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
