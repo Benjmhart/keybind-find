@@ -599,7 +599,8 @@ First, the programs keybind-find runs. They aren't built into it, and only the N
 - **Wayland:** add `fuzzel` and `wtype` (not on GNOME, which uses fzf)
 
 [install-deps.sh](install-deps.sh) installs them with your distribution's package manager (Arch, Debian/Ubuntu,
-Fedora, openSUSE and their derivatives), and warns when your fzf is too old for key search:
+Fedora, openSUSE, Void, Alpine, Gentoo and their derivatives), and warns when your fzf is too old for key search. On
+Gentoo, fuzzel and wtype come from the GURU overlay, which it tells you how to enable rather than enabling it:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Benjmhart/keybind-find/main/install-deps.sh | sh
