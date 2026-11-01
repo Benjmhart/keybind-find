@@ -1,7 +1,8 @@
 #!/bin/sh
 # Installs the programs keybind-find runs, with your distribution's package manager (README.md, "Requirements"):
 #   curl -fsSL https://raw.githubusercontent.com/Benjmhart/keybind-find/main/install-deps.sh | sh
-# Supports Arch, Debian/Ubuntu, Fedora and openSUSE (and their derivatives, via /etc/os-release's ID_LIKE).
+# Supports Arch, Debian/Ubuntu, Fedora, openSUSE, Void, Alpine and Gentoo (and their derivatives, via /etc/os-release's
+# ID_LIKE).
 # It installs keybind-find's dependencies, not keybind-find itself, and not the apps it reads (nvim, tmux, sway...).
 set -eu
 
@@ -12,6 +13,7 @@ set -eu
 # The X11 set: the focused window, sending keys, the fzf list in alacritty, key search, error notifications.
 # On Wayland (not GNOME, which keeps fzf: no layer-shell for fuzzel) add fuzzel and wtype.
 pm=
+wl="fuzzel wtype"
 for id in $ID ${ID_LIKE:-}; do
   case $id in
     arch)
@@ -26,6 +28,17 @@ for id in $ID ${ID_LIKE:-}; do
     opensuse* | suse)
       pm="zypper --non-interactive install"
       x11="xdotool xprop xmodmap fzf alacritty libnotify-tools" ;;
+    void)
+      pm="xbps-install -Sy"
+      x11="xdotool xprop xmodmap fzf alacritty libnotify" ;;
+    alpine)
+      pm="apk add"
+      x11="xdotool xprop xmodmap fzf alacritty libnotify" ;;
+    gentoo)
+      pm="emerge --noreplace"
+      x11="x11-misc/xdotool x11-apps/xprop x11-apps/xmodmap app-shells/fzf x11-terms/alacritty x11-libs/libnotify"
+      # Only in the GURU overlay, which this script doesn't enable for you.
+      wl= ;;
     *) continue ;;
   esac
   break
@@ -34,10 +47,18 @@ done
 
 pkgs=$x11
 case ${XDG_SESSION_TYPE:-}${WAYLAND_DISPLAY:+wayland} in
-  *wayland*) case ${XDG_CURRENT_DESKTOP:-} in *GNOME*) ;; *) pkgs="$pkgs fuzzel wtype" ;; esac ;;
+  *wayland*) case ${XDG_CURRENT_DESKTOP:-} in
+    *GNOME*) ;;
+    *) pkgs="$pkgs $wl"
+      [ -n "$wl" ] || echo "Note: fuzzel and wtype are in the GURU overlay: eselect repository enable guru, emerge --sync guru," \
+        "then emerge gui-apps/fuzzel gui-apps/wtype." ;;
+  esac ;;
 esac
 
-sudo=; [ "$(id -u)" -eq 0 ] || sudo=sudo
+sudo=
+if [ "$(id -u)" -ne 0 ]; then
+  if command -v sudo >/dev/null; then sudo=sudo; else sudo=doas; fi
+fi
 echo "Installing: $pkgs"
 # A fresh container has no package lists yet.
 case $pm in apt-get*) $sudo apt-get update ;; esac
