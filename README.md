@@ -592,7 +592,23 @@ falls back to fuzzel, with one line saying to install them or set `[picker]` ([d
 
 ## Install
 
-From source:
+First, the programs keybind-find runs. They aren't built into it, and only the Nix package brings them along:
+
+- **X11:** `xdotool`, `xprop`, `xmodmap`, `fzf` 0.66+ (0.60 runs the list, 0.66 adds key search), `alacritty`, and
+  `notify-send` for errors shown under a hotkey
+- **Wayland:** add `fuzzel` and `wtype` (not on GNOME, which uses fzf)
+
+[install-deps.sh](install-deps.sh) installs them with your distribution's package manager (Arch, Debian/Ubuntu,
+Fedora, openSUSE and their derivatives), and warns when your fzf is too old for key search:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Benjmhart/keybind-find/main/install-deps.sh | sh
+```
+
+It asks for your password through `sudo`; read it first if you'd rather. The `.deb` recommends the X11 set, so apt
+installs most of it anyway. Package names for each tool, and the optional ones, are under [Requirements](#requirements).
+
+Then keybind-find itself, from source:
 
 ```sh
 cargo install --path .
