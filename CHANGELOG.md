@@ -5,6 +5,8 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-06
+
 ### Added
 
 - Sheets: a global sheet (`"provider": "*"`, or an executable sheet named `global`) applies whatever window is focused, and a binding with `"run": ["argv0", "arg"]` runs that program when picked (no shell; after the picker has closed and focus is back, as keys would be sent; not waited for) in place of keys, so macros without a key of their own are findable. `keybind-find-sheet`'s `Bind` has a new `run` field (left out of the JSON when empty; a Rust plugin that builds `Bind` by hand adds `run: Vec::new()`).
@@ -95,6 +97,7 @@ Everything below is new.
 
 - `config.toml` rebinds keybind-find's own picker keys (run, text search, undo, key search, scope); its own keys are listed too.
 
-[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.0.0...staging
+[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.1.0...staging
+[1.1.0]: https://github.com/Benjmhart/keybind-find/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Benjmhart/keybind-find/compare/v0.1.0-alpha.1...v1.0.0
 [0.1.0-alpha.1]: https://github.com/Benjmhart/keybind-find/releases/tag/v0.1.0-alpha.1

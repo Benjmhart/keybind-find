@@ -1,6 +1,6 @@
 [package]
 name = "keybind-find-sheet"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "keybind-find's sheet types, key notation checks and plugin protocol, for plugins written in Rust"
 license = "MIT"

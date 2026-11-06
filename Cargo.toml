@@ -1,6 +1,6 @@
 [package]
 name = "keybind-find"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "Search the keybindings for the focused window and run the one you pick"
 license = "MIT"
@@ -33,7 +33,7 @@ default-members = [".", "crates/keybind-find-sheet"]
 
 [dependencies]
 anyhow = "1"
-keybind-find-sheet = { path = "crates/keybind-find-sheet", version = "0.1.0" }
+keybind-find-sheet = { path = "crates/keybind-find-sheet", version = "0.2.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
