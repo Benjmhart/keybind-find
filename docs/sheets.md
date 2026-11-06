@@ -21,6 +21,22 @@ flatpaks, so one sheet covers them all. For any other browser, use its class as 
 A web app's keys work only while focus isn't in a text field, and Gmail's only with Settings → "Keyboard shortcuts
 on".
 
+**Global sheets and runnable entries.** A sheet with `"provider": "*"` applies whatever window is focused (even one
+whose class keybind-find can't read), and an executable named `global` (or `global.sh`) is run for every window, like
+a parser for the class. Use them for things that have no key of their own: a binding with `"run": ["argv0", "arg"]`
+runs that program when picked, as its argv (no shell), after the picker has closed and focus is back on the window
+it came from, exactly when keys would have been sent and with no other focus change; it is started and not waited
+for, so it may run as long as it likes. Its `key` may be `""` (the key column stays blank) or the key the same thing
+is also bound to, which is then only shown: with `run`, a pick runs the program. `--print` prints the argv like the
+xdotool lines. Such a sheet for macros kept as executables with a `# desc:` header line, printed by
+`~/.config/keybind-find/sheets/global`:
+
+```json
+{"title": "Macros", "provider": "*",
+ "binds": {"macros": [{"key": "", "desc": "Macro: login - Paste the password for the focused window",
+                       "run": ["/home/me/.config/macros/x11/login"]}]}}
+```
+
 **Built-in sheets.** keybind-find ships sheets for Gmail (`gmail.json`, for tabs titled `... - Gmail`; it assumes
 "Keyboard shortcuts on"), YouTube (`youtube.json`, `... - YouTube`) and GitHub (`github.json`, `github.com`), in any
 browser above. Their source is [`data/sheets/`](../data/sheets/), and they merge after your own. Gmail and YouTube need
@@ -46,7 +62,8 @@ apps under another name (`gh.json`) adds to the built-in one, so its keys show t
 ## Format
 
 Sheets use the [DMS cheatsheet format](https://github.com/duxlabs-dev/dux-shell)
-(`{title, provider, binds: {category: [{key, desc, action}]}}`). Keys are written like xdotool chords: modifiers in
+(`{title, provider, binds: {category: [{key, desc, action}]}}`), plus keybind-find's optional `when` (below) and
+`run` (above). Keys are written like xdotool chords: modifiers in
 the order `super`, `ctrl`, `alt`, `shift`, joined with `+` to an X keysym name (`super+shift+Return`); a sequence is
 chords separated by spaces (`ctrl+b t`). Write symbols by their keysym name (`question`, `slash`, `less`): a
 literal `?` or `/` is listed but refused when picked. An espanso key is its trigger text.

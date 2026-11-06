@@ -102,6 +102,7 @@ fn bind(key: String, desc: String) -> Bind {
         desc,
         action: String::new(),
         when: Default::default(),
+        run: Vec::new(),
     }
 }
 

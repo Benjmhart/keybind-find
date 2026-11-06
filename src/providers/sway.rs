@@ -305,6 +305,7 @@ pub(crate) fn parse_as(provider: &str, text: &str) -> anyhow::Result<Sheet> {
                     desc: action.to_string(),
                     action: action.to_string(),
                     when: Default::default(),
+                    run: Vec::new(),
                 },
             ));
         }

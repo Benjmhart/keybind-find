@@ -154,6 +154,7 @@ fn read(setup: impl Fn(&mut Command)) -> anyhow::Result<(Sheet, Vec<String>)> {
             desc,
             action,
             when: Default::default(),
+            run: Vec::new(),
         })
     };
     // Notes the failure; true when gsettings hung (a stuck dconf or D-Bus), which every later run would too.

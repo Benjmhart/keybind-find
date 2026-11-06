@@ -5,6 +5,10 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Sheets: a global sheet (`"provider": "*"`, or an executable sheet named `global`) applies whatever window is focused, and a binding with `"run": ["argv0", "arg"]` runs that program when picked (no shell; after the picker has closed and focus is back, as keys would be sent; not waited for) in place of keys, so macros without a key of their own are findable. `keybind-find-sheet`'s `Bind` has a new `run` field (left out of the JSON when empty; a Rust plugin that builds `Bind` by hand adds `run: Vec::new()`).
+
 ## [1.0.0] - 2026-10-31
 
 ### Changed

@@ -53,7 +53,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | Firefox / Chromium keys | the browser's own shortcuts (tabs, navigation, find, dev tools) in Firefox, LibreWolf, Zen, Chromium, Chrome, Brave and Edge, from built-in sheets | none ([below](#firefox-and-chromium)) |
 | Vimium | Vimium's defaults for its version, and your remaps from a saved backup | none; remaps need the backup ([docs/vimium.md](docs/vimium.md)) |
 | espanso | `espanso match list`; picking a match types its trigger | none |
-| anything else | a sheet you write, or a script that prints one | [docs/sheets.md](docs/sheets.md) |
+| anything else | a sheet you write, or a script that prints one; a global sheet (`"provider": "*"`) lists things with no key, such as macros, that a pick runs (`"run": [argv]`) | [docs/sheets.md](docs/sheets.md) |
 
 nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, helix, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or

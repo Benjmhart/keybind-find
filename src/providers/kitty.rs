@@ -540,6 +540,7 @@ fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize) {
             desc: o.title.unwrap_or_else(|| o.action.clone()),
             action: o.action,
             when,
+            run: Vec::new(),
         });
     }
     (sheet, left_out)

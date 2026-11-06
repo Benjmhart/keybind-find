@@ -96,6 +96,7 @@ fn parse_reporting(text: &str) -> (Sheet, Vec<String>) {
                 desc: desc.trim().to_string(),
                 action: String::new(),
                 when: Default::default(),
+                run: Vec::new(),
             },
         ));
     }

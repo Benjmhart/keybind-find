@@ -194,6 +194,7 @@ fn parse(rc: &str, desktops: &[Desktop]) -> (Sheet, BTreeMap<&'static str, usize
                     desc: desc.into(),
                     action: action.into(),
                     when: Default::default(),
+                    run: Vec::new(),
                 }),
                 Err(kind) => *left_out.entry(kind).or_default() += 1,
             }

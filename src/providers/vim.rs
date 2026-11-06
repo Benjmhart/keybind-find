@@ -486,6 +486,7 @@ fn parse(text: &str, local: Option<&[(Name, Name)]>) -> anyhow::Result<(Sheet, u
                 desc: rhs.clone(),
                 action: rhs,
                 when,
+                run: Vec::new(),
             });
     }
     Ok((sheet, skipped))

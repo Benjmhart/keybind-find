@@ -69,6 +69,7 @@ fn parse(prefix: &str, root: &str) -> (Sheet, usize) {
                     desc: desc.trim().into(),
                     action: String::new(),
                     when: Default::default(),
+                    run: Vec::new(),
                 }),
                 None => skipped += 1,
             }

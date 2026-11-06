@@ -107,6 +107,7 @@ fn parse(text: &str) -> (Sheet, usize) {
                 desc,
                 action: value.to_string(),
                 when: Default::default(),
+                run: Vec::new(),
             });
         }
     }

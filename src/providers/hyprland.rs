@@ -92,6 +92,7 @@ fn parse(json: &str) -> anyhow::Result<(Sheet, usize)> {
                 .map(|s| (scope.clone(), Values::from(s)))
                 .into_iter()
                 .collect(),
+            run: Vec::new(),
         });
     }
     Ok((sheet, skipped))

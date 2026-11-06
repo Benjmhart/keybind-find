@@ -253,6 +253,7 @@ fn parse(texts: &[&str], load: Load) -> (Sheet, Vec<String>) {
             desc: command.to_string(),
             action: command.to_string(),
             when: Default::default(),
+            run: Vec::new(),
         });
     });
     let mut notes = Vec::new();

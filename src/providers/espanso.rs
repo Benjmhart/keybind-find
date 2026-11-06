@@ -110,6 +110,7 @@ fn parse(json: &str) -> anyhow::Result<Sheet> {
                     desc: desc.clone(),
                     action: String::new(),
                     when: Default::default(),
+                    run: Vec::new(),
                 })
         })
         .collect();

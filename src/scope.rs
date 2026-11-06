@@ -77,6 +77,7 @@ mod tests {
                         (name(s), v.try_into().unwrap())
                     })
                     .collect(),
+                run: Vec::new(),
             },
         }
     }

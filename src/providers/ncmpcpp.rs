@@ -140,6 +140,7 @@ fn parse(defaults: &str, files: &[(&str, &str)]) -> anyhow::Result<(Sheet, Vec<S
             desc: alternatives(&describe),
             action: alternatives(&|a| a.to_string()),
             when: Default::default(),
+            run: Vec::new(),
         });
     }
     if left_out > 0 {

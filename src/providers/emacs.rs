@@ -499,6 +499,7 @@ fn parse(answer: Answer, live: bool) -> anyhow::Result<(Sheet, crate::scope::Fac
             desc: command.clone(),
             action: command,
             when: when.into_iter().map(|(k, v)| (k, v.into())).collect(),
+            run: Vec::new(),
         });
     }
     let mut facts = crate::scope::Facts::new();

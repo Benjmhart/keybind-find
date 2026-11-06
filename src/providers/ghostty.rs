@@ -187,6 +187,7 @@ fn parse(text: &str) -> anyhow::Result<(Sheet, usize)> {
                 .map(|t| (scope.clone(), Values::from(t)))
                 .into_iter()
                 .collect(),
+            run: Vec::new(),
         });
         last = Some((category, binds.len() - 1));
     }

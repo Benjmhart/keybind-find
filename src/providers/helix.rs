@@ -635,6 +635,7 @@ fn walk(
                         .join(", "),
                     action: commands.join(", "),
                     when: Default::default(),
+                    run: Vec::new(),
                 };
                 if let (Ok(scope), Ok(value)) = ("mode".parse::<Name>(), mode.parse::<Name>()) {
                     b.when.insert(scope, Values::from(value));

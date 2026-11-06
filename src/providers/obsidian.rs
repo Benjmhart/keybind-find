@@ -224,6 +224,7 @@ fn parse(pinned: &Pinned, custom: &BTreeMap<String, Vec<Hotkey>>) -> (Sheet, usi
                     desc: names.get(id).copied().unwrap_or(id).to_string(),
                     action: id.to_string(),
                     when: Default::default(),
+                    run: Vec::new(),
                 });
         }
     }

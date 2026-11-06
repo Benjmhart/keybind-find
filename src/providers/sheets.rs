@@ -2,10 +2,12 @@
 //! the focused window's class (the class part of `xprop WM_CLASS`, e.g. `Vivaldi-stable`; under sway the `app_id`),
 //! ignoring case:
 //! - `*.json`: a hand-written DMS cheatsheet, matched by its `provider` field (`"provider": "Vivaldi-stable"`).
-//!   `"provider": "browser"` matches any browser in `BROWSERS`. A sheet with a `window_title` (a web app's) applies
+//!   `"provider": "browser"` matches any browser in `BROWSERS`, and `"provider": "*"` any window (a global
+//!   sheet, for `run` entries: macros without a key). A sheet with a `window_title` (a web app's) applies
 //!   only while the focused window's title contains it, ignoring case.
 //! - any other executable file: a custom parser, matched by its file name with or without one extension
-//!   (`st-256color` or `st-256color.py` for class `st-256color`; not backups like `.bak` or `.py~`). It needs a `#!`
+//!   (`st-256color` or `st-256color.py` for class `st-256color`; not backups like `.bak` or `.py~`), or named
+//!   `global` (`global.sh`), which runs whatever window has focus. It needs a `#!`
 //!   line, must be the user's own and not writable by group or others. It is run with no arguments and no shell, and
 //!   what it prints is read as a DMS cheatsheet. Non-matching parsers are never run; to disable one, remove its
 //!   execute bit. All parsers share one time limit.
@@ -474,17 +476,18 @@ fn sheet_from(
 }
 
 /// Whether a sheet for `provider` (and, if set, a window title containing `window_title`) applies to the window.
+/// `*` applies to any window, even one whose class isn't known.
 fn applies(
     provider: &str,
     window_title: Option<&str>,
     class: Option<&str>,
     title: Option<&str>,
 ) -> bool {
-    let Some(class) = class else { return false };
-    let class_matches = if provider.eq_ignore_ascii_case("browser") {
-        is_browser(class)
-    } else {
-        provider.eq_ignore_ascii_case(class)
+    let class_matches = match class {
+        _ if provider == "*" => true,
+        None => return false,
+        Some(class) if provider.eq_ignore_ascii_case("browser") => is_browser(class),
+        Some(class) => provider.eq_ignore_ascii_case(class),
     };
     class_matches
         && match window_title.map(str::trim).filter(|w| !w.is_empty()) {
@@ -535,10 +538,13 @@ const NOT_PARSERS: &[&str] = &[
 ];
 
 /// `st-256color` or `st-256color.py` for class `st-256color`, ignoring case. Not `st-256color.py~`, `.bak`, ...
+/// `global` or `global.sh` for any window, even one whose class isn't known.
 fn parser_matches(path: &Path, class: Option<&str>) -> bool {
-    let Some(class) = class else { return false };
     let named = |p: Option<&std::ffi::OsStr>| {
-        p.is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(class))
+        p.is_some_and(|n| {
+            let n = n.to_string_lossy();
+            n.eq_ignore_ascii_case("global") || class.is_some_and(|c| n.eq_ignore_ascii_case(c))
+        })
     };
     let script_extension = path.extension().is_some_and(|e| {
         let e = e.to_string_lossy();
@@ -787,6 +793,39 @@ mod tests {
             "{notes:?}"
         );
         assert_eq!(keys(&sheet, "x"), ["F2"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn global_sheets_apply_to_any_window() {
+        let dir = temp("global");
+        let json = r#"{"title":"macros","provider":"*","binds":{"macros":[{"key":"","desc":"Macro: login","run":["/home/me/macros/login"]}]}}"#;
+        std::fs::write(dir.join("macros.json"), json).unwrap();
+        let p = dir.join("global.sh");
+        std::fs::write(
+            &p,
+            "#!/bin/sh\nprintf '%s' '{\"title\":\"m\",\"provider\":\"macros\",\"binds\":{\"macros\":[{\"key\":\"super+l\",\"desc\":\"Macro: lock\",\"run\":[\"/home/me/macros/lock\",\"now\"]}]}}'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // A backup of the global parser is no parser either.
+        std::fs::copy(&p, dir.join("global.bak")).unwrap();
+        // Whatever the class, and with no class known at all.
+        for class in [Some("xterm"), Some("Gimp"), None] {
+            let (sheet, notes) =
+                parse_reporting(&dir, class, None, None, None, PARSER_TIMEOUT).unwrap();
+            assert!(notes.is_empty(), "{class:?}: {notes:?}");
+            let macros = &sheet.binds["macros"];
+            assert_eq!(macros.len(), 2, "{class:?}");
+            assert_eq!(
+                (macros[0].key.as_str(), macros[0].run.as_slice()),
+                (
+                    "super+l",
+                    &["/home/me/macros/lock".to_string(), "now".to_string()][..]
+                )
+            );
+            assert_eq!(macros[1].run, ["/home/me/macros/login"]);
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

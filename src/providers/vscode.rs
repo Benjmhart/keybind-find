@@ -681,6 +681,7 @@ fn build(name: &str, entries: &[Entry]) -> (Sheet, usize, usize) {
             desc,
             action: rule.command.clone(),
             when,
+            run: Vec::new(),
         });
     }
     (sheet, keys_left, whens_left)

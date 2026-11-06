@@ -49,6 +49,7 @@ fn parse(text: &str) -> anyhow::Result<Sheet> {
             desc: desc.trim().to_string(),
             action: String::new(),
             when,
+            run: Vec::new(),
         });
     }
     Ok(sheet(binds))

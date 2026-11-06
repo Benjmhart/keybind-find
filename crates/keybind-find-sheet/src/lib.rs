@@ -42,6 +42,11 @@ pub struct Bind {
         deserialize_with = "no_repeated_scopes"
     )]
     pub when: BTreeMap<Name, Values>,
+    /// `"run"`: a program to run instead of pressing keys, as its argv (`["/path/to/macro", "arg"]`, no shell),
+    /// started after the picker has closed and focus is back on the window it came from. With it, `key` is only
+    /// shown (and may be `""`). Empty or left out means the pick presses `key` (and is left out when written).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub run: Vec<String>,
 }
 
 /// `when` with each scope once: JSON allows a repeated object key, and a map would keep the last silently.
@@ -723,6 +728,7 @@ mod tests {
                 desc: desc.into(),
                 action: String::new(),
                 when: Default::default(),
+                run: Vec::new(),
             });
         }
         Ok(Sheet {
@@ -780,6 +786,7 @@ mod tests {
                     desc: "Browser".into(),
                     action: String::new(),
                     when: Default::default(),
+                    run: Vec::new(),
                 }],
             )]),
         };
@@ -831,6 +838,22 @@ mod tests {
             serde_json::to_string(&b).unwrap(),
             r#"{"key":"i","desc":"d","action":""}"#
         );
+    }
+
+    #[test]
+    fn run_is_an_argv_and_is_left_out_when_empty() {
+        let json = r#"{"key":"","desc":"Macro: login","action":"","run":["/home/me/macros/login","--fast"]}"#;
+        let b: Bind = serde_json::from_str(json).unwrap();
+        assert_eq!(b.run, ["/home/me/macros/login", "--fast"]);
+        assert_eq!(serde_json::to_string(&b).unwrap(), json);
+        let b: Bind = serde_json::from_str(r#"{"key":"i","desc":"d","run":[]}"#).unwrap();
+        assert!(b.run.is_empty());
+        assert_eq!(
+            serde_json::to_string(&b).unwrap(),
+            r#"{"key":"i","desc":"d","action":""}"#
+        );
+        // A run must be a list of strings, as an argv is.
+        assert!(serde_json::from_str::<Bind>(r#"{"key":"","desc":"d","run":"login"}"#).is_err());
         // What can't be a scope is a parse error that says why.
         for (bad, why) in [
             ("[]", "empty list of scope values"),

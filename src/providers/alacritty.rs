@@ -314,6 +314,7 @@ fn parse_reporting(toml_text: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
                     desc: b.desc.clone(),
                     action: b.desc,
                     when: Default::default(),
+                    run: Vec::new(),
                 });
             }
         }

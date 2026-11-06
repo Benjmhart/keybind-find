@@ -206,6 +206,7 @@ fn help(text: &str) -> (Sheet, usize, Vec<(&'static str, &str)>) {
                 desc: desc.clone(),
                 action: String::new(),
                 when: Default::default(),
+                run: Vec::new(),
             };
             if line_edit {
                 if let (Ok(scope), Ok(mode)) =
@@ -380,6 +381,7 @@ fn overlay(sheet: &mut Sheet, text: &str) -> usize {
             desc,
             action,
             when: Default::default(),
+            run: Vec::new(),
         });
     }
     sheet.binds.retain(|_, list| !list.is_empty());

@@ -268,6 +268,7 @@ fn own_entries(keys: &Keys) -> Vec<Entry> {
             desc: format!("{category}: {desc}"),
             action: String::new(),
             when: Default::default(),
+            run: Vec::new(),
         },
     };
     let mut out = Vec::new();
@@ -1062,6 +1063,7 @@ mod tests {
                 desc: desc.into(),
                 action: String::new(),
                 when: Default::default(),
+                run: Vec::new(),
             },
         }
     }

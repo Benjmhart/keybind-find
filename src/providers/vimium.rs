@@ -141,6 +141,7 @@ fn build(home: Option<&Path>, backup: Option<&Path>) -> anyhow::Result<(Sheet, V
                 desc: info.desc.clone(),
                 action: command,
                 when: Default::default(),
+                run: Vec::new(),
             });
     }
     if skipped_keys > 0 {

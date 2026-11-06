@@ -298,6 +298,7 @@ fn build(keymaps: &[(&str, Value)], notes: &mut Vec<String>) -> (Sheet, usize, u
                 desc: e.desc,
                 action: e.action,
                 when: e.scopes.as_ref().map(scopes_of).unwrap_or_default(),
+                run: Vec::new(),
             });
     }
     (sheet, left_out, bad_contexts)

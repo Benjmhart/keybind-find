@@ -244,6 +244,7 @@ fn parse(stdout: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
                 .unwrap_or_else(|| b.cmd.clone()),
             action: b.cmd.clone(),
             when: Default::default(),
+            run: Vec::new(),
         });
     }
     let mut notes = Vec::new();

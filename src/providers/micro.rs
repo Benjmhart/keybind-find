@@ -644,6 +644,7 @@ impl Keymap {
                     desc: action.clone(),
                     action,
                     when: Default::default(),
+                    run: Vec::new(),
                 });
             }
         }

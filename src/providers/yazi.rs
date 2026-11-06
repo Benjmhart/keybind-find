@@ -311,6 +311,7 @@ fn merge(v: &str, defaults: Keymap, mut user: Keymap) -> (Sheet, usize) {
                 desc,
                 action,
                 when: Default::default(),
+                run: Vec::new(),
             });
         }
     }

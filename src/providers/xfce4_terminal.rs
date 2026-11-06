@@ -173,6 +173,7 @@ fn parse(pinned: &Pinned, accels: Option<&str>) -> (Sheet, usize) {
                 desc: label,
                 action: name,
                 when: Default::default(),
+                run: Vec::new(),
             });
     }
     (sheet, left_out)

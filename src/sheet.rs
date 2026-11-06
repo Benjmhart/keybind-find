@@ -37,6 +37,7 @@ mod tests {
             desc: format!("{key} desc"),
             action: String::new(),
             when: Default::default(),
+            run: Vec::new(),
         }
     }
 
@@ -64,6 +65,7 @@ mod tests {
                 desc: "Browser".into(),
                 action: String::new(),
                 when: Default::default(),
+                run: Vec::new(),
             }],
         );
         assert_eq!(s, want);

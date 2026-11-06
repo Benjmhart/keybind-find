@@ -492,6 +492,7 @@ fn to_sheet(binds: Vec<Shortcut>) -> Sheet {
             desc: desc.clone(),
             action: desc,
             when: Default::default(),
+            run: Vec::new(),
         });
     }
     sheet

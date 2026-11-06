@@ -190,6 +190,7 @@ fn read(
             desc: b.desc,
             action: b.function,
             when: Default::default(),
+            run: Vec::new(),
         });
     }
     if !unknown.is_empty() {

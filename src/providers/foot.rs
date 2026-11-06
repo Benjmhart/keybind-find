@@ -225,6 +225,7 @@ fn parse(defaults: &Pinned, root: Option<&Path>, home: Option<&Path>) -> (Sheet,
                     b.action.clone()
                 },
                 when: Default::default(),
+                run: Vec::new(),
             });
         }
     }

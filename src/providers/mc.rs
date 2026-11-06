@@ -256,6 +256,7 @@ fn build(keymap: &Keymap) -> (Sheet, usize, usize) {
                 desc: action.to_string(),
                 action: action.to_string(),
                 when: Default::default(),
+                run: Vec::new(),
             });
         }
     }

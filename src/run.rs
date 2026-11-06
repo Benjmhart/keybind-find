@@ -1,5 +1,6 @@
-//! Running a pick: give focus back to the window that had it, then press its keys (or type an espanso trigger).
-//! Only keys are sent; nothing from a config is ever executed, and no shell is involved.
+//! Running a pick: give focus back to the window that had it, then press its keys (or type an espanso trigger), or,
+//! for a sheet entry with `run`, start that program (its argv as written, no shell) in place of the keys. Nothing
+//! else from a config is ever executed.
 
 use crate::sheet::Entry;
 use anyhow::{bail, Context as _};
@@ -64,13 +65,23 @@ const XDOTOOL_COMMANDS: &[&str] = &[
 /// A stuck X server or a window manager that never confirms the focus change must not hang the hotkey.
 const TIMEOUT: Duration = Duration::from_secs(2);
 
-/// The commands that run `e`, as argv lists. `window` is the X window id to re-focus first (X11 only).
+/// The commands that run `e`, as argv lists. `window` is the X window id to re-focus first (X11 only). For a `run`
+/// entry the last one is its program, which `send` starts without waiting for it.
 pub fn commands(window: Option<&str>, e: &Entry, wayland: bool) -> Vec<Vec<String>> {
+    let argv = |parts: &[&str]| parts.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    if !e.bind.run.is_empty() {
+        // Focus goes back exactly as before keys, and nothing else: a macro may check the active window itself.
+        let mut cmds = Vec::new();
+        if let (Some(id), false) = (window, wayland) {
+            cmds.push(argv(&["xdotool", "windowactivate", "--sync", id]));
+        }
+        cmds.push(e.bind.run.clone());
+        return cmds;
+    }
     let key = e.bind.key.as_str();
     if key.trim().is_empty() {
         return Vec::new();
     }
-    let argv = |parts: &[&str]| parts.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     // espanso expands what it sees typed, so its trigger is typed (exactly as written), not pressed. `--`: a trigger
     // may start with `-`.
     let typed = e.provider == "espanso";
@@ -179,6 +190,12 @@ fn wtype_modifier(m: &str) -> Option<&'static str> {
 /// Refuses keys that can't be sent safely: anything outside the key notation (`+`-joined `[A-Za-z0-9_]` parts), an
 /// xdotool command name, or a modifier wtype doesn't have.
 fn check(e: &Entry, wayland: bool) -> anyhow::Result<()> {
+    if let Some(program) = e.bind.run.first() {
+        if program.trim().is_empty() {
+            bail!("{:?} has no program to run", e.bind.desc);
+        }
+        return Ok(());
+    }
     let key = e.bind.key.as_str();
     if key.trim().is_empty() {
         bail!("{:?} has no key to send", e.bind.desc);
@@ -269,7 +286,26 @@ fn send_with(
             _ => Ok(()),
         };
     }
-    run(&cmds)
+    if e.bind.run.is_empty() {
+        return run(&cmds);
+    }
+    // A macro may run long (a dialog, a password prompt), so it's started and left to itself.
+    let (program, focus) = cmds.split_last().expect("a run entry has its program");
+    run(focus)?;
+    spawn(program)
+}
+
+/// Starts `argv` detached from our stdio and doesn't wait for it.
+fn spawn(argv: &[String]) -> anyhow::Result<()> {
+    let (program, args) = argv.split_first().context("nothing to run")?;
+    Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .with_context(|| format!("running {program}"))?;
+    Ok(())
 }
 
 /// One argv per line; arguments that a shell would split or interpret are single-quoted, so the line reads (and pastes)
@@ -358,6 +394,7 @@ mod tests {
                 desc: "d".into(),
                 action: String::new(),
                 when: Default::default(),
+                run: Vec::new(),
             },
         }
     }
@@ -540,6 +577,91 @@ mod tests {
 
     fn never_run(_: &[Vec<String>]) -> anyhow::Result<()> {
         panic!("a dry run must not run anything")
+    }
+
+    fn macro_entry(key: &str, run: &[&str]) -> Entry {
+        let mut e = entry("sheets", key);
+        e.bind.run = v(run);
+        e
+    }
+
+    #[test]
+    fn run_entries_refocus_then_start_the_program() {
+        let m = macro_entry("", &["/home/me/.config/macros/x11/login", "--fast"]);
+        // X11: focus back exactly as for keys, then the argv as written; nothing else (no keyup: no keys pressed).
+        assert_eq!(
+            commands(Some("123"), &m, false),
+            [
+                v(&["xdotool", "windowactivate", "--sync", "123"]),
+                v(&["/home/me/.config/macros/x11/login", "--fast"]),
+            ]
+        );
+        assert_eq!(
+            commands(None, &m, false),
+            [v(&["/home/me/.config/macros/x11/login", "--fast"])]
+        );
+        // Wayland: the compositor gives focus back on its own.
+        assert_eq!(
+            commands(Some("123"), &m, true),
+            [v(&["/home/me/.config/macros/x11/login", "--fast"])]
+        );
+        // `run` wins over a key: the key is only shown.
+        assert_eq!(
+            commands(None, &macro_entry("super+l", &["login"]), true).len(),
+            1
+        );
+        // --print renders it like the xdotool lines.
+        let mut out = Vec::new();
+        send_with(Some("123"), &m, true, false, None, &mut out, &never_run).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "xdotool windowactivate --sync 123\n/home/me/.config/macros/x11/login --fast\n"
+        );
+        // Under KDE or GNOME on Wayland keys can't be sent, but a program can be run.
+        let mut out = Vec::new();
+        send_with(None, &m, true, true, Some("kde"), &mut out, &never_run).unwrap();
+        // A real send runs the focus command through the runner and starts the program without waiting for it.
+        let ran = RefCell::new(Vec::new());
+        let record = |cmds: &[Vec<String>]| {
+            ran.borrow_mut().extend_from_slice(cmds);
+            Ok(())
+        };
+        let slow = macro_entry("", &["sh", "-c", "sleep 5"]);
+        let started = Instant::now();
+        send_with(
+            Some("123"),
+            &slow,
+            false,
+            false,
+            None,
+            &mut Vec::new(),
+            &record,
+        )
+        .unwrap();
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(
+            ran.borrow().as_slice(),
+            [v(&["xdotool", "windowactivate", "--sync", "123"])]
+        );
+        // A program that can't start is an error naming it; an empty one is refused before anything runs.
+        let missing = macro_entry("", &["/nonexistent-kbf/macro"]);
+        let err =
+            send_with(None, &missing, false, false, None, &mut Vec::new(), &record).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("running /nonexistent-kbf/macro"),
+            "{err:#}"
+        );
+        let err = send_with(
+            None,
+            &macro_entry("", &[" "]),
+            false,
+            false,
+            None,
+            &mut Vec::new(),
+            &never_run,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("no program to run"), "{err}");
     }
 
     #[test]

@@ -60,7 +60,7 @@ pub fn counts(log: &str) -> Counts {
 pub fn rank(entries: &mut [Entry], counts: &Counts) {
     let count = |e: &Entry| {
         counts
-            .get(&(e.provider.clone(), e.bind.key.clone()))
+            .get(&(e.provider.clone(), key(e)))
             .copied()
             .unwrap_or(0)
     };
@@ -128,10 +128,20 @@ pub fn record(e: &Entry) -> anyhow::Result<()> {
 
 fn line(e: &Entry, secs: u64) -> Option<String> {
     let bad = |s: &str| s.is_empty() || s.contains(['\t', '\n', '\r']);
-    if bad(&e.provider) || bad(&e.bind.key) {
+    let key = key(e);
+    if bad(&e.provider) || bad(&key) {
         return None;
     }
-    Some(format!("{secs}\t{}\t{}\n", e.provider, e.bind.key))
+    Some(format!("{secs}\t{}\t{}\n", e.provider, key))
+}
+
+/// What a pick is logged and ranked by: its key, or for a `run` entry (no key of its own) its argv.
+fn key(e: &Entry) -> String {
+    if e.bind.run.is_empty() {
+        e.bind.key.clone()
+    } else {
+        e.bind.run.join(" ")
+    }
 }
 
 #[cfg(test)]
@@ -148,6 +158,7 @@ mod tests {
                 desc: "secret description".into(),
                 action: String::new(),
                 when: Default::default(),
+                run: Vec::new(),
             },
         }
     }

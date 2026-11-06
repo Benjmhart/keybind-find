@@ -66,6 +66,7 @@ fn parse(text: &str) -> (Sheet, Vec<String>) {
                     desc: describe(key),
                     action: key.clone(),
                     when: Default::default(),
+                    run: Vec::new(),
                 });
         }
     }

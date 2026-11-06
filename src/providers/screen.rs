@@ -418,6 +418,7 @@ impl Keytab {
                     desc: desc.clone().unwrap_or_else(|| command.clone()),
                     action: command.split(' ').next().unwrap_or_default().into(),
                     when: Default::default(),
+                    run: Vec::new(),
                 });
             }
         };

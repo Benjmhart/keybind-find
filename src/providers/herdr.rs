@@ -367,6 +367,7 @@ fn parse_reporting(
                     desc: e.desc.clone(),
                     action: e.action.clone(),
                     when: Default::default(),
+                    run: Vec::new(),
                 });
             }
         }

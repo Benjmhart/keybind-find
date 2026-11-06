@@ -351,6 +351,7 @@ fn sheet_of(
                 .chain(extra.iter().cloned())
                 .map(|(k, v)| (k, v.into()))
                 .collect(),
+                run: Vec::new(),
             });
         }
     }

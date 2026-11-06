@@ -13,7 +13,7 @@ fn parse(text: &str) -> anyhow::Result<Sheet> {
     let binds = text
         .lines()
         .filter_map(|l| l.split_once(' '))
-        .map(|(key, desc)| Bind { key: key.into(), desc: desc.into(), action: String::new(), when: Default::default() })
+        .map(|(key, desc)| Bind { key: key.into(), desc: desc.into(), action: String::new(), when: Default::default(), run: Vec::new() })
         .collect();
     Ok(Sheet {
         title: "My app".into(),
