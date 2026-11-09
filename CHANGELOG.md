@@ -5,6 +5,10 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+### Documentation
+
+- `docs/picker.md`: how to size and theme the picker window (fuzzel's `fuzzel.ini` or flags, fzf's terminal, the others' flags), and wofi, bemenu, tofi and plain rofi as dmenu-style `[picker]` examples ([#41](https://github.com/Benjmhart/keybind-find/issues/41)).
+
 ## [1.1.0] - 2026-11-06
 
 ### Added
