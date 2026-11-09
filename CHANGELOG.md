@@ -5,6 +5,8 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-09
+
 ### Documentation
 
 - `docs/picker.md`: how to size and theme the picker window (fuzzel's `fuzzel.ini` or flags, fzf's terminal, the others' flags), and wofi, bemenu, tofi and plain rofi as dmenu-style `[picker]` examples ([#41](https://github.com/Benjmhart/keybind-find/issues/41)).
@@ -101,7 +103,8 @@ Everything below is new.
 
 - `config.toml` rebinds keybind-find's own picker keys (run, text search, undo, key search, scope); its own keys are listed too.
 
-[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.1.0...staging
+[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.1.1...staging
+[1.1.1]: https://github.com/Benjmhart/keybind-find/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Benjmhart/keybind-find/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Benjmhart/keybind-find/compare/v0.1.0-alpha.1...v1.0.0
 [0.1.0-alpha.1]: https://github.com/Benjmhart/keybind-find/releases/tag/v0.1.0-alpha.1
