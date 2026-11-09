@@ -1,6 +1,6 @@
 [package]
 name = "keybind-find"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2021"
 description = "Search the keybindings for the focused window and run the one you pick"
 license = "MIT"
