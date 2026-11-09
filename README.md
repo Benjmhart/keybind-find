@@ -649,7 +649,7 @@ to filter by text. On Wayland the list opens in fuzzel (on GNOME, in fzf with ke
 bindings you pick most come first.
 
 - [docs/picker.md](docs/picker.md): the picker, key search, and other pickers (`[picker]` in the config: rofi,
-  kitty instead of alacritty, dmenu, fuzzel, or a JSON frontend of your own)
+  kitty instead of alacritty, dmenu, wofi, fuzzel, or a JSON frontend of your own) and sizing the window
 - [docs/config.md](docs/config.md): moving keybind-find's own keys in `config.toml`
 - [docs/sheets.md](docs/sheets.md): your own sheets, web apps, the built-in sheets and the sheet format
 - [docs/vimium.md](docs/vimium.md): Vimium's keys and your remaps

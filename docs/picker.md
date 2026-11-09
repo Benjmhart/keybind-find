@@ -141,4 +141,28 @@ command = ["keybind-find-rofi"]
 The dmenu-style pickers get the same columns, padded with spaces (`<key>  <description>  [<program>]`), so they line
 up in a monospace font. Keys wider than 28 characters and descriptions wider than 60 overflow their own line only.
 
+Any program that reads lines on stdin and prints the chosen one works. In `~/.config/keybind-find/config.toml`:
+
+```toml
+[picker]
+kind = "dmenu"
+command = ["wofi", "--dmenu", "--insensitive"]           # wofi
+# command = ["rofi", "-dmenu", "-i"]                     # rofi, plain (the JSON frontend above adds columns)
+# command = ["bemenu", "-i", "-l", "25"]                 # bemenu
+# command = ["tofi"]                                     # tofi
+# command = ["fuzzel", "--dmenu", "--width", "120"]      # fuzzel, wider than the default
+```
+
 `KEYBIND_FIND_PICKER="head -1" keybind-find --print` runs the whole flow with no UI at all.
+
+## Window size and look
+
+keybind-find doesn't size the picker; each picker's own settings do.
+
+- **fuzzel** (the Wayland default): `~/.config/fuzzel/fuzzel.ini`, under `[main]`: `width=` (in characters) and
+  `lines=`, plus fonts and `[colors]`. That changes every fuzzel menu; to widen only keybind-find's, put the flags in
+  `[picker] command` instead: `["fuzzel", "--dmenu", "--width", "120", "--lines", "25"]`.
+- **fzf** (the X11 default): the terminal's size, from `[picker] terminal` (`window.dimensions.columns` and `lines`
+  for alacritty, above); a floating rule in your window manager can override it.
+- **wofi, rofi, dmenu and the others:** their own config file, or flags in `[picker] command`
+  (`"--width", "60%"` for wofi, `"-l", "40"` for dmenu's lines).
