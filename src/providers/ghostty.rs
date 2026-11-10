@@ -556,7 +556,7 @@ mod tests {
 
     #[test]
     fn default_keys_when_there_is_no_config_file() {
-        let dir = std::env::temp_dir().join(format!("kbf-ghostty-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-ghostty-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("ghostty")).unwrap();
         let config = dir.to_string_lossy().into_owned();
@@ -670,7 +670,7 @@ mod tests {
             eprintln!("skipping: ghostty is not installed");
             return;
         }
-        let dir = std::env::temp_dir().join(format!("kbf-ghostty-real-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-ghostty-real-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("config")).unwrap();
         let home = dir.to_string_lossy().into_owned();

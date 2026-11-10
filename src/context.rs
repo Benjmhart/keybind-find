@@ -2149,7 +2149,7 @@ mod tests {
 
     #[test]
     fn screen_window_program_from_proc() {
-        let dir = std::env::temp_dir().join(format!("kbf-screen-proc-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-screen-proc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let write = |path: &str, text: &[u8]| {
             let path = dir.join(path);
@@ -2979,7 +2979,7 @@ mod tests {
     #[test]
     fn user_comms_reads_a_proc_tree() {
         use std::os::unix::fs::MetadataExt;
-        let dir = std::env::temp_dir().join(format!("kbf-sessions-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-sessions-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         for (entry, comm) in [
             ("12", Some("xmonad-x86_64-l")),
@@ -3442,7 +3442,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
     /// test finds an Emacs, so the first-found pid is this one).
     #[test]
     fn editor_pid_from_the_foreground_leader() {
-        let proc = std::env::temp_dir().join(format!("kbf-editor-proc-{}", std::process::id()));
+        let proc = crate::test_tmp().join(format!("kbf-editor-proc-{}", std::process::id()));
         let (child, leader) = (4_000_001u32, 4_000_002u32);
         for (pid, comm, tpgid) in [(child, "zsh", leader), (leader, "emacs", leader)] {
             let dir = proc.join(pid.to_string());
@@ -3522,7 +3522,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         // A stand-in `/proc`: one gnome-terminal-server whose thread has two shells. `foreground` reports several
         // children with no hint (kitty's arm would add one), and `settle` warns and keeps gnome-terminal's own keys.
         let proc =
-            std::env::temp_dir().join(format!("kbf-gnome-terminal-proc-{}", std::process::id()));
+            crate::test_tmp().join(format!("kbf-gnome-terminal-proc-{}", std::process::id()));
         std::fs::create_dir_all(proc.join("100/task/100")).unwrap();
         std::fs::write(proc.join("100/task/100/children"), b"101 102 ").unwrap();
         for child in ["101", "102"] {
@@ -3650,7 +3650,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
 
     #[test]
     fn kitty_is_asked_which_child_has_focus() {
-        let tmp = std::env::temp_dir().join(format!("kbf-kitty-focus-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-kitty-focus-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         // A /proc of a kitty (100) with children 1001 (remote control by fd only), 2003 (by socket) and 2002.
         let proc = tmp.join("proc");
@@ -3770,7 +3770,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
     /// with a tty count when there are any (a stand-in `/proc`).
     #[test]
     fn a_toolkit_helper_beside_the_shell_is_not_a_window() {
-        let tmp = std::env::temp_dir().join(format!("kbf-helper-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-helper-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let proc = tmp.join("proc");
         let task = proc.join("300/task/300");
@@ -3807,7 +3807,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
     /// requires): a terminal (200) whose children each serve a window.
     #[test]
     fn the_child_of_the_focused_x_window_by_windowid() {
-        let tmp = std::env::temp_dir().join(format!("kbf-windowid-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-windowid-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let proc = tmp.join("proc");
         let task = proc.join("200/task/200");
@@ -3924,7 +3924,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             .unwrap();
         let mut pids = line.split_whitespace().map(|p| p.parse::<u32>().unwrap());
         let (sh, tab) = (pids.next().unwrap(), pids.next().unwrap());
-        let tmp = std::env::temp_dir().join(format!("kbf-kitty-standin-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-kitty-standin-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let ls = format!(
             r#"[{{"id": 1, "platform_window_id": null, "is_focused": true, "tabs": [{{"id": 1, "is_active": true, "windows": [{{"id": 1, "is_active": true, "pid": {tab}}}]}}]}}]"#
@@ -4111,7 +4111,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
     fn sleep_links() -> (std::path::PathBuf, String) {
         static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let bin = std::env::temp_dir().join(format!("kbf-less-{}-{n}", std::process::id()));
+        let bin = crate::test_tmp().join(format!("kbf-less-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
         let sleep = bin.join("sleep");
         // `cp` in a child, not `fs::copy`: a write fd open here could leak into another test's fork (ETXTBSY).

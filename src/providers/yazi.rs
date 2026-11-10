@@ -716,7 +716,7 @@ mod tests {
 
     #[test]
     fn config_dir() {
-        let tmp = std::env::temp_dir().join(format!("kbf-yazi-dir-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-yazi-dir-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         for d in ["yazi-home", "xdg/yazi", "home/.config/yazi"] {
             std::fs::create_dir_all(tmp.join(d)).unwrap();
@@ -756,7 +756,7 @@ mod tests {
 
     /// A stand-in `yazi` printing `out`, in its own directory; returns the directory.
     fn fake_yazi(name: &str, out: &str) -> PathBuf {
-        let bin = std::env::temp_dir().join(format!("kbf-yazi-{name}-{}", std::process::id()));
+        let bin = crate::test_tmp().join(format!("kbf-yazi-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
         // Written by `sh`, not by this process: a write handle another test thread's fork inherited would make
         // running the script fail with ETXTBSY (as `plugins.rs`'s `write_script` says).
@@ -833,7 +833,7 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&bin);
         // No yazi: an error.
-        let empty = std::env::temp_dir().join(format!("kbf-yazi-none-{}", std::process::id()));
+        let empty = crate::test_tmp().join(format!("kbf-yazi-none-{}", std::process::id()));
         let err = sheet_with(REGISTRY, path(&empty), &none).unwrap_err();
         assert!(
             format!("{err:#}").contains("running yazi --version"),

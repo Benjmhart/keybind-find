@@ -977,8 +977,7 @@ Action = "paste"
 
     #[test]
     fn sheet_from_reads_the_first_config_or_none() {
-        let dir =
-            std::env::temp_dir().join(format!("keybind-find-alacritty-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("keybind-find-alacritty-{}", std::process::id()));
         let xdg = dir.join("xdg");
         std::fs::create_dir_all(xdg.join("alacritty")).unwrap();
         std::fs::create_dir_all(dir.join("home/.config/alacritty")).unwrap();
@@ -1050,7 +1049,7 @@ action = "ExpandSelection"
     #[test]
     fn unreadable_config_and_old_yml() {
         let dir =
-            std::env::temp_dir().join(format!("keybind-find-alacritty-odd-{}", std::process::id()));
+            crate::test_tmp().join(format!("keybind-find-alacritty-odd-{}", std::process::id()));
         let conf = dir.join("alacritty");
         std::fs::create_dir_all(&conf).unwrap();
         let env = |n: &str| match n {

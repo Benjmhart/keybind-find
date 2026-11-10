@@ -103,7 +103,7 @@ mod tests {
     /// A fake `gsettings` running `body`, in its own temp dir.
     fn fake(name: &str, body: &str) -> PathBuf {
         let bin =
-            std::env::temp_dir().join(format!("kbf-gnome-terminal-{name}-{}", std::process::id()));
+            crate::test_tmp().join(format!("kbf-gnome-terminal-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
         // Written by `sh`, not by this process (ETXTBSY: see `xfce.rs`'s `fake`).
         let ok = Command::new("sh")
@@ -198,7 +198,7 @@ mod tests {
             "{e}"
         );
         let empty =
-            std::env::temp_dir().join(format!("kbf-gnome-terminal-none-{}", std::process::id()));
+            crate::test_tmp().join(format!("kbf-gnome-terminal-none-{}", std::process::id()));
         std::fs::create_dir_all(&empty).unwrap();
         let e = read(path(&empty)).unwrap_err();
         let _ = std::fs::remove_dir_all(&empty);
@@ -230,8 +230,7 @@ mod tests {
             eprintln!("skipping: gsettings or glib-compile-schemas is not installed");
             return;
         }
-        let tmp =
-            std::env::temp_dir().join(format!("kbf-gnome-terminal-real-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-gnome-terminal-real-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let schemas = tmp.join("schemas");
         std::fs::create_dir_all(&schemas).unwrap();

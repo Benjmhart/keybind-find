@@ -760,7 +760,7 @@ mod tests {
                 let _ = self.0.wait();
             }
         }
-        let dir = std::env::temp_dir().join(format!("kbf-nvim-live-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-nvim-live-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let sock = dir.join("nvim.sock");
@@ -875,7 +875,7 @@ mod tests {
 
     /// Runs the provider's nvim command with `init_lua` as the config.
     fn with_init(name: &str, init_lua: &str) -> anyhow::Result<String> {
-        let dir = std::env::temp_dir().join(format!("kbf-nvim-{}-{name}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-nvim-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("init.lua");
         std::fs::write(&path, init_lua).unwrap();

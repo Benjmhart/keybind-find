@@ -874,7 +874,7 @@ mod tests {
 
     #[test]
     fn defescape_and_line_syntax() {
-        let dir = std::env::temp_dir().join(format!("kbf-screen-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-screen-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let rc = dir.join("rc");
         std::fs::write(
@@ -909,7 +909,7 @@ mod tests {
     fn with_rc(rc: &str) -> (Sheet, Vec<String>) {
         static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("kbf-screen-rc-{}-{n}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-screen-rc-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("rc"), rc).unwrap();
         let vars = [("SCREENRC", dir.join("rc").to_string_lossy().into_owned())];

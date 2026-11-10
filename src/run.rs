@@ -858,7 +858,7 @@ mod tests {
         );
         assert!(e.contains("bad window") && e.contains("sh -c"), "{e}");
         // Stops at the first failure.
-        let marker = std::env::temp_dir().join(format!("kbf-run-{}-stop", std::process::id()));
+        let marker = crate::test_tmp().join(format!("kbf-run-{}-stop", std::process::id()));
         let _ = std::fs::remove_file(&marker);
         let touch = v(&["touch", marker.to_str().unwrap()]);
         assert!(run_all(&[v(&["false"]), touch]).is_err());

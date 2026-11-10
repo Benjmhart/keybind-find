@@ -896,7 +896,7 @@ mod tests {
 
     #[test]
     fn left_out_keys_are_one_note() {
-        let dir = std::env::temp_dir().join(format!("kbf-kde-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-kde-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("kglobalshortcutsrc"),

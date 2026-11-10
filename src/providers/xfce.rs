@@ -304,7 +304,7 @@ mod tests {
 
     /// A stand-in `xfconf-query` running `body`, in its own directory; returns the directory.
     fn fake(name: &str, body: &str) -> PathBuf {
-        let bin = std::env::temp_dir().join(format!("kbf-xfce-{name}-{}", std::process::id()));
+        let bin = crate::test_tmp().join(format!("kbf-xfce-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
         // Written by `sh`, not by this process: a write handle another test thread's fork inherited would make
         // running the script fail with ETXTBSY (as `plugins.rs`'s `write_script` says).
@@ -353,7 +353,7 @@ mod tests {
         assert!(start.elapsed() < Duration::from_secs(3));
         let _ = std::fs::remove_dir_all(&bin);
         // Not installed.
-        let none = std::env::temp_dir().join(format!("kbf-xfce-none-{}", std::process::id()));
+        let none = crate::test_tmp().join(format!("kbf-xfce-none-{}", std::process::id()));
         assert!(read(TIMEOUT, path(&none)).is_err());
         // A listing is read through the seam.
         let bin = fake(
@@ -391,7 +391,7 @@ mod tests {
             eprintln!("skipping: xfconf-query or dbus-run-session is not installed");
             return;
         }
-        let tmp = std::env::temp_dir().join(format!("kbf-xfce-real-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-xfce-real-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let list = |under: &str| {
             let channels = tmp.join(under).join("xfce4/xfconf/xfce-perchannel-xml");

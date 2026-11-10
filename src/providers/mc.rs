@@ -711,8 +711,7 @@ mod tests {
         assert_eq!(keys(&s, "filemanager", "Copy"), ["F9"]);
         assert_eq!(keys(&s, "filemanager", "Help"), ["F12"]);
         // Bytes that aren't UTF-8 in a comment don't stop a file.
-        let latin1 =
-            std::env::temp_dir().join(format!("kbf-mc-latin1-{}.keymap", std::process::id()));
+        let latin1 = crate::test_tmp().join(format!("kbf-mc-latin1-{}.keymap", std::process::id()));
         std::fs::write(&latin1, b"# caf\xe9\n[filemanager]\nCopy = f9\n").unwrap();
         let named = latin1.display().to_string();
         let (s, notes) =
@@ -721,7 +720,7 @@ mod tests {
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(keys(&s, "filemanager", "Copy"), ["F9"]);
         // An unreadable one (a directory named `.keymap`): a note.
-        let dir = std::env::temp_dir().join(format!("kbf-mc-dir-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-mc-dir-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("d.keymap")).unwrap();
         let named = dir.join("d.keymap").display().to_string();
         let (_, notes) =

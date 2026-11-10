@@ -904,7 +904,7 @@ mod tests {
 
     #[test]
     fn lesskey_file_choice() {
-        let tmp = std::env::temp_dir().join(format!("kbf-lesskey-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-lesskey-{}", std::process::id()));
         let home = tmp.join("home");
         let xdg = tmp.join("xdg");
         std::fs::create_dir_all(home.join(".config")).unwrap();
@@ -981,7 +981,7 @@ mod tests {
     /// A stand-in `less` on PATH printing `version` for `--version` and the 710 fixture for `--help`; given the
     /// argument `slow`, it sleeps 5 s first. Returns its directory.
     fn fake_less(name: &str, version: &str, slow: &str) -> PathBuf {
-        let bin = std::env::temp_dir().join(format!("kbf-less-{name}-{}", std::process::id()));
+        let bin = crate::test_tmp().join(format!("kbf-less-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
         let script = format!(
             "#!/bin/sh\n[ \"$1\" = '{slow}' ] && sleep 5\ncase \"$1\" in --version) echo 'less {version} (POSIX regular expressions)' ;; \
@@ -1053,7 +1053,7 @@ mod tests {
             "a directory isn't a file less reads: {notes:?}"
         );
         // A non-UTF-8 byte (a Latin-1 comment) loses nothing else.
-        let tmp = std::env::temp_dir().join(format!("kbf-lesskey-bytes-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-lesskey-bytes-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(tmp.join("latin1"), b"# caf\xe9\nj back-line\n").unwrap();
         let bin = fake_less("bytes", "668", "");
@@ -1099,7 +1099,7 @@ mod tests {
 
     #[test]
     fn a_help_with_no_keys_is_an_error() {
-        let bin = std::env::temp_dir().join(format!("kbf-less-empty-{}", std::process::id()));
+        let bin = crate::test_tmp().join(format!("kbf-less-empty-{}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
         // `--help` prints nothing. Written by `sh`, as in `fake_less`.
         let script = "case \"$1\" in --version) echo 'less 668' ;; esac";

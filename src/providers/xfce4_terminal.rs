@@ -430,7 +430,7 @@ mod tests {
 
     /// A fake `xfce4-terminal` printing `version` for `--version`, in its own directory.
     fn fake(name: &str, version: &str) -> PathBuf {
-        let bin = std::env::temp_dir().join(format!(
+        let bin = crate::test_tmp().join(format!(
             "kbf-xfce4-terminal-bin-{name}-{}",
             std::process::id()
         ));
@@ -453,7 +453,7 @@ mod tests {
     #[test]
     fn the_whole_read() {
         let home =
-            std::env::temp_dir().join(format!("kbf-xfce4-terminal-home-{}", std::process::id()));
+            crate::test_tmp().join(format!("kbf-xfce4-terminal-home-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(home.join(".config/xfce4/terminal")).unwrap();
         std::fs::copy(
@@ -496,7 +496,7 @@ mod tests {
 
     #[test]
     fn the_config_file() {
-        let dir = std::env::temp_dir().join(format!("kbf-xfce4-terminal-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-xfce4-terminal-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let (home, xdg, sys1, sys2) = (
             dir.join("home"),

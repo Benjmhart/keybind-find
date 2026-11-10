@@ -515,7 +515,7 @@ mod tests {
 
     #[test]
     fn config_directory() {
-        let base = std::env::temp_dir().join(format!("kbf-mpv-config-{}", std::process::id()));
+        let base = crate::test_tmp().join(format!("kbf-mpv-config-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let (home, xdg) = (base.join("home"), base.join("xdg"));
         let flatpak = home.join(FLATPAK_DIR);
@@ -554,7 +554,7 @@ mod tests {
 
     #[test]
     fn no_mpv_on_path() {
-        let tmp = std::env::temp_dir();
+        let tmp = crate::test_tmp();
         let err = read(
             TIMEOUT,
             |_| {},
@@ -571,7 +571,7 @@ mod tests {
     /// directory.
     fn fake_mpv(name: &str, body: &str) -> PathBuf {
         use std::io::Write;
-        let bin = std::env::temp_dir().join(format!("kbf-mpv-{name}-{}", std::process::id()));
+        let bin = crate::test_tmp().join(format!("kbf-mpv-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&bin);
         std::fs::create_dir_all(bin.join("tmp")).unwrap();
         let script = format!(
@@ -684,7 +684,7 @@ mod tests {
         if !has_mpv() {
             return None;
         }
-        let tmp = std::env::temp_dir();
+        let tmp = crate::test_tmp();
         // Only PATH: no HOME, so no Flatpak `--config-dir` of the host's beside the test's.
         Some(read(
             timeout,
@@ -754,7 +754,7 @@ mod tests {
         if !has_mpv() {
             return;
         }
-        let base = std::env::temp_dir().join(format!("kbf-mpv-churn-{}", std::process::id()));
+        let base = crate::test_tmp().join(format!("kbf-mpv-churn-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(base.join("scripts")).unwrap();
         std::fs::write(
@@ -778,7 +778,7 @@ mod tests {
         if !has_mpv() {
             return;
         }
-        let base = std::env::temp_dir().join(format!("kbf-mpv-scripts-{}", std::process::id()));
+        let base = crate::test_tmp().join(format!("kbf-mpv-scripts-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         for (name, lua) in [
             ("hang", "while true do end"),
