@@ -920,7 +920,7 @@ command = ""
             Some("/h/.config/herdr".into())
         );
         assert_eq!(dir(None, None), None);
-        let tmp = std::env::temp_dir().join(format!("kbf-herdr-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-herdr-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         assert_eq!(read_or_empty(tmp.join("missing")).unwrap(), "");
         assert!(read_or_empty(tmp.clone()).is_err());

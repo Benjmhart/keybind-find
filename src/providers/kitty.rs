@@ -987,7 +987,7 @@ mod tests {
 
     #[test]
     fn config_paths() {
-        let tmp = std::env::temp_dir().join(format!("kbf-kitty-paths-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-kitty-paths-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         for d in ["home/.config/kitty", "xdg/kitty", "dirs/kitty", "kcd"] {
             std::fs::create_dir_all(tmp.join(d)).unwrap();
@@ -1074,7 +1074,7 @@ mod tests {
     fn system_file_underneath() {
         const ENVINCLUDE_NOTE: &str =
             "envinclude and geninclude lines aren't followed (geninclude runs a program)";
-        let tmp = std::env::temp_dir().join(format!("kbf-kitty-system-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-kitty-system-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         for d in ["etc/kitty", "home/.config/kitty", "link/.config/kitty"] {
             std::fs::create_dir_all(tmp.join(d)).unwrap();
@@ -1223,7 +1223,7 @@ mod tests {
 
     #[test]
     fn program_lookup() {
-        let tmp = std::env::temp_dir().join(format!("kbf-kitty-program-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-kitty-program-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let bin = tmp.join(".local/kitty.app/bin");
         std::fs::create_dir_all(&bin).unwrap();
@@ -1330,7 +1330,7 @@ mod tests {
 
     #[test]
     fn include_depth_and_expansion() {
-        let tmp = std::env::temp_dir().join(format!("kbf-kitty-depth-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-kitty-depth-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(tmp.join("sub")).unwrap();
         // 0.conf includes sub/1.conf, which includes 2.conf from its own directory, and so on.

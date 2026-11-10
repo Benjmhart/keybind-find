@@ -639,7 +639,7 @@ mod tests {
         }
         assert!(paths(&env(&[])).is_empty());
         // A file that isn't UTF-8 is read (lossily), as ncmpcpp reads bytes.
-        let latin = std::env::temp_dir().join(format!("kbf-ncmpcpp-latin-{}", std::process::id()));
+        let latin = crate::test_tmp().join(format!("kbf-ncmpcpp-latin-{}", std::process::id()));
         std::fs::create_dir_all(latin.join(".ncmpcpp")).unwrap();
         std::fs::write(
             latin.join(".ncmpcpp/bindings"),
@@ -651,7 +651,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&latin);
         assert_eq!(get(&s, "p"), Some("play"));
         // Missing and unreadable files: skipped silently.
-        let dir = std::env::temp_dir().join(format!("kbf-ncmpcpp-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-ncmpcpp-{}", std::process::id()));
         std::fs::create_dir_all(dir.join(".ncmpcpp/bindings")).unwrap();
         let home = dir.display().to_string();
         let (s, notes) = read(&|k: &str| (k == "HOME").then(|| home.clone())).unwrap();

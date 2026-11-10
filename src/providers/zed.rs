@@ -771,7 +771,7 @@ mod tests {
 
     /// Temp dirs for `env`: a fresh HOME.
     fn home(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("kbf-zed-{name}-{}", std::process::id()));
+        let d = crate::test_tmp().join(format!("kbf-zed-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d

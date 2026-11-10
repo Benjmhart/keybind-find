@@ -1074,7 +1074,7 @@ mod tests {
     }
 
     fn fake(name: &str, version: &str) -> PathBuf {
-        let bin = std::env::temp_dir().join(format!(
+        let bin = crate::test_tmp().join(format!(
             "kbf-helix-bin-{name}-{}-{}",
             version.len(),
             std::process::id()
@@ -1098,7 +1098,7 @@ mod tests {
 
     #[test]
     fn the_config_file_and_its_notes() {
-        let dir = std::env::temp_dir().join(format!("kbf-helix-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-helix-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let (home, xdg) = (dir.join("home"), dir.join("xdg"));
         let flatpak = home.join(FLATPAK_CONFIG);

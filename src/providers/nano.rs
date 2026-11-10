@@ -745,7 +745,7 @@ mod tests {
 
     #[test]
     fn xdg_nanorc_and_no_nanorc() {
-        let empty = std::env::temp_dir().join(format!("kbf-nano-empty-{}", std::process::id()));
+        let empty = crate::test_tmp().join(format!("kbf-nano-empty-{}", std::process::id()));
         std::fs::create_dir_all(&empty).unwrap();
         // No ~/.nanorc: the XDG one.
         let (s, _) = run("9.2", &empty, Some(&fixtures().join("xdg")));
@@ -764,7 +764,7 @@ mod tests {
     #[test]
     fn unreadable_files() {
         use std::os::unix::fs::PermissionsExt;
-        let home = std::env::temp_dir().join(format!("kbf-nano-unreadable-{}", std::process::id()));
+        let home = crate::test_tmp().join(format!("kbf-nano-unreadable-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
         let rc = home.join(".nanorc");

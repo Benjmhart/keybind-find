@@ -696,7 +696,7 @@ mod tests {
 
     #[test]
     fn files_in_zathuras_order() {
-        let tmp = std::env::temp_dir().join(format!("kbf-zathura-order-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-zathura-order-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         for (dir, line) in [
             ("a", "map <F4> quit\nmap <F5> quit"),
@@ -861,7 +861,7 @@ mod tests {
 
     /// A stand-in `zathura` printing `out`, in its own directory; returns the directory.
     fn fake_zathura(name: &str, out: &str) -> PathBuf {
-        let bin = std::env::temp_dir().join(format!("kbf-zathura-{name}-{}", std::process::id()));
+        let bin = crate::test_tmp().join(format!("kbf-zathura-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
         // Written by `sh`, not by this process: a write handle another test thread's fork inherited would make
         // running the script fail with ETXTBSY (as `plugins.rs`'s `write_script` says).
@@ -932,7 +932,7 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&bin);
         // No zathura: an error.
-        let empty = std::env::temp_dir().join(format!("kbf-zathura-none-{}", std::process::id()));
+        let empty = crate::test_tmp().join(format!("kbf-zathura-none-{}", std::process::id()));
         let err = sheet_with(REGISTRY, path(&empty), &none, false, Path::new("/x")).unwrap_err();
         assert!(
             format!("{err:#}").contains("running zathura --version"),

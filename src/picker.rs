@@ -1546,7 +1546,7 @@ mod tests {
 
     #[test]
     fn a_json_frontend_round_trip() {
-        let dir = std::env::temp_dir().join(format!("kbf-picker-json-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-picker-json-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let front = dir.join("front");

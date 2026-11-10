@@ -1386,7 +1386,7 @@ mod tests {
     /// A stand-in shell on PATH that prints `fixture` (after a sentinel, fake binds and a second sentinel: only the *last*
     /// one counts), so `read`'s whole path runs for every shell, fish included, wherever the tests run.
     fn fake(shell: &str, fixture: &str) -> anyhow::Result<Sheet> {
-        let bin = std::env::temp_dir().join(format!("kbf-shells-{shell}-{}", std::process::id()));
+        let bin = crate::test_tmp().join(format!("kbf-shells-{shell}-{}", std::process::id()));
         std::fs::create_dir_all(&bin)?;
         let path = bin.join(shell);
         // Written by `sh`, not by this process: a write handle another test thread's fork inherited would make

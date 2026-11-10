@@ -812,7 +812,7 @@ mod tests {
 
     /// A config dir under the temp dir, with `files` written into `<dir>/sway/`.
     fn config_home(name: &str, files: &[(&str, &str)]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("kbf-sway-{name}-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-sway-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sway")).unwrap();
         for (f, text) in files {

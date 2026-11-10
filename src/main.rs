@@ -218,6 +218,52 @@ fn print_out(s: &str) -> anyhow::Result<()> {
     }
 }
 
+/// The directory tests use in place of `std::env::temp_dir()`: `kbf-test-<pid>` in it, one per test process.
+/// It is removed when the test binary exits, even after failed tests, and the next run removes what a killed
+/// run left behind. Removal unlocks directories first, because some tests leave entries mode 0o000.
+#[cfg(test)]
+fn test_tmp() -> std::path::PathBuf {
+    static ROOT: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    unsafe extern "C" {
+        fn atexit(f: extern "C" fn()) -> i32;
+    }
+    extern "C" fn clean() {
+        if let Some(root) = ROOT.get() {
+            remove_unlocked(root);
+        }
+    }
+    fn remove_unlocked(p: &std::path::Path) {
+        fn unlock(p: &std::path::Path) {
+            use std::os::unix::fs::PermissionsExt;
+            // `symlink_metadata`: a link to a file elsewhere is never chmodded.
+            if p.symlink_metadata().is_ok_and(|m| m.is_dir()) {
+                let _ = std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o700));
+                for e in std::fs::read_dir(p).into_iter().flatten().flatten() {
+                    unlock(&e.path());
+                }
+            }
+        }
+        unlock(p);
+        let _ = std::fs::remove_dir_all(p);
+    }
+    ROOT.get_or_init(|| {
+        let tmp = std::env::temp_dir();
+        for e in std::fs::read_dir(&tmp).into_iter().flatten().flatten() {
+            let name = e.file_name();
+            let pid = name.to_str().and_then(|n| n.strip_prefix("kbf-test-"));
+            if pid.is_some_and(|pid| !std::path::Path::new("/proc").join(pid).exists()) {
+                remove_unlocked(&e.path());
+            }
+        }
+        let root = tmp.join(format!("kbf-test-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        // SAFETY: libc's `atexit` with a plain `extern "C"` function; `clean` reads only `ROOT`, set by the time it runs.
+        unsafe { atexit(clean) };
+        root
+    })
+    .clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,7 +345,7 @@ mod tests {
         let e = check_plugin(&[&fixture("bad-key.sh"), "--json"]).unwrap_err();
         assert!(e.to_string().contains("has problems"), "{e}");
         // A good plugin: a manifest, a match and a valid sheet.
-        let good = std::env::temp_dir().join(format!("kbf-main-good-{}.sh", std::process::id()));
+        let good = crate::test_tmp().join(format!("kbf-main-good-{}.sh", std::process::id()));
         let script = "#!/bin/sh\nif [ \"$1\" = --manifest ]; then echo '{\"version\": 1, \"name\": \"good\", \"match\": {\"class\": [\"Gimp\"]}}'; exit 0; fi\n\
              cat >/dev/null\necho '{\"version\": 1, \"title\": \"t\", \"provider\": \"p\", \"binds\": {\"A\": [{\"key\": \"ctrl+k\", \"desc\": \"d\"}]}}'\n";
         // Written by `sh`, not this process (see `plugins::tests::write_script`: ETXTBSY).

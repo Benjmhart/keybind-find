@@ -728,7 +728,7 @@ mod tests {
 
     #[test]
     fn files_and_order() {
-        let dir = std::env::temp_dir().join(format!("kbf-ranger-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-ranger-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let home = dir.join("home");
         std::fs::create_dir_all(home.join(".config/ranger")).unwrap();

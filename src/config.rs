@@ -875,7 +875,7 @@ program = "x"
 
     #[test]
     fn a_skipped_stanza_reaches_the_header_note_and_keeps_the_keys() {
-        let dir = std::env::temp_dir().join(format!("kbf-config-plugins-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-config-plugins-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
@@ -1051,7 +1051,7 @@ program = "x"
 
     #[test]
     fn a_refused_config_is_one_line_and_the_defaults() {
-        let dir = std::env::temp_dir().join(format!("kbf-config-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-config-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("config.toml");
         std::fs::write(&file, "[keys]\nrun = \"Escape\"\n").unwrap();
@@ -1223,7 +1223,7 @@ program = "x"
 
     #[test]
     fn a_refused_picker_keeps_the_keys_and_reaches_the_header_note() {
-        let dir = std::env::temp_dir().join(format!("kbf-config-picker-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-config-picker-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");

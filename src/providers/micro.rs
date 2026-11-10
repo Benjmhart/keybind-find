@@ -922,7 +922,7 @@ mod tests {
 
     #[test]
     fn config_dir() {
-        let tmp = std::env::temp_dir().join(format!("kbf-micro-dir-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-micro-dir-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         for d in ["mch", "xdg/micro", "home/.config/micro"] {
             std::fs::create_dir_all(tmp.join(d)).unwrap();
@@ -968,7 +968,7 @@ mod tests {
 
     /// A stand-in `micro` printing `out`, in its own directory; returns the directory.
     fn fake_micro(name: &str, out: &str) -> PathBuf {
-        let bin = std::env::temp_dir().join(format!("kbf-micro-{name}-{}", std::process::id()));
+        let bin = crate::test_tmp().join(format!("kbf-micro-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
         // Written by `sh`, not by this process: a write handle another test thread's fork inherited would make
         // running the script fail with ETXTBSY (as `plugins.rs`'s `write_script` says).
@@ -1049,7 +1049,7 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&bin);
         // No micro: an error.
-        let empty = std::env::temp_dir().join(format!("kbf-micro-none-{}", std::process::id()));
+        let empty = crate::test_tmp().join(format!("kbf-micro-none-{}", std::process::id()));
         let err = sheet_with(REGISTRY, path(&empty), &dir("nowhere")).unwrap_err();
         assert!(
             format!("{err:#}").contains("running micro -version"),

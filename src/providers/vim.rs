@@ -629,7 +629,7 @@ mod tests {
 
     #[test]
     fn vimrc_search_order() {
-        let base = std::env::temp_dir().join(format!("kbf-vimrc-{}", std::process::id()));
+        let base = crate::test_tmp().join(format!("kbf-vimrc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let (home, xdg) = (base.join("home"), base.join("xdg"));
         let (h, x) = (home.display().to_string(), xdg.display().to_string());
@@ -742,7 +742,7 @@ mod tests {
         );
         assert!(!err.contains('\n'), "one line: {err}");
         // Which program: vim, else vi (Debian's vim-tiny), else none.
-        let dir = std::env::temp_dir().join(format!("kbf-vim-which-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-vim-which-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = format!("/nonexistent-kbf::{}", dir.display());
@@ -760,7 +760,7 @@ mod tests {
     /// `LC_ALL=C.UTF-8`, `MISE_NOT_FOUND_AUTO_INSTALL=0` and closed stdin.
     fn fake_vim(name: &str, body: &str) -> PathBuf {
         use std::io::Write;
-        let bin = std::env::temp_dir().join(format!("kbf-vim-fake-{name}-{}", std::process::id()));
+        let bin = crate::test_tmp().join(format!("kbf-vim-fake-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&bin);
         std::fs::create_dir_all(&bin).unwrap();
         let script = format!(
@@ -875,7 +875,7 @@ mod tests {
             assert_eq!(s.provider, "nvim");
         }
         // No vim at all: one line naming both.
-        let none = std::env::temp_dir().join(format!("kbf-vim-none-{}", std::process::id()));
+        let none = crate::test_tmp().join(format!("kbf-vim-none-{}", std::process::id()));
         std::fs::create_dir_all(&none).unwrap();
         let err = format!("{:#}", run_sheet(&none, "").unwrap_err());
         assert_eq!(err, "neither vim nor vi is on PATH");
@@ -886,7 +886,7 @@ mod tests {
 
     /// A temp HOME holding `vimrc` (if any) as `~/.vimrc`.
     fn home(name: &str, vimrc: Option<&str>) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("kbf-vim-{name}-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-vim-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         if let Some(text) = vimrc {
@@ -1139,7 +1139,7 @@ mod tests {
 
     /// A stand-in `/proc` for a vim at pid 4242 whose `exe` is `bin`'s fake vim, run with `cmdline`.
     fn fake_proc(name: &str, bin: &Path, cmdline: &[&str]) -> PathBuf {
-        let proc = std::env::temp_dir().join(format!("kbf-vim-proc-{name}-{}", std::process::id()));
+        let proc = crate::test_tmp().join(format!("kbf-vim-proc-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&proc);
         let dir = proc.join("4242");
         std::fs::create_dir_all(&dir).unwrap();

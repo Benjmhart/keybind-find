@@ -1208,7 +1208,7 @@ mod tests {
 
     #[test]
     fn user_files_that_are_not_rules() {
-        let home = std::env::temp_dir().join(format!("kbf-vscode-bad-{}", std::process::id()));
+        let home = crate::test_tmp().join(format!("kbf-vscode-bad-{}", std::process::id()));
         let user = home.join(".config/Code/User");
         std::fs::create_dir_all(&user).unwrap();
         let env = env_at(&home, &[]);
@@ -1325,7 +1325,7 @@ mod tests {
         );
         assert!(variant(None, Some("Alacritty"), &none).is_none());
         // The first variant whose config directory exists.
-        let home = std::env::temp_dir().join(format!("kbf-vscode-dirs-{}", std::process::id()));
+        let home = crate::test_tmp().join(format!("kbf-vscode-dirs-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(home.join(".config/VSCodium/User")).unwrap();
         let env = env_at(&home, &[]);
@@ -1373,7 +1373,7 @@ mod tests {
 
     #[test]
     fn live_state_files() {
-        let tmp = std::env::temp_dir().join(format!("kbf-vscode-live-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-vscode-live-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let dir = tmp.join("keybind-find/vscode");
         std::fs::create_dir_all(&dir).unwrap();

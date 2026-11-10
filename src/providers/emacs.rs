@@ -663,7 +663,7 @@ mod tests {
 
     /// A temp dir of this test's own.
     fn temp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("kbf-emacs-{name}-{}", std::process::id()));
+        let d = crate::test_tmp().join(format!("kbf-emacs-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d

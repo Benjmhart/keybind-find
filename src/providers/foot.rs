@@ -694,7 +694,7 @@ mod tests {
 
     /// A foot.ini of `text`, parsed over the defaults.
     fn parse_text(name: &str, text: &str) -> (Sheet, Vec<String>) {
-        let dir = std::env::temp_dir().join(format!("kbf-foot-{name}-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-foot-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("foot.ini"), text).unwrap();
         let got = parse(&pinned(), Some(&dir.join("foot.ini")), None);
@@ -793,7 +793,7 @@ mod tests {
 
     #[test]
     fn includes_nest_up_to_a_depth() {
-        let tmp = std::env::temp_dir().join(format!("kbf-foot-deep-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-foot-deep-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         for i in 0..12 {
@@ -824,7 +824,7 @@ mod tests {
             "{notes:?}"
         );
         // A relative include, a missing one and `~/` without HOME: notes.
-        let dir = std::env::temp_dir().join(format!("kbf-foot-inc-{}", std::process::id()));
+        let dir = crate::test_tmp().join(format!("kbf-foot-inc-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("foot.ini"),
@@ -898,7 +898,7 @@ mod tests {
         };
         assert_eq!(config_file(&e), Some(home.join(".config/foot/foot.ini")));
         // A directory named foot.ini opens, as foot takes it: the search stops there and the read fails, with a note.
-        let tmp = std::env::temp_dir().join(format!("kbf-foot-dirini-{}", std::process::id()));
+        let tmp = crate::test_tmp().join(format!("kbf-foot-dirini-{}", std::process::id()));
         std::fs::create_dir_all(tmp.join("foot/foot.ini")).unwrap();
         let (t, d) = (tmp.display().to_string(), dirs.display().to_string());
         let e = move |k: &str| match k {
@@ -931,7 +931,7 @@ mod tests {
 
     /// A stand-in `foot` printing `out`, in its own directory; returns the directory.
     fn fake(name: &str, out: &str) -> PathBuf {
-        let bin = std::env::temp_dir().join(format!("kbf-foot-{name}-{}", std::process::id()));
+        let bin = crate::test_tmp().join(format!("kbf-foot-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
         // Written by `sh`, not by this process (ETXTBSY: see `xfce.rs`'s `fake`).
         let body = format!("[ \"$*|$LC_ALL\" = '--version|C' ] || exit 9; echo '{out}'");
@@ -972,7 +972,7 @@ mod tests {
             ["foot 1.29.1: using the defaults of 1.28.0; add data/foot/1.29.1.toml"]
         );
         // No foot: the newest defaults, the user's file, and the note.
-        let missing = std::env::temp_dir().join(format!("kbf-foot-none-{}", std::process::id()));
+        let missing = crate::test_tmp().join(format!("kbf-foot-none-{}", std::process::id()));
         // HOME reaches the reading: the fixture's `include=~/…` is followed.
         let home = fixture("home").display().to_string();
         let env = move |k: &str| match k {
