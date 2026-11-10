@@ -5,6 +5,12 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-10
+
+### Fixed
+
+- The unit tests remove their scratch files when they finish, failed tests included. Before, every `cargo test` left new `kbf-*` directories in `$TMPDIR`, some unreadable, which made tmpfiles cleaners fail ([#44](https://github.com/Benjmhart/keybind-find/pull/44)).
+
 ## [1.1.1] - 2026-11-09
 
 ### Documentation
@@ -103,7 +109,8 @@ Everything below is new.
 
 - `config.toml` rebinds keybind-find's own picker keys (run, text search, undo, key search, scope); its own keys are listed too.
 
-[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.1.1...staging
+[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.1.2...staging
+[1.1.2]: https://github.com/Benjmhart/keybind-find/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/Benjmhart/keybind-find/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Benjmhart/keybind-find/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Benjmhart/keybind-find/compare/v0.1.0-alpha.1...v1.0.0
