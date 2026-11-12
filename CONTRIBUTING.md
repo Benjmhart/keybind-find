@@ -1,6 +1,10 @@
 # Contributing
 
-Bug reports, sheets and providers are all welcome. Open pull requests against `staging`.
+Bug reports, sheets and providers are all welcome. Branch from `staging` and open pull requests against `staging`,
+not `main`: `main` is GitHub's default branch and holds only releases, merged from `staging`.
+
+Want to add a program? The [wanted providers](https://github.com/Benjmhart/keybind-find/labels/provider-wishlist)
+each have an issue saying where the program's keys live.
 
 ## Setup
 
@@ -69,6 +73,9 @@ the user's config) are good models.
    [`man/keybind-find.1`](man/keybind-find.1) (and its DESCRIPTION) and the bug report template, a line to
    [CHANGELOG.md](CHANGELOG.md), and, if it runs a new program or reads a new file, the lists in
    [SECURITY.md](SECURITY.md).
+8. **Show it working:** attach a GIF or short video to the pull request (drag it into the description; don't commit
+   it): `Super+/` over the program, the list showing its bindings, and a pick sending a key. The same goes for a pull
+   request that changes a provider.
 
 A provider can also live outside this repo, as a plugin: a small program of its own that prints a sheet. See
 [docs/plugins.md](docs/plugins.md). A program few people use, or one you'd rather maintain yourself, is a good fit
