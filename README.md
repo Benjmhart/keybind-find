@@ -622,6 +622,7 @@ Other channels:
 
 - a static binary and a `.deb` on the [GitHub release page](https://github.com/Benjmhart/keybind-find/releases)
 - crates.io: `cargo install keybind-find`
+- `cargo binstall keybind-find`: the release's static binary, without building (x86_64)
 - Nix: `nix run github:Benjmhart/keybind-find`
 
 ## Bind it to `Super+/`
