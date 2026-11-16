@@ -31,6 +31,10 @@ printf 'fn main() {}\n' > /tmp/e2e.rs
 RESULTS=()
 FAILED=0
 SEEN=" "
+# oracle.py's own check, before any `o` case trusts it.
+python3 -I "$E/oracle.py" --self-test >/dev/null 2>"$OUT/oracle-self-test.err" || {
+  RESULTS+=("oracle-self-test	FAIL	$(tail -c 300 "$OUT/oracle-self-test.err" | tr '\n\t' '  ')"); FAILED=1
+}
 
 # Whether CASES (space-separated names; empty: all) selects this case. Every case name passes through here, so a
 # name in CASES that never does is a typo (reported at the end).
@@ -137,6 +141,31 @@ d() {
   dump_and_check "$name" "$provider" "$key" "$provider"
 }
 
+# o NAME PROVIDER -- COMMAND...: the program as oracle. COMMAND prints the program's own effective keys; oracle.py
+# compares them with `keybind-find dump PROVIDER` on the same config.
+o() {
+  local name=$1 provider=$2 line
+  shift 3
+  wanted "$name" || return 0
+  command -v "$1" >/dev/null || { record "$name" "skip	$1 is not installed"; FAILED=1; return; }
+  timeout 60 "$@" >"$OUT/$name.report" 2>"$OUT/$name.report.err" || {
+    record "$name" "FAIL	report failed	$(tail -c 300 "$OUT/$name.report.err" | tr '\n\t' '  ')"
+    FAILED=1; return
+  }
+  timeout 60 "$KBF" dump "$provider" >"$OUT/$name.json" 2>"$OUT/$name.err" || {
+    record "$name" "FAIL	dump failed	$(tr '\n\t' '  ' < "$OUT/$name.err" | cut -c1-300)"
+    FAILED=1; return
+  }
+  if line=$(python3 -I "$E/oracle.py" "$provider" "$OUT/$name.report" "$OUT/$name.json" 2>"$OUT/$name.oracle.err"); then
+    record "$name" "$line"
+  else
+    # A crash in oracle.py (no FAIL of its own) is a FAIL too; the program's stderr may say why a key differs.
+    line=$(printf '%s ' "${line#FAIL	}" "$(tail -c 300 "$OUT/$name.oracle.err")" | tr '\n' ' ')
+    record "$name" "FAIL	$line	$(tail -c 300 "$OUT/$name.report.err" | tr '\n\t' '  ')"
+    FAILED=1
+  fi
+}
+
 # --- X11: Xvfb and i3 -------------------------------------------------------------------------------------------
 export DISPLAY=:77
 Xvfb :77 -screen 0 1600x1000x24 -nolisten tcp >"$OUT/xvfb.log" 2>&1 &
@@ -169,6 +198,41 @@ export SWAYSOCK WAYLAND_DISPLAY
 dbus-update-activation-environment WAYLAND_DISPLAY SWAYSOCK
 PHASE=wayland . "$E/cases"
 swaymsg -q exit 2>/dev/null; kill "$SWAY" 2>/dev/null
+unset SWAYSOCK WAYLAND_DISPLAY
+
+# --- niri: nested (winit) on its own Xvfb ------------------------------------------------------------------------
+# niri's binary has no headless mode (its headless backend is for its tests only); with DISPLAY set and no
+# WAYLAND_DISPLAY it runs as an X11 window, rendering through mesa's llvmpipe. The cases get niri's Wayland display,
+# not the Xvfb one. A named phase (niri-phase), so a run naming only other cases skips it.
+if wanted niri-phase; then
+  Xvfb :78 -screen 0 1600x1000x24 -nolisten tcp >"$OUT/xvfb-niri.log" 2>&1 &
+  XVFB=$!
+  for _ in $(seq 100); do DISPLAY=:78 xprop -root >/dev/null 2>&1 && break; sleep 0.1; done
+  DISPLAY=:78 NO_COLOR=1 niri >"$OUT/niri.log" 2>&1 &
+  NIRI=$!
+  NIRI_SOCKET=""
+  # Up to 30 s: a cold start renders its first frame through llvmpipe.
+  for _ in $(seq 300); do
+    NIRI_SOCKET=$(ls "$XDG_RUNTIME_DIR"/niri.*."$NIRI".sock 2>/dev/null | head -1)
+    [ -n "$NIRI_SOCKET" ] && NIRI_SOCKET=$NIRI_SOCKET niri msg version >/dev/null 2>&1 && break
+    kill -0 "$NIRI" 2>/dev/null || break
+    NIRI_SOCKET=""; sleep 0.1
+  done
+  if [ -n "$NIRI_SOCKET" ]; then
+    # niri.<wayland socket>.<pid>.sock
+    WAYLAND_DISPLAY=${NIRI_SOCKET##*/niri.}; WAYLAND_DISPLAY=${WAYLAND_DISPLAY%."$NIRI".sock}
+    export NIRI_SOCKET WAYLAND_DISPLAY
+    dbus-update-activation-environment WAYLAND_DISPLAY NIRI_SOCKET
+    record niri-phase "ok	$(niri msg version 2>&1 | head -1) on $WAYLAND_DISPLAY"
+    PHASE=niri . "$E/cases"
+    niri msg action quit --skip-confirmation >/dev/null 2>&1
+  else
+    record niri-phase "FAIL	niri didn't start	$(tail -c 300 "$OUT/niri.log" | tr '\n\t' '  ') $(tail -c 200 "$OUT/xvfb-niri.log" | tr '\n\t' '  ')"
+    FAILED=1
+  fi
+  kill "$NIRI" "$XVFB" 2>/dev/null
+  unset NIRI_SOCKET WAYLAND_DISPLAY
+fi
 
 # --- Names asked for that no case has ---------------------------------------------------------------------------
 for n in ${CASES:-}; do
