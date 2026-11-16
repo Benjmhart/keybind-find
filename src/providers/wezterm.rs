@@ -58,8 +58,9 @@ const MOUSE: [&str; 4] = [
 /// The sheet from `show-keys`' text (`wezterm-gui/src/inputmap.rs` `show_keys`), grouped by action name, and how many
 /// binds were left out. `Default key table` binds have no scope, a `Key Table: <name>` section's get
 /// `key_table=<name>`; the `Mouse…` sections and everything after them are ignored. A bind line is
-/// `\t<mods>   <key>   ->   <action>`. Before the first section, output the config wrote (Lua's `io.write`, on the same
-/// stdout, with no newline) may run into the `Leader:` or `Default key table` line. WezTerm lists some defaults under both shift spellings: a bind identical to one
+/// `\t<mods>   <key>   ->   <action>`. Output the config writes to stdout (Lua's `io.write`) is block-buffered into the
+/// pipe, so it usually lands at the end, after the `Mouse…` sections, where it is dropped; past ~4 KiB, or with
+/// `io.flush()`, it can come first and run into the `Leader:` or `Default key table` line, which is still found. WezTerm lists some defaults under both shift spellings: a bind identical to one
 /// already listed (key, scope and action) is listed once.
 fn parse(text: &str) -> anyhow::Result<(Sheet, usize)> {
     let mut sheet = Sheet {
@@ -74,7 +75,7 @@ fn parse(text: &str) -> anyhow::Result<(Sheet, usize)> {
     let mut table: Option<Result<Option<Name>, ()>> = None;
     for line in text.lines() {
         if table.is_none() {
-            if let Some(i) = line.find("Leader: ") {
+            if let Some(i) = line.rfind("Leader: ") {
                 leader = leader_chord(&line[i + "Leader: ".len()..]);
             } else if line.ends_with("Default key table") {
                 table = Some(Ok(None));
@@ -488,7 +489,7 @@ mod tests {
             ("HYPER", "x"),
             ("CTRL", "Composed(\"a b\")"),
             ("CTRL", "é"),
-            ("CTRL", "\\u{1}"),
+            ("CTRL", "\u{1}"),
             ("CTRL", "VolumeUp"),
             ("CTRL", "RawCode(123)"),
             ("CTRL", "Numpad10"),
@@ -555,6 +556,10 @@ mod tests {
         assert_eq!(keys("Leader: Char('\\u{8}') NONE 1s\n").0[0], "BackSpace c");
         // Text the config wrote to stdout with no newline runs into the line.
         assert_eq!(keys("junkLeader: Char('a') CTRL 1s\n").0[0], "ctrl+a c");
+        assert_eq!(
+            keys("xLeader: fooLeader: Char('a') CTRL 1s\n").0[0],
+            "ctrl+a c"
+        );
         // No `Leader:` line, or one that doesn't read: the LEADER binds are left out.
         assert_eq!(keys(""), (vec![], 2));
         assert_eq!(keys("Leader: Char('é') CTRL 1s\n"), (vec![], 2));
@@ -626,6 +631,23 @@ mod tests {
     }
 
     #[test]
+    fn each_mouse_header_ends_the_tables() {
+        for header in &MOUSE[1..] {
+            let text = format!(
+                "Default key table\n-----------------\n\n\tCTRL   x   ->   Nop\n\n{header}\n{}\n\n\
+                 \t   Down {{ streak: 1, button: Left }}   ->   SelectTextAtMouseCursor(Cell)\n",
+                "-".repeat(header.len())
+            );
+            let (sheet, skipped) = parse(&text).unwrap();
+            assert_eq!(
+                (rows(&sheet), skipped),
+                (vec!["ctrl+x = Nop".to_string()], 0),
+                "{header}"
+            );
+        }
+    }
+
+    #[test]
     fn left_out_line() {
         assert_eq!(left_out(0), None);
         assert_eq!(
@@ -657,7 +679,7 @@ mod tests {
     }
 
     /// `command()` with `PATH` holding only a fake `wezterm` running `body` (written through `sh`: ETXTBSY).
-    fn fake(name: &str, body: &str) -> (Command, std::path::PathBuf) {
+    fn fake(name: &str, body: &str) -> (Command, Cleanup) {
         let bin = crate::test_tmp().join(format!("kbf-wezterm-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&bin).unwrap();
         let ok = Command::new("sh")
@@ -673,12 +695,21 @@ mod tests {
         assert!(ok.success());
         let mut cmd = command();
         cmd.env("PATH", &bin);
-        (cmd, bin)
+        (cmd, Cleanup(bin))
+    }
+
+    /// Removes a test's directory when dropped, failed asserts included.
+    struct Cleanup(std::path::PathBuf);
+
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
 
     #[test]
     fn failures_are_one_error() {
-        let (cmd, _) = fake("fails", "echo 'no such thing' >&2; exit 1");
+        let (cmd, _dir) = fake("fails", "echo 'no such thing' >&2; exit 1");
         let e = format!("{:#}", read(cmd).unwrap_err());
         assert!(
             e.starts_with("running wezterm show-keys: ") && e.contains("no such thing"),
@@ -696,7 +727,7 @@ mod tests {
             "{e:#}"
         );
         // A hang is killed at the timeout: waited for (so it ran), then given up.
-        let (cmd, _) = fake("hangs", "PATH=/usr/bin:/bin; sleep 10");
+        let (cmd, _hangs) = fake("hangs", "PATH=/usr/bin:/bin; sleep 10");
         let started = std::time::Instant::now();
         let e = format!("{:#}", read(cmd).unwrap_err());
         let took = started.elapsed();
@@ -706,7 +737,7 @@ mod tests {
             "{took:?}"
         );
         // The fake's output reaches the parser, from `show-keys`.
-        let (cmd, _) = fake(
+        let (cmd, _ok) = fake(
             "ok",
             "[ \"$*\" = show-keys ] || exit 9\nprintf 'Default key table\\n\\n\\tCTRL   x   ->   Nop\\n'",
         );
@@ -729,6 +760,7 @@ mod tests {
         // A home of its own, so the user's wezterm.lua is never read.
         let home = crate::test_tmp().join(format!("kbf-wezterm-real-{}", std::process::id()));
         std::fs::create_dir_all(&home).unwrap();
+        let _home = Cleanup(home.clone());
         let config = home.join("wezterm.lua");
         let run = |lua: &str| {
             std::fs::write(&config, lua).unwrap();

@@ -90,9 +90,10 @@ def kitty_report(text):
 # --- wezterm ----------------------------------------------------------------------------------------------------------
 # `wezterm show-keys --lua` (wezterm-gui/src/inputmap.rs dump_config and lua_key at 76b606ec5): `keys = {`, then
 # `key_tables = {` with one `<name> = {` per table, and one `{ key = '<k>', mods = '<A|B>', action = … },` per bind.
-# Key names as lua_key_code prints them (KeyCode's names, `phys:` + PhysKeyCode's), in its own table. That table
-# mirrors wezterm.rs's, so a mapping mistake made in both places passes: this oracle checks keybind-find's reading of
-# the text form, its sections and its dedupe, not the key-name table.
+# Key names as lua_key_code prints them (KeyCode's names, `phys:` + PhysKeyCode's), in its own table. The oracle
+# compares keys and scopes only, not actions: it checks keybind-find's reading of the text form, its sections and its
+# key notation. A bind deduped away with a distinct action on a key already listed, or a wrong action, isn't caught;
+# and the name tables mirror wezterm.rs's, so a mapping mistake made in both places passes.
 WEZTERM_NAMES = {
     "Enter": "Return", "Escape": "Escape", "Backspace": "BackSpace", "Space": "space", "Tab": "Tab",
     "PageUp": "Prior", "PageDown": "Next", "Home": "Home", "End": "End", "Insert": "Insert", "LeftArrow": "Left",
@@ -279,7 +280,13 @@ def self_test():
     assert wezterm_key("x", "ENHANCED_KEY") == "!ENHANCED_KEY+x"
     assert wezterm_key("x", "LEFT_ALT|RIGHT_CTRL") == "ctrl+alt+x"
     assert debug_char("\\u{1}") == "\x01" and debug_char("\\n") == "\n" and debug_char("\\") == "\\"
-    assert wezterm_key(debug_char("\\u{1}"), "CTRL") == "ctrl+?\x01"
+    assert wezterm_key(debug_char("\\u{1}"), "CTRL") == "ctrl+?\x01" and debug_char("\\0") == "\0"
+    assert wezterm_key("F5", "CTRL") == "ctrl+F5" and wezterm_key("phys:F5", "NONE") == "F5"
+    # Each known pattern matches its own example, in the form the report gives it.
+    examples = {"*[?]*": wezterm_key(debug_char("\\u{1}"), "CTRL"), "*raw:*": wezterm_key("RawCode(123)", "CTRL"),
+                "*XF86Audio*": wezterm_key("VolumeUp", "CTRL"), "key_table=*[ ]*\t*": "key_table=e2e wide\tEscape"}
+    for p, _ in KNOWN["wezterm"]:
+        assert fnmatch.fnmatchcase(examples[p], p), p
     assert wezterm_report("    { key = '\\\\u{1}', mods = 'CTRL', action = act.Nop },\n") == {"ctrl+?\x01"}
     assert wezterm_report("    { key = '\\\\', mods = 'CTRL', action = act.Nop },\n") == {"ctrl+backslash"}
     lua = ("return {\n  keys = {\n    { key = '\\'', mods = 'CTRL', action = act.Nop },\n  },\n  key_tables = {\n"

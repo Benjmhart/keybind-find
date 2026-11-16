@@ -466,7 +466,8 @@ which table is active. A `LEADER` bind is listed as a sequence, the leader first
 defaults under several spellings (`CTRL W`, `SHIFT | CTRL W`, `SHIFT | CTRL w`); spellings that come out as the same
 key with the same action are listed once (`ctrl+shift+w`), while pairs that differ after the notation, such as
 `ctrl+exclam` and `ctrl+shift+exclam`, both show. Left out,
-counted in one line: `ENHANCED_KEY` binds, keys with no X keysym (media keys, raw key codes, non-ASCII keys), key
+counted in one line: `ENHANCED_KEY` binds (only ones WezTerm makes itself: that modifier in your `wezterm.lua` makes
+the config fail to load), keys with no X keysym (media keys, raw key codes, non-ASCII keys), key
 tables whose name can't be a scope, and `LEADER` binds with no leader set. WezTerm prints a bind on Delete as `Escape`,
 so it is listed (and sent) as Escape.
 
@@ -474,6 +475,8 @@ A `wezterm.lua` that fails to load (a syntax error, or a call such as `wezterm.g
 makes `show-keys` print WezTerm's defaults with no error, so keybind-find lists the defaults and says nothing; a
 WezTerm started with that config runs on its defaults too, and shows the error in its own window. A WezTerm started
 with `--config-file` elsewhere isn't followed: keybind-find reads the config your environment points to.
+`show-keys` runs without `DISPLAY` or `WAYLAND_DISPLAY` and from `/`, so a `wezterm.lua` that branches on those (or on
+the working directory) may list different keys than the running WezTerm has.
 
 WezTerm runs every window, tab and split from one process; keybind-find finds the program in the focused pane (nvim,
 a shell) by asking WezTerm, with nothing to configure: `wezterm cli list-clients` (1 s limit) on the socket named in

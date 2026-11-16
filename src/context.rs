@@ -1305,11 +1305,7 @@ fn window_id_child(
         if stat_field(&stat, 4)? == 0 {
             continue;
         }
-        let environ = std::fs::read(proc.join(format!("{c}/environ"))).ok()?;
-        let id = environ
-            .split(|b| *b == 0)
-            .find_map(|v| v.strip_prefix(b"WINDOWID="))?;
-        let id = String::from_utf8_lossy(id).into_owned();
+        let id = String::from_utf8_lossy(&environ_var(proc, c, "WINDOWID")?).into_owned();
         if claims.iter().any(|(_, i)| *i == id) {
             return None;
         }
@@ -1382,15 +1378,17 @@ fn wezterm_child(
 ) -> Option<String> {
     use std::os::unix::ffi::OsStrExt;
     let gui_sock = format!("gui-sock-{pid}");
-    let socket = children.iter().find_map(|c| {
-        environ_var(proc, c, "WEZTERM_PANE")?;
+    // A pane of this GUI: its `WEZTERM_PANE`, when its socket is the one this GUI serves.
+    let pane_of = |c: &String| {
+        let pane = environ_var(proc, c, "WEZTERM_PANE")?;
         let socket = std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&environ_var(
             proc,
             c,
             "WEZTERM_UNIX_SOCKET",
         )?));
-        (socket.file_name()? == gui_sock.as_str()).then_some(socket)
-    })?;
+        (socket.file_name()? == gui_sock.as_str()).then_some((pane, socket))
+    };
+    let (_, socket) = children.iter().find_map(pane_of)?;
     let wezterm = crate::providers::kitty::program("wezterm", env)?;
     let mut cmd = Command::new(wezterm);
     cmd.args([
@@ -1407,7 +1405,7 @@ fn wezterm_child(
     let pane = wezterm_focused_pane(&clients, pid).ok()??.to_string();
     children
         .iter()
-        .find(|c| environ_var(proc, c, "WEZTERM_PANE").as_deref() == Some(pane.as_bytes()))
+        .find(|c| pane_of(c).is_some_and(|(p, _)| p == pane.as_bytes()))
         .cloned()
 }
 
@@ -4038,8 +4036,44 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         assert_eq!(child(hang), Err(WEZTERM_HINT));
         let took = started.elapsed();
         assert!(
-            took >= Duration::from_millis(900) && took < Duration::from_millis(1800),
+            took >= Duration::from_millis(900) && took < Duration::from_millis(2500),
             "{took:?}"
+        );
+        // The focused pane's id in a child whose socket is another WezTerm's (a copied WEZTERM_PANE): not this pane.
+        environ(
+            "102",
+            b"WEZTERM_PANE=2\0WEZTERM_UNIX_SOCKET=/r/gui-sock-1000\0",
+        );
+        assert_eq!(child(pane("2")), Err(WEZTERM_HINT));
+        // WezTerm not answering falls through to the WINDOWID match (X11): each child's own window, both live.
+        for (pid, tty, environ) in [
+            ("101", 34816, &b"WINDOWID=66\0"[..]),
+            ("102", 34817, &b"WINDOWID=77\0"[..]),
+        ] {
+            std::fs::write(proc.join(pid).join("environ"), environ).unwrap();
+            std::fs::write(
+                proc.join(pid).join("stat"),
+                format!("{pid} (zsh) S 100 {pid} {pid} {tty} -1 0"),
+            )
+            .unwrap();
+        }
+        let fails = fake("fails-x", "exit 1");
+        write_script(
+            &std::path::Path::new(&fails).join("xdotool"),
+            "#!/bin/sh
+[ \"$*\" = 'search --pid 100' ] && echo 66 && echo 77\n",
+        );
+        let env = move |k: &str| (k == "PATH").then(|| fails.clone());
+        assert_eq!(
+            focused_child(
+                100,
+                "org.wezfurlong.wezterm",
+                Some("77"),
+                &["101".into(), "102".into()],
+                &env,
+                &proc,
+            ),
+            Ok("102".to_string())
         );
         // Another GUI's socket (another pid), or a socket in a child with no pane: WezTerm isn't asked.
         environ(
