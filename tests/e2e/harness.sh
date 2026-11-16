@@ -63,6 +63,82 @@ dump_and_check() {
     record "$name" "FAIL	$line	$(tr '\n\t' '  ' < "$OUT/$name.err" | cut -c1-300)"
     FAILED=1
   fi
+  return $ok
+}
+
+# demo NAME "PROVIDER|KEY|DESC": with RECORD set (tests/e2e/record), records NAME.gif of the program the case started:
+# keybind-find with no arguments (what a Super+/ binding runs), its picker, QUERY (default: DESC) typed, Return
+# picking the top entry so keybind-find sends its key, then 2 s of the program. X11 displays through x11grab, sway
+# through grim frames; one palette pass to a GIF of about 8 fps, 960 px wide, at most 10 MB.
+demo() {
+  [ -n "${RECORD:-}" ] || return 0
+  local name=$1 query=${QUERY:-} raw="$OUT/$name.rec" gif="$OUT/$name.gif" cap kbf before now="" size
+  [ -n "$query" ] || { query=${2#*|*|}; query=${query%%|*}; }
+  rm -rf "$raw" "$gif"
+  # Capture: an X display (the i3 phase, or niri nested on its Xvfb), else sway's output.
+  local xdisp=${DISPLAY:-}
+  [ -n "${NIRI_SOCKET:-}" ] && xdisp=:78
+  if [ -n "$xdisp" ]; then
+    ffmpeg -loglevel error -f x11grab -framerate 8 -i "$xdisp" -t 20 -c:v libx264rgb -crf 0 -preset ultrafast \
+      "$raw.mkv" </dev/null >"$OUT/$name.rec.log" 2>&1 &
+  else
+    mkdir -p "$raw"
+    (i=0; end=$((SECONDS + 20)); while [ "$SECONDS" -lt "$end" ]; do
+       grim "$raw/$(printf %05d "$i").png" 2>>"$OUT/$name.rec.log"; i=$((i + 1)); sleep 0.15
+     done) &
+  fi
+  cap=$!
+  sleep 1
+  before=$(if [ -n "${DISPLAY:-}" ]; then xdotool getactivewindow 2>/dev/null; else focused_con; fi)
+  setsid "$KBF" >"$OUT/$name.kbf.log" 2>&1 &
+  kbf=$!
+  for _ in $(seq 100); do
+    now=$(if [ -n "${DISPLAY:-}" ]; then xdotool getactivewindow 2>/dev/null; else focused_con; fi)
+    [ -n "$now" ] && [ "$now" != "$before" ] && break
+    now=""; sleep 0.1
+  done
+  if [ -z "$now" ]; then
+    record "$name.gif" "FAIL	the picker didn't appear	$(tail -c 300 "$OUT/$name.kbf.log" | tr '\n\t' '  ')"
+    FAILED=1
+    kill -- -"$kbf" "$cap" 2>/dev/null; wait "$cap" 2>/dev/null
+    return
+  fi
+  sleep 1.5
+  if [ -n "${DISPLAY:-}" ]; then
+    # fzf opens in key search on X11 (it reads pressed keys): Escape switches to text search.
+    xdotool key Escape; sleep 0.5
+    xdotool type --delay 120 -- "$query"; sleep 1.5
+    xdotool key Return
+  else
+    # One wtype: each run uploads a keymap and sway drops a key sent right after it; -s waits that out.
+    wtype -s 500 -d 120 "$query" -s 1500 -k Return
+  fi
+  local status=0
+  for _ in $(seq 100); do kill -0 "$kbf" 2>/dev/null || break; sleep 0.1; done
+  if kill -0 "$kbf" 2>/dev/null; then status=124; kill -- -"$kbf" 2>/dev/null; else wait "$kbf"; status=$?; fi
+  sleep 2
+  # SIGTERM: ffmpeg finishes its file on it (a background job here ignores SIGINT); it ends the grim loop.
+  kill "$cap" 2>/dev/null; wait "$cap" 2>/dev/null
+  local in=(-i "$raw.mkv")
+  [ -d "$raw" ] && in=(-framerate 6 -i "$raw/%05d.png")
+  if ! ffmpeg -loglevel error "${in[@]}" \
+       -vf "fps=8,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" -y "$gif" \
+       </dev/null >>"$OUT/$name.rec.log" 2>&1; then
+    record "$name.gif" "FAIL	no GIF	$(tail -c 300 "$OUT/$name.rec.log" | tr '\n\t' '  ')"
+    FAILED=1; return
+  fi
+  rm -rf "$raw" "$raw.mkv"
+  size=$(stat -c %s "$gif")
+  if [ "$size" -gt 10485760 ]; then
+    record "$name.gif" "FAIL	$size bytes: over GitHub's 10 MB for a GIF"
+    FAILED=1
+  elif [ "$status" -ne 0 ]; then
+    # The GIF stays: it may show why.
+    record "$name.gif" "FAIL	keybind-find exited $status	$(tail -c 300 "$OUT/$name.kbf.log" | tr '\n\t' '  ')"
+    FAILED=1
+  else
+    record "$name.gif" "ok	$size bytes	query: $query"
+  fi
 }
 
 # x NAME "PROVIDERS" "PROVIDER|KEY|DESC" [SETTLE] -- COMMAND...: an X11 case under i3.
@@ -87,7 +163,7 @@ x() {
     FAILED=1
   else
     sleep "$settle"
-    dump_and_check "$name" "$providers" "$key"
+    dump_and_check "$name" "$providers" "$key" && demo "$name" "$key"
     i3-msg -q kill >/dev/null 2>&1
   fi
   sleep 0.3; kill -- -"$pid" 2>/dev/null; sleep 0.3
@@ -125,7 +201,7 @@ w() {
     pkill -x "$1" 2>/dev/null
   else
     sleep 1
-    dump_and_check "$name" "$providers" "$key"
+    dump_and_check "$name" "$providers" "$key" && demo "$name" "$key"
     swaymsg -q kill
   fi
   sleep 0.5
@@ -195,6 +271,12 @@ for _ in $(seq 100); do
   SWAYSOCK=""; sleep 0.1
 done
 export SWAYSOCK WAYLAND_DISPLAY
+# A recording's picker under sway: fzf in alacritty (the default there is fuzzel, not in the image). The home is
+# this run's copy, so normal runs never see it.
+if [ -n "${RECORD:-}" ]; then
+  mkdir -p "$HOME/.config/keybind-find"
+  printf '[picker]\nkind = "fzf"\n' >"$HOME/.config/keybind-find/config.toml"
+fi
 dbus-update-activation-environment WAYLAND_DISPLAY SWAYSOCK
 PHASE=wayland . "$E/cases"
 swaymsg -q exit 2>/dev/null; kill "$SWAY" 2>/dev/null

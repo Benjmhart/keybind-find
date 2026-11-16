@@ -15,6 +15,7 @@ RUN echo "Server = https://archive.archlinux.org/repos/${SNAPSHOT}/\$repo/os/\$a
  && pacman -Syyuu --noconfirm --needed \
       rust gcc python util-linux \
       xorg-server-xvfb xorg-xprop xdotool i3-wm sway niri dbus mesa vulkan-swrast ttf-dejavu \
+      ffmpeg grim fzf wtype xorg-xmodmap \
       xterm alacritty kitty ghostty foot xfce4-terminal gnome-terminal rxvt-unicode terminator wezterm \
       zsh bash fish tmux screen less \
       helix vim nano micro mc ranger ncmpcpp yazi emacs-nox \
