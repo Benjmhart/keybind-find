@@ -18,7 +18,7 @@
   {
     "username": "tester",
     "hostname": "e2e",
-    "pid": 4242,
+    "pid": "GUI_PID",
     "connection_elapsed": {
       "secs": 7,
       "nanos": 654031966

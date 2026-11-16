@@ -1253,7 +1253,7 @@ fn foreground_of(child: &str, proc: &std::path::Path) -> Option<Foreground> {
 const KITTY_HINT: &str = "; to find the program in kitty's focused tab, set `allow_remote_control socket-only` and `listen_on unix:@kitty` in kitty.conf";
 
 /// The rest of the several-children warning when WezTerm can't be asked.
-const WEZTERM_HINT: &str = "; WezTerm's focused pane comes from `wezterm cli list-clients`, which needs `wezterm` on PATH and a pane's WEZTERM_UNIX_SOCKET";
+const WEZTERM_HINT: &str = "; WezTerm's focused pane, asked of `wezterm cli list-clients` on its panes' socket, isn't a local process of this window (no answer, `wezterm` not on PATH, a pane of another domain, `wezterm connect` or a mux server, or its program exited)";
 
 /// Which of a terminal's `children` has focus; `Err` holds what to add to the several-children warning. kitty or
 /// WezTerm asked first, then (on X11, for any terminal) the one child whose environment's `WINDOWID` is the focused
@@ -1370,8 +1370,8 @@ fn kitty_listen_on(proc: &std::path::Path, child: &str) -> Option<String> {
         .find(|v| ["unix:", "tcp:", "tcp6:"].iter().any(|p| v.starts_with(p)))
 }
 
-/// WezTerm's focused pane, asked of WezTerm: the mux socket from a child's environment (`WEZTERM_UNIX_SOCKET`, which
-/// the GUI serves), `wezterm -n cli --no-auto-start list-clients --format json` on it (1 s; never starts a server, never
+/// WezTerm's focused pane, asked of WezTerm: the mux socket from the first pane's environment (a child with
+/// `WEZTERM_PANE` whose `WEZTERM_UNIX_SOCKET` is `…/gui-sock-<pid>`, the socket the GUI `pid` serves), `wezterm -n cli --no-auto-start list-clients --format json` on it (1 s; never starts a server, never
 /// runs wezterm.lua), the GUI's own entry (`pid`, the terminal's pid) and its `focused_pane_id`, and the child whose
 /// environment has `WEZTERM_PANE=<that id>`. X11 and Wayland alike.
 fn wezterm_child(
@@ -1380,9 +1380,17 @@ fn wezterm_child(
     env: crate::providers::kitty::Env,
     proc: &std::path::Path,
 ) -> Option<String> {
-    let socket = children
-        .iter()
-        .find_map(|c| environ_var(proc, c, "WEZTERM_UNIX_SOCKET"))?;
+    use std::os::unix::ffi::OsStrExt;
+    let gui_sock = format!("gui-sock-{pid}");
+    let socket = children.iter().find_map(|c| {
+        environ_var(proc, c, "WEZTERM_PANE")?;
+        let socket = std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&environ_var(
+            proc,
+            c,
+            "WEZTERM_UNIX_SOCKET",
+        )?));
+        (socket.file_name()? == gui_sock.as_str()).then_some(socket)
+    })?;
     let wezterm = crate::providers::kitty::program("wezterm", env)?;
     let mut cmd = Command::new(wezterm);
     cmd.args([
@@ -1399,21 +1407,26 @@ fn wezterm_child(
     let pane = wezterm_focused_pane(&clients, pid).ok()??.to_string();
     children
         .iter()
-        .find(|c| environ_var(proc, c, "WEZTERM_PANE").as_deref() == Some(pane.as_str()))
+        .find(|c| environ_var(proc, c, "WEZTERM_PANE").as_deref() == Some(pane.as_bytes()))
         .cloned()
 }
 
-/// `name`'s value in `child`'s environment.
-fn environ_var(proc: &std::path::Path, child: &str, name: &str) -> Option<String> {
+/// `name`'s value in `child`'s environment, as bytes.
+fn environ_var(proc: &std::path::Path, child: &str, name: &str) -> Option<Vec<u8>> {
     let environ = std::fs::read(proc.join(format!("{child}/environ"))).ok()?;
     environ.split(|b| *b == 0).find_map(|v| {
-        let v = v.strip_prefix(name.as_bytes())?.strip_prefix(b"=")?;
-        Some(String::from_utf8_lossy(v).into_owned())
+        Some(
+            v.strip_prefix(name.as_bytes())?
+                .strip_prefix(b"=")?
+                .to_vec(),
+        )
     })
 }
 
 /// The `focused_pane_id` of the client whose `pid` is `gui` (WezTerm's GUI registers itself as a mux client) in
 /// `wezterm cli list-clients --format json`'s output.
+/// ponytail: the GUI records the focused pane when the focused window repaints (`termwindow/render/paint.rs` ~257), so
+/// right after a switch between WezTerm windows it can briefly name the previous window's pane.
 fn wezterm_focused_pane(clients: &str, gui: u32) -> anyhow::Result<Option<u64>> {
     let clients: Vec<serde_json::Value> =
         serde_json::from_str(clients).context("parsing `wezterm cli list-clients`")?;
@@ -3841,13 +3854,14 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    /// The list-clients fixture with `gui` as the GUI's pid (`"GUI_PID"` in the file, replaced as text).
     fn wezterm_clients(gui: u32) -> String {
         std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures/wezterm/list-clients.json"),
         )
         .unwrap()
-        .replace("4242", &gui.to_string())
+        .replace("\"GUI_PID\"", &gui.to_string())
     }
 
     #[test]
@@ -3863,20 +3877,35 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         assert!(wezterm_focused_pane("{not json", 4242).is_err());
     }
 
+    /// Kills a stand-in's whole process group when dropped, so a failed assert leaves none of its children running.
+    struct KillGroup(u32);
+
+    impl Drop for KillGroup {
+        fn drop(&mut self) {
+            let _ = Command::new("kill")
+                .args(["--", &format!("-{}", self.0)])
+                .status();
+        }
+    }
+
     #[test]
     fn wezterm_is_asked_which_child_has_focus() {
         use std::io::BufRead;
         let tmp = crate::test_tmp().join(format!("kbf-wezterm-focus-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
-        // A stand-in WezTerm: its own session, a pane without the socket, pane 1 and pane 3 (`tail -f` quits once its
-        // output pipe closes: not ours).
+        // A stand-in WezTerm in its own session: a socket for another GUI, a socket but no pane, then panes 1 and 3
+        // with this GUI's socket in two directories (pane 1's is the first). `tail -f` quits once its output pipe
+        // closes: not ours.
         let mut setsid = KillOnDrop(
             Command::new("setsid")
                 .args([
                     "sh",
                     "-c",
-                    "sleep 9 & WEZTERM_UNIX_SOCKET=/x WEZTERM_PANE=1 sleep 9 & \
-                     WEZTERM_UNIX_SOCKET=/x WEZTERM_PANE=3 tail -f /dev/null >/dev/null & echo $$; wait",
+                    "WEZTERM_UNIX_SOCKET=/o/gui-sock-1 WEZTERM_PANE=9 sleep 9 & \
+                     WEZTERM_UNIX_SOCKET=/x/gui-sock-$$ sleep 9 & \
+                     WEZTERM_UNIX_SOCKET=/a/gui-sock-$$ WEZTERM_PANE=1 sleep 9 & \
+                     WEZTERM_UNIX_SOCKET=/b/gui-sock-$$ WEZTERM_PANE=3 tail -f /dev/null >/dev/null & \
+                     echo $$; wait",
                 ])
                 .stdout(Stdio::piped())
                 .spawn()
@@ -3887,12 +3916,15 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             .read_line(&mut line)
             .unwrap();
         let sh: u32 = line.trim().parse().unwrap();
-        // A fake `wezterm` answering only the expected call on the expected socket, with the stand-in as the GUI.
+        let _group = KillGroup(sh);
+        // A fake `wezterm` answering only the expected call, on the first pane's socket, without mise auto-install,
+        // with the stand-in as the GUI.
         let bin = tmp.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         let script = format!(
             "#!/bin/sh\n[ \"$*\" = '-n cli --no-auto-start list-clients --format json' ] || exit 1\n\
-             [ \"$WEZTERM_UNIX_SOCKET\" = /x ] || exit 1\ncat <<'EOF'\n{}\nEOF\n",
+             [ \"$WEZTERM_UNIX_SOCKET\" = /a/gui-sock-{sh} ] || exit 1\n\
+             [ \"$MISE_NOT_FOUND_AUTO_INSTALL\" = 0 ] || exit 1\ncat <<'EOF'\n{}\nEOF\n",
             wezterm_clients(sh)
         );
         write_script(&bin.join("wezterm"), &script);
@@ -3917,22 +3949,19 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         let missing = comm("org.wezfurlong.wezterm", &none);
         // Not WezTerm: never asked, no hint.
         let other = comm("foot", &with_fake);
-        let _ = Command::new("kill")
-            .args(["--", &format!("-{sh}")])
-            .status();
         let _ = std::fs::remove_dir_all(&tmp);
         assert_eq!(got.unwrap().as_deref(), Some("tail"));
         assert_eq!(upper.unwrap().as_deref(), Some("tail"));
         let e = format!("{:#}", missing.unwrap_err());
         assert!(
             e.starts_with("pid ")
-                && e.contains("has 3 children (one process serving several windows or tabs?); ")
+                && e.contains("has 4 children (one process serving several windows or tabs?); ")
                 && e.contains("`wezterm cli list-clients`"),
             "{e}"
         );
         assert_eq!(
             format!("{:#}", other.unwrap_err()),
-            format!("pid {sh} has 3 children (one process serving several windows or tabs?)")
+            format!("pid {sh} has 4 children (one process serving several windows or tabs?)")
         );
     }
 
@@ -3946,22 +3975,30 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         let task = proc.join("100/task/100");
         std::fs::create_dir_all(&task).unwrap();
         std::fs::write(task.join("children"), "101 102").unwrap();
-        for (pid, environ) in [
-            ("101", "WEZTERM_UNIX_SOCKET=/x\0WEZTERM_PANE=1\0"),
-            ("102", "WEZTERM_PANE=2\0WEZTERM_UNIX_SOCKET=/x\0"),
-        ] {
+        let environ = |pid: &str, environ: &[u8]| {
+            std::fs::write(proc.join(pid).join("environ"), environ).unwrap()
+        };
+        for pid in ["101", "102"] {
             std::fs::create_dir_all(proc.join(pid)).unwrap();
             std::fs::write(proc.join(pid).join("comm"), "zsh\n").unwrap();
-            std::fs::write(proc.join(pid).join("environ"), environ).unwrap();
             std::fs::write(
                 proc.join(pid).join("stat"),
                 format!("{pid} (zsh) S 100 {pid} {pid} 0 -1 0"),
             )
             .unwrap();
         }
+        // A socket path that isn't UTF-8 reaches wezterm byte for byte.
+        environ(
+            "101",
+            b"WEZTERM_UNIX_SOCKET=/r\xff/gui-sock-100\0WEZTERM_PANE=1\0",
+        );
+        environ(
+            "102",
+            b"WEZTERM_PANE=2\0WEZTERM_UNIX_SOCKET=/r\xff/gui-sock-100\0",
+        );
         assert_eq!(
             environ_var(&proc, "102", "WEZTERM_PANE").as_deref(),
-            Some("2")
+            Some(&b"2"[..])
         );
         assert_eq!(environ_var(&proc, "102", "WEZTERM_PAN"), None);
         assert_eq!(environ_var(&proc, "999", "WEZTERM_PANE"), None);
@@ -3974,7 +4011,10 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         let pane = |id: &str| {
             fake(
                 id,
-                &format!("echo '[{{\"pid\": 100, \"focused_pane_id\": {id}}}]'"),
+                &format!(
+                    "[ \"$WEZTERM_UNIX_SOCKET\" = \"$(printf '/r\\377/gui-sock-100')\" ] || exit 1\n\
+                     echo '[{{\"pid\": 100, \"focused_pane_id\": {id}}}]'"
+                ),
             )
         };
         let child = |path: String| {
@@ -3998,13 +4038,21 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         assert_eq!(child(hang), Err(WEZTERM_HINT));
         let took = started.elapsed();
         assert!(
-            took >= Duration::from_millis(900) && took < Duration::from_secs(3),
+            took >= Duration::from_millis(900) && took < Duration::from_millis(1800),
             "{took:?}"
         );
-        // No socket in any child: WezTerm isn't asked.
-        std::fs::write(proc.join("101/environ"), "WEZTERM_PANE=1\0").unwrap();
-        std::fs::write(proc.join("102/environ"), "WEZTERM_PANE=2\0").unwrap();
-        assert_eq!(child(pane("2")), Err(WEZTERM_HINT));
+        // Another GUI's socket (another pid), or a socket in a child with no pane: WezTerm isn't asked.
+        environ(
+            "101",
+            b"WEZTERM_UNIX_SOCKET=/r/gui-sock-1000\0WEZTERM_PANE=1\0",
+        );
+        environ("102", b"WEZTERM_UNIX_SOCKET=/r/gui-sock-100\0");
+        let any = fake("any", "echo '[{\"pid\": 100, \"focused_pane_id\": 1}]'");
+        assert_eq!(child(any.clone()), Err(WEZTERM_HINT));
+        // No socket in any child.
+        environ("101", b"WEZTERM_PANE=1\0");
+        environ("102", b"WEZTERM_PANE=2\0");
+        assert_eq!(child(any), Err(WEZTERM_HINT));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

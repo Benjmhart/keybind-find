@@ -32,18 +32,34 @@ fn command() -> Command {
 fn read(cmd: Command) -> anyhow::Result<Sheet> {
     let text = run_for(cmd, TIMEOUT).context("running wezterm show-keys")?;
     let (sheet, skipped) = parse(&text)?;
-    if skipped > 0 {
-        eprintln!(
-            "keybind-find: wezterm: leaving out {skipped} binds (ENHANCED_KEY or an unknown modifier, a key with no X keysym, a key table name that can't be a scope, or a LEADER bind with no leader)"
-        );
+    if let Some(line) = left_out(skipped) {
+        eprintln!("{line}");
     }
     Ok(sheet)
 }
 
+/// The one stderr line for `skipped` left-out binds; none when there are none.
+fn left_out(skipped: usize) -> Option<String> {
+    (skipped > 0).then(|| {
+        format!(
+            "keybind-find: wezterm: leaving out {skipped} binds (ENHANCED_KEY or an unknown modifier, a key with no X keysym, a key table name that can't be a scope, or a LEADER bind with no leader)"
+        )
+    })
+}
+
+/// The headers of `show_mouse`'s sections (`wezterm-gui/src/inputmap.rs`); each is printed only when it has binds.
+const MOUSE: [&str; 4] = [
+    "Mouse",
+    "Mouse: alt_screen",
+    "Mouse: mouse_reporting",
+    "Mouse: mouse_reporting + alt_screen",
+];
+
 /// The sheet from `show-keys`' text (`wezterm-gui/src/inputmap.rs` `show_keys`), grouped by action name, and how many
 /// binds were left out. `Default key table` binds have no scope, a `Key Table: <name>` section's get
 /// `key_table=<name>`; the `Mouse…` sections and everything after them are ignored. A bind line is
-/// `\t<mods>   <key>   ->   <action>`. WezTerm lists some defaults under both shift spellings: a bind identical to one
+/// `\t<mods>   <key>   ->   <action>`. Before the first section, output the config wrote (Lua's `io.write`, on the same
+/// stdout, with no newline) may run into the `Leader:` or `Default key table` line. WezTerm lists some defaults under both shift spellings: a bind identical to one
 /// already listed (key, scope and action) is listed once.
 fn parse(text: &str) -> anyhow::Result<(Sheet, usize)> {
     let mut sheet = Sheet {
@@ -57,19 +73,19 @@ fn parse(text: &str) -> anyhow::Result<(Sheet, usize)> {
     // `None` before the first section; `Some(Err(()))` in a table whose name can't be a scope.
     let mut table: Option<Result<Option<Name>, ()>> = None;
     for line in text.lines() {
-        if let Some(l) = line.strip_prefix("Leader: ") {
-            leader = leader_chord(l);
-            continue;
-        }
-        if line == "Default key table" {
-            table = Some(Ok(None));
+        if table.is_none() {
+            if let Some(i) = line.find("Leader: ") {
+                leader = leader_chord(&line[i + "Leader: ".len()..]);
+            } else if line.ends_with("Default key table") {
+                table = Some(Ok(None));
+            }
             continue;
         }
         if let Some(name) = line.strip_prefix("Key Table: ") {
             table = Some(name.parse::<Name>().map(Some).map_err(|_| ()));
             continue;
         }
-        if line.starts_with("Mouse") {
+        if MOUSE.contains(&line) {
             break;
         }
         let (Some(table), Some(bind)) = (&table, line.strip_prefix('\t')) else {
@@ -182,6 +198,8 @@ fn leader_chord(line: &str) -> Option<String> {
                 "\\t" => "Tab",
                 "\\u{1b}" => "Escape",
                 "\\u{8}" => "Backspace",
+                // `Debug` tells Delete apart, unlike `human_key` (which prints it as Escape).
+                "\\u{7f}" => "Delete",
                 s if s.chars().count() == 1 => s,
                 _ => return None,
             };
@@ -244,6 +262,8 @@ fn named(key: &str) -> Option<String> {
     let x = match key {
         "Enter" => "Return",
         "Escape" => "Escape",
+        // Only from a `Leader:` line or a physical key: `human_key` prints Delete as `Escape`.
+        "Delete" => "Delete",
         "Backspace" => "BackSpace",
         "Space" => "space",
         "Tab" => "Tab",
@@ -275,7 +295,6 @@ fn physical(name: &str) -> Option<String> {
     }
     let x = match name {
         "Return" => "Return",
-        "Delete" => "Delete",
         "Backslash" => "backslash",
         "Comma" => "comma",
         "Equal" => "equal",
@@ -446,6 +465,10 @@ mod tests {
             ("", "Backspace", "BackSpace"),
             ("", "Space", "space"),
             ("CTRL", "F12", "ctrl+F12"),
+            ("", "RightArrow", "Right"),
+            ("", "DownArrow", "Down"),
+            ("CTRL", "Quote (Physical)", "ctrl+apostrophe"),
+            ("CTRL", "Backslash (Physical)", "ctrl+backslash"),
             ("", "Home", "Home"),
             ("", "End", "End"),
             ("", "Insert", "Insert"),
@@ -471,6 +494,7 @@ mod tests {
             ("CTRL", "Numpad10"),
             ("CTRL", "F0"),
             ("CTRL", "Keypad5 (Physical)"),
+            ("CTRL", "F36"),
         ] {
             assert_eq!(one(mods, key), (None, 1), "{mods} {key}");
         }
@@ -518,18 +542,33 @@ mod tests {
             "ctrl+parenright c"
         );
         assert_eq!(keys("Leader: Numpad(5) CTRL 1s\n").0[0], "ctrl+KP_5 c");
+        // `Debug` tells Delete apart (`human_key` prints it as Escape).
+        assert_eq!(
+            keys("Leader: Char('\\u{7f}') CTRL 1s\n").0[0],
+            "ctrl+Delete c"
+        );
+        assert_eq!(keys("Leader: Char('\\t') CTRL 1s\n").0[0], "ctrl+Tab c");
+        assert_eq!(
+            keys("Leader: Char('\\\\') CTRL 1s\n").0[0],
+            "ctrl+backslash c"
+        );
+        assert_eq!(keys("Leader: Char('\\u{8}') NONE 1s\n").0[0], "BackSpace c");
+        // Text the config wrote to stdout with no newline runs into the line.
+        assert_eq!(keys("junkLeader: Char('a') CTRL 1s\n").0[0], "ctrl+a c");
         // No `Leader:` line, or one that doesn't read: the LEADER binds are left out.
         assert_eq!(keys(""), (vec![], 2));
         assert_eq!(keys("Leader: Char('é') CTRL 1s\n"), (vec![], 2));
-        assert_eq!(keys("Leader: Char('\\u{7f}') CTRL 1s\n"), (vec![], 2));
         assert_eq!(keys("Leader: Char('a') LEADER 1s\n"), (vec![], 2));
         assert_eq!(keys("Leader: garbled\n"), (vec![], 2));
     }
 
     #[test]
     fn sections_dedupe_and_odd_lines() {
-        let text = "Default key table\n-----------------\n\n\
+        let text = "stray outputDefault key table\n-----------------\n\n\
                     \tCTRL           W   ->   CloseCurrentTab { confirm: true }\n\
+                    \tCTRL           X   ->   CloseCurrentTab { confirm: false }\n\
+                    \t               q   ->   CopyMode(Close)\n\
+                    \t               s   ->   ShowLauncher\n\
                     \tSHIFT | CTRL   W   ->   CloseCurrentTab { confirm: true }\n\
                     \tSHIFT | CTRL   w   ->   CloseCurrentTab { confirm: true }\n\
                     \tSHIFT | CTRL   w   ->   Other\n\
@@ -539,6 +578,8 @@ mod tests {
                     \t   q   ->   CopyMode(Close)\n\n\
                     Key Table: wide name\n--------------------\n\n\
                     \t   q   ->   PopKeyTable\n\n\
+                    Key Table: Mouse\n-----------------\n\n\
+                    \t   m   ->   Nop\n\n\
                     Mouse\n-----\n\n\
                     \t   Down { streak: 1, button: Left }   ->   SelectTextAtMouseCursor(Cell)\n\n\
                     Key Table: after_mouse\n\n\t   z   ->   Nop\n";
@@ -547,11 +588,29 @@ mod tests {
             rows,
             [
                 "ctrl+shift+w = CloseCurrentTab { confirm: true }",
+                "ctrl+shift+x = CloseCurrentTab { confirm: false }",
                 "w = CloseCurrentTab { confirm: true } [key_table=copy_mode]",
+                // The same key and action in another table is another bind.
+                "q = CopyMode(Close)",
                 "q = CopyMode(Close) [key_table=copy_mode]",
+                // A key table named `Mouse` isn't the mouse section.
+                "m = Nop [key_table=Mouse]",
                 "ctrl+shift+w = Other",
+                "s = ShowLauncher",
             ]
         );
+        // The category is the action's name, before `(`, ` {` or a space.
+        assert_eq!(
+            sheet.binds.keys().collect::<Vec<_>>(),
+            [
+                "CloseCurrentTab",
+                "CopyMode",
+                "Nop",
+                "Other",
+                "ShowLauncher"
+            ]
+        );
+        assert_eq!(sheet.binds["CloseCurrentTab"].len(), 3);
         // The `wide name` table's bind.
         assert_eq!(skipped, 1);
         assert_eq!(sheet.binds["CopyMode"][0].action, "CopyMode");
@@ -567,7 +626,17 @@ mod tests {
     }
 
     #[test]
+    fn left_out_line() {
+        assert_eq!(left_out(0), None);
+        assert_eq!(
+            left_out(4).as_deref(),
+            Some("keybind-find: wezterm: leaving out 4 binds (ENHANCED_KEY or an unknown modifier, a key with no X keysym, a key table name that can't be a scope, or a LEADER bind with no leader)")
+        );
+    }
+
+    #[test]
     fn the_command() {
+        assert_eq!(TIMEOUT, Duration::from_secs(3));
         let cmd = command();
         assert_eq!(cmd.get_program(), "wezterm");
         assert_eq!(args(&cmd), ["show-keys"]);

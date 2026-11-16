@@ -67,7 +67,7 @@ to another window keeps its old id; after tabs are swapped between two windows w
 window still names the other's program, and a tab held open after its command exits has no shell to count, so its
 window gets its other tab's program); otherwise (tabs anywhere in that process, or a Wayland window) it prints a one-line warning and shows the list without
 the program inside (the terminal's own keys, alacritty's, Ghostty's, WezTerm's, kitty's, foot's, GNOME Terminal's or Xfce Terminal's, are still listed).
-kitty can say which tab has focus when its remote control is on ([below](#kitty)), and WezTerm always can ([below](#wezterm)). espanso's `word: true` matches (they
+kitty can say which tab has focus when its remote control is on ([below](#kitty)), and WezTerm can for its local panes ([below](#wezterm)). espanso's `word: true` matches (they
 wait for a space or punctuation after the trigger) and regex matches (no literal trigger) can't be typed, picks do nothing while the espanso service is stopped, and matches limited by `filter_exec` aren't
 listed.
 
@@ -463,7 +463,9 @@ In a WezTerm window, keybind-find asks `wezterm show-keys`, and WezTerm finds an
 `wezterm.lua` itself. Binds are grouped by action. A bind in a key table (`key_tables`, and the `copy_mode` and
 `search_mode` tables WezTerm always has) is tagged with it (`[key_table=copy_mode]`), since keybind-find can't tell
 which table is active. A `LEADER` bind is listed as a sequence, the leader first (`ctrl+a c`). WezTerm lists some
-defaults under both shift spellings (`CTRL W` and `SHIFT | CTRL w`); they are listed once, as `ctrl+shift+w`. Left out,
+defaults under several spellings (`CTRL W`, `SHIFT | CTRL W`, `SHIFT | CTRL w`); spellings that come out as the same
+key with the same action are listed once (`ctrl+shift+w`), while pairs that differ after the notation, such as
+`ctrl+exclam` and `ctrl+shift+exclam`, both show. Left out,
 counted in one line: `ENHANCED_KEY` binds, keys with no X keysym (media keys, raw key codes, non-ASCII keys), key
 tables whose name can't be a scope, and `LEADER` binds with no leader set. WezTerm prints a bind on Delete as `Escape`,
 so it is listed (and sent) as Escape.
@@ -476,7 +478,10 @@ with `--config-file` elsewhere isn't followed: keybind-find reads the config you
 WezTerm runs every window, tab and split from one process; keybind-find finds the program in the focused pane (nvim,
 a shell) by asking WezTerm, with nothing to configure: `wezterm cli list-clients` (1 s limit) on the socket named in
 the panes' environment (`WEZTERM_UNIX_SOCKET`) says which pane the window's process has focused, on X11 and Wayland
-alike. Without an answer you get WezTerm's keys and the one-line warning above. A Flatpak WezTerm has no `wezterm` on
+alike. That needs `wezterm` on your `PATH` and a local pane: a pane of a mux server or of `wezterm connect` (another
+domain) isn't followed. Right after you switch between WezTerm windows, WezTerm may still name the previous window's
+pane for a moment (it records focus when the window repaints). Without an answer you get WezTerm's keys and the
+one-line warning above. A Flatpak WezTerm has no `wezterm` on
 your `PATH`, so its keys aren't listed (one line says so), and a window whose class you changed (`--class`) isn't
 recognised as WezTerm.
 

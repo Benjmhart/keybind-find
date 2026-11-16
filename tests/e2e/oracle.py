@@ -90,7 +90,9 @@ def kitty_report(text):
 # --- wezterm ----------------------------------------------------------------------------------------------------------
 # `wezterm show-keys --lua` (wezterm-gui/src/inputmap.rs dump_config and lua_key at 76b606ec5): `keys = {`, then
 # `key_tables = {` with one `<name> = {` per table, and one `{ key = '<k>', mods = '<A|B>', action = … },` per bind.
-# Key names as lua_key_code prints them (KeyCode's names, `phys:` + PhysKeyCode's), in its own table.
+# Key names as lua_key_code prints them (KeyCode's names, `phys:` + PhysKeyCode's), in its own table. That table
+# mirrors wezterm.rs's, so a mapping mistake made in both places passes: this oracle checks keybind-find's reading of
+# the text form, its sections and its dedupe, not the key-name table.
 WEZTERM_NAMES = {
     "Enter": "Return", "Escape": "Escape", "Backspace": "BackSpace", "Space": "space", "Tab": "Tab",
     "PageUp": "Prior", "PageDown": "Next", "Home": "Home", "End": "End", "Insert": "Insert", "LeftArrow": "Left",
@@ -109,7 +111,7 @@ WEZTERM_LEADER = "ctrl+a"
 
 def wezterm_key(key, mods):
     """One lua bind's key (`X`, `phys:k`, `F5`) and mods (`SHIFT|CTRL`, `NONE`, `LEADER`) in keybind-find's notation."""
-    names = [m for m in mods.split("|") if m and m != "NONE"]
+    names = [m.removeprefix("LEFT_").removeprefix("RIGHT_") for m in mods.split("|") if m and m != "NONE"]
     lead = "LEADER" in names
     mods = [{"SHIFT": "shift", "ALT": "alt", "CTRL": "ctrl", "SUPER": "super"}.get(m, "!" + m) for m in names
             if m != "LEADER"]
@@ -139,6 +141,15 @@ def wezterm_key(key, mods):
     return f"{WEZTERM_LEADER} {chord}" if lead else chord
 
 
+def debug_char(key):
+    """A control character as lua_key_code writes it (Rust's escape_debug: `\\u{1}`, `\\n`, `\\0`) back to the
+    character, which then has no keysym, as in wezterm.rs."""
+    m = re.fullmatch(r"\\u\{([0-9a-f]+)\}", key)
+    if m:
+        return chr(int(m.group(1), 16))
+    return {"\\n": "\n", "\\0": "\0"}.get(key, key)
+
+
 WEZTERM_BIND = re.compile(r"\{ key = '((?:[^'\\]|\\.)*)', mods = '([^']*)', action = .*\},$")
 
 
@@ -150,7 +161,7 @@ def wezterm_report(text):
         s = line.strip()
         bind = WEZTERM_BIND.match(s)
         if bind:
-            key = re.sub(r"\\(.)", r"\1", bind.group(1))
+            key = debug_char(re.sub(r"\\(.)", r"\1", bind.group(1)))
             k = wezterm_key(key, bind.group(2))
             keys.add(f"key_table={table}\t{k}" if table else k)
         elif s in ("keys = {", "key_tables = {"):
@@ -173,7 +184,7 @@ KNOWN = {
         ("*focus:*", "--when-focus-on maps apply only over some windows: kitty.rs leaves them out"),
     ],
     "wezterm": [
-        ("*[?]*", "a non-ASCII character key has no X keysym: wezterm.rs leaves it out"),
+        ("*[?]*", "a non-ASCII or control character key has no X keysym: wezterm.rs leaves it out"),
         ("*XF86Audio*", "wezterm.rs translates only the named keys it lists (no media keys): it leaves them out"),
         ("*raw:*", "a raw key code has no X keysym: wezterm.rs leaves it out"),
         ("key_table=*[ ]*\t*", "a key table name with a space can't be a scope: wezterm.rs leaves its binds out"),
@@ -266,6 +277,11 @@ def self_test():
     assert wezterm_key("LeftArrow", "SUPER") == "super+Left" and wezterm_key("RawCode(12)", "CTRL") == "ctrl+raw:12"
     assert wezterm_key("é", "NONE") == "?é" and wezterm_key("Hyper", "NONE") == "!Hyper"
     assert wezterm_key("x", "ENHANCED_KEY") == "!ENHANCED_KEY+x"
+    assert wezterm_key("x", "LEFT_ALT|RIGHT_CTRL") == "ctrl+alt+x"
+    assert debug_char("\\u{1}") == "\x01" and debug_char("\\n") == "\n" and debug_char("\\") == "\\"
+    assert wezterm_key(debug_char("\\u{1}"), "CTRL") == "ctrl+?\x01"
+    assert wezterm_report("    { key = '\\\\u{1}', mods = 'CTRL', action = act.Nop },\n") == {"ctrl+?\x01"}
+    assert wezterm_report("    { key = '\\\\', mods = 'CTRL', action = act.Nop },\n") == {"ctrl+backslash"}
     lua = ("return {\n  keys = {\n    { key = '\\'', mods = 'CTRL', action = act.Nop },\n  },\n  key_tables = {\n"
            "    e2e wide = {\n      { key = 'Escape', mods = 'NONE', action = act.PopKeyTable },\n    },\n  }\n}\nstray\n")
     assert wezterm_report(lua) == {"ctrl+apostrophe", "key_table=e2e wide\tEscape", "!line:stray"}
