@@ -667,6 +667,8 @@ const TERMINAL_KEYS: &[(&str, &str)] = &[
     ("org.gnome.Terminal", "gnome-terminal"),
     // X11's class; its Wayland app id is `xfce4-terminal` (GTK's program name), the same ignoring case.
     ("Xfce4-terminal", "xfce4_terminal"),
+    // WezTerm's X11 class and Wayland app id alike.
+    ("org.wezfurlong.wezterm", "wezterm"),
 ];
 
 /// `child` is the terminal's foreground program (its group's leader), `group` every program in that group.
@@ -1250,8 +1252,12 @@ fn foreground_of(child: &str, proc: &std::path::Path) -> Option<Foreground> {
 /// The rest of the several-children warning when kitty can't be asked.
 const KITTY_HINT: &str = "; to find the program in kitty's focused tab, set `allow_remote_control socket-only` and `listen_on unix:@kitty` in kitty.conf";
 
-/// Which of a terminal's `children` has focus; `Err` holds what to add to the several-children warning. kitty asked
-/// first, then (on X11, for any terminal) the one child whose environment's `WINDOWID` is the focused window's id.
+/// The rest of the several-children warning when WezTerm can't be asked.
+const WEZTERM_HINT: &str = "; WezTerm's focused pane comes from `wezterm cli list-clients`, which needs `wezterm` on PATH and a pane's WEZTERM_UNIX_SOCKET";
+
+/// Which of a terminal's `children` has focus; `Err` holds what to add to the several-children warning. kitty or
+/// WezTerm asked first, then (on X11, for any terminal) the one child whose environment's `WINDOWID` is the focused
+/// window's id.
 fn focused_child(
     pid: u32,
     class: &str,
@@ -1264,6 +1270,11 @@ fn focused_child(
         match kitty_child(x_window, children, env, proc) {
             Ok(child) => return Ok(child),
             Err(hint) => hint,
+        }
+    } else if class.eq_ignore_ascii_case("org.wezfurlong.wezterm") {
+        match wezterm_child(pid, children, env, proc) {
+            Some(child) => return Ok(child),
+            None => WEZTERM_HINT,
         }
     } else {
         ""
@@ -1357,6 +1368,59 @@ fn kitty_listen_on(proc: &std::path::Path, child: &str) -> Option<String> {
         .filter_map(|v| v.strip_prefix(b"KITTY_LISTEN_ON="))
         .map(|v| String::from_utf8_lossy(v).into_owned())
         .find(|v| ["unix:", "tcp:", "tcp6:"].iter().any(|p| v.starts_with(p)))
+}
+
+/// WezTerm's focused pane, asked of WezTerm: the mux socket from a child's environment (`WEZTERM_UNIX_SOCKET`, which
+/// the GUI serves), `wezterm -n cli --no-auto-start list-clients --format json` on it (1 s; never starts a server, never
+/// runs wezterm.lua), the GUI's own entry (`pid`, the terminal's pid) and its `focused_pane_id`, and the child whose
+/// environment has `WEZTERM_PANE=<that id>`. X11 and Wayland alike.
+fn wezterm_child(
+    pid: u32,
+    children: &[String],
+    env: crate::providers::kitty::Env,
+    proc: &std::path::Path,
+) -> Option<String> {
+    let socket = children
+        .iter()
+        .find_map(|c| environ_var(proc, c, "WEZTERM_UNIX_SOCKET"))?;
+    let wezterm = crate::providers::kitty::program("wezterm", env)?;
+    let mut cmd = Command::new(wezterm);
+    cmd.args([
+        "-n",
+        "cli",
+        "--no-auto-start",
+        "list-clients",
+        "--format",
+        "json",
+    ])
+    .env("WEZTERM_UNIX_SOCKET", socket)
+    .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
+    let clients = run_for(cmd, Duration::from_secs(1)).ok()?;
+    let pane = wezterm_focused_pane(&clients, pid).ok()??.to_string();
+    children
+        .iter()
+        .find(|c| environ_var(proc, c, "WEZTERM_PANE").as_deref() == Some(pane.as_str()))
+        .cloned()
+}
+
+/// `name`'s value in `child`'s environment.
+fn environ_var(proc: &std::path::Path, child: &str, name: &str) -> Option<String> {
+    let environ = std::fs::read(proc.join(format!("{child}/environ"))).ok()?;
+    environ.split(|b| *b == 0).find_map(|v| {
+        let v = v.strip_prefix(name.as_bytes())?.strip_prefix(b"=")?;
+        Some(String::from_utf8_lossy(v).into_owned())
+    })
+}
+
+/// The `focused_pane_id` of the client whose `pid` is `gui` (WezTerm's GUI registers itself as a mux client) in
+/// `wezterm cli list-clients --format json`'s output.
+fn wezterm_focused_pane(clients: &str, gui: u32) -> anyhow::Result<Option<u64>> {
+    let clients: Vec<serde_json::Value> =
+        serde_json::from_str(clients).context("parsing `wezterm cli list-clients`")?;
+    Ok(clients
+        .iter()
+        .find(|c| c["pid"].as_u64() == Some(u64::from(gui)))
+        .and_then(|c| c["focused_pane_id"].as_u64()))
 }
 
 /// The pid of the focused window in `kitten @ ls`'s output: in the OS window whose `platform_window_id` is
@@ -1676,6 +1740,17 @@ mod tests {
             x(Some("kitty"), None),
             ["xmonad", "espanso", "kitty", "sheets"]
         );
+        // WezTerm's own keys (its X11 class and Wayland app id), in any case, then the program inside it.
+        for class in ["org.wezfurlong.wezterm", "ORG.WEZFURLONG.WEZTERM"] {
+            assert_eq!(
+                x(Some(class), Some("zsh")),
+                ["xmonad", "espanso", "wezterm", "zsh", "sheets"]
+            );
+            assert_eq!(
+                providers_for(Some("sway"), Some(class), Some("nvim"), &[]),
+                ["sway", "espanso", "wezterm", "nvim", "sheets"]
+            );
+        }
         // Programs that use readline but aren't these shells, a shell in a browser or an unlisted class: none.
         assert_eq!(
             x(Some("Alacritty"), Some("python3")),
@@ -3763,6 +3838,173 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             took >= Duration::from_millis(900) && took < Duration::from_secs(3),
             "{took:?}"
         );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    fn wezterm_clients(gui: u32) -> String {
+        std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/wezterm/list-clients.json"),
+        )
+        .unwrap()
+        .replace("4242", &gui.to_string())
+    }
+
+    #[test]
+    fn wezterm_list_clients_gives_the_guis_focused_pane() {
+        let json = wezterm_clients(4242);
+        // The GUI's own entry, not the `cli` client's (another pid, another pane).
+        assert_eq!(wezterm_focused_pane(&json, 4242).unwrap(), Some(3));
+        assert_eq!(wezterm_focused_pane(&json, 5151).unwrap(), Some(0));
+        // No such client, a client with no focused pane, no clients, junk.
+        assert_eq!(wezterm_focused_pane(&json, 1).unwrap(), None);
+        assert_eq!(wezterm_focused_pane(&json, 6000).unwrap(), None);
+        assert_eq!(wezterm_focused_pane("[]", 4242).unwrap(), None);
+        assert!(wezterm_focused_pane("{not json", 4242).is_err());
+    }
+
+    #[test]
+    fn wezterm_is_asked_which_child_has_focus() {
+        use std::io::BufRead;
+        let tmp = crate::test_tmp().join(format!("kbf-wezterm-focus-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        // A stand-in WezTerm: its own session, a pane without the socket, pane 1 and pane 3 (`tail -f` quits once its
+        // output pipe closes: not ours).
+        let mut setsid = KillOnDrop(
+            Command::new("setsid")
+                .args([
+                    "sh",
+                    "-c",
+                    "sleep 9 & WEZTERM_UNIX_SOCKET=/x WEZTERM_PANE=1 sleep 9 & \
+                     WEZTERM_UNIX_SOCKET=/x WEZTERM_PANE=3 tail -f /dev/null >/dev/null & echo $$; wait",
+                ])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let mut line = String::new();
+        std::io::BufReader::new(setsid.0.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let sh: u32 = line.trim().parse().unwrap();
+        // A fake `wezterm` answering only the expected call on the expected socket, with the stand-in as the GUI.
+        let bin = tmp.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let script = format!(
+            "#!/bin/sh\n[ \"$*\" = '-n cli --no-auto-start list-clients --format json' ] || exit 1\n\
+             [ \"$WEZTERM_UNIX_SOCKET\" = /x ] || exit 1\ncat <<'EOF'\n{}\nEOF\n",
+            wezterm_clients(sh)
+        );
+        write_script(&bin.join("wezterm"), &script);
+        let path = bin.to_string_lossy().into_owned();
+        let with_fake = |k: &str| (k == "PATH").then(|| path.clone());
+        let none = |_: &str| None;
+        let proc = std::path::Path::new("/proc");
+        let comm = |class: &str, env: crate::providers::kitty::Env| {
+            foreground(sh, class, None, env, proc).map(|f| f.map(|f| f.comm))
+        };
+        // Until the children have exec'd (a forked child is named after its parent).
+        let mut got = comm("org.wezfurlong.wezterm", &with_fake);
+        for _ in 0..200 {
+            if got.as_ref().ok().and_then(|c| c.as_deref()) == Some("tail") {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+            got = comm("org.wezfurlong.wezterm", &with_fake);
+        }
+        let upper = comm("ORG.WEZFURLONG.WEZTERM", &with_fake);
+        // No `wezterm`: the several-children line with the hint.
+        let missing = comm("org.wezfurlong.wezterm", &none);
+        // Not WezTerm: never asked, no hint.
+        let other = comm("foot", &with_fake);
+        let _ = Command::new("kill")
+            .args(["--", &format!("-{sh}")])
+            .status();
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert_eq!(got.unwrap().as_deref(), Some("tail"));
+        assert_eq!(upper.unwrap().as_deref(), Some("tail"));
+        let e = format!("{:#}", missing.unwrap_err());
+        assert!(
+            e.starts_with("pid ")
+                && e.contains("has 3 children (one process serving several windows or tabs?); ")
+                && e.contains("`wezterm cli list-clients`"),
+            "{e}"
+        );
+        assert_eq!(
+            format!("{:#}", other.unwrap_err()),
+            format!("pid {sh} has 3 children (one process serving several windows or tabs?)")
+        );
+    }
+
+    #[test]
+    fn wezterm_pane_without_a_match_gives_the_hint() {
+        // A stand-in /proc: WezTerm 100 with panes 1 and 2; the GUI's focused pane is 3 (a pane of another window,
+        // its program exited), or the call fails, or hangs.
+        let tmp = crate::test_tmp().join(format!("kbf-wezterm-nomatch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let proc = tmp.join("proc");
+        let task = proc.join("100/task/100");
+        std::fs::create_dir_all(&task).unwrap();
+        std::fs::write(task.join("children"), "101 102").unwrap();
+        for (pid, environ) in [
+            ("101", "WEZTERM_UNIX_SOCKET=/x\0WEZTERM_PANE=1\0"),
+            ("102", "WEZTERM_PANE=2\0WEZTERM_UNIX_SOCKET=/x\0"),
+        ] {
+            std::fs::create_dir_all(proc.join(pid)).unwrap();
+            std::fs::write(proc.join(pid).join("comm"), "zsh\n").unwrap();
+            std::fs::write(proc.join(pid).join("environ"), environ).unwrap();
+            std::fs::write(
+                proc.join(pid).join("stat"),
+                format!("{pid} (zsh) S 100 {pid} {pid} 0 -1 0"),
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            environ_var(&proc, "102", "WEZTERM_PANE").as_deref(),
+            Some("2")
+        );
+        assert_eq!(environ_var(&proc, "102", "WEZTERM_PAN"), None);
+        assert_eq!(environ_var(&proc, "999", "WEZTERM_PANE"), None);
+        let fake = |name: &str, body: &str| {
+            let bin = tmp.join(name);
+            std::fs::create_dir_all(&bin).unwrap();
+            write_script(&bin.join("wezterm"), &format!("#!/bin/sh\n{body}\n"));
+            bin.to_string_lossy().into_owned()
+        };
+        let pane = |id: &str| {
+            fake(
+                id,
+                &format!("echo '[{{\"pid\": 100, \"focused_pane_id\": {id}}}]'"),
+            )
+        };
+        let child = |path: String| {
+            let env = move |k: &str| (k == "PATH").then(|| path.clone());
+            focused_child(
+                100,
+                "org.wezfurlong.wezterm",
+                None,
+                &["101".into(), "102".into()],
+                &env,
+                &proc,
+            )
+        };
+        assert_eq!(child(pane("2")), Ok("102".to_string()));
+        assert_eq!(child(pane("3")), Err(WEZTERM_HINT));
+        assert_eq!(child(pane("null")), Err(WEZTERM_HINT));
+        assert_eq!(child(fake("fails", "exit 1")), Err(WEZTERM_HINT));
+        // A hang is killed at 1 s: waited for (so it ran), then given up.
+        let hang = fake("hang", "PATH=/usr/bin:/bin; sleep 10");
+        let started = Instant::now();
+        assert_eq!(child(hang), Err(WEZTERM_HINT));
+        let took = started.elapsed();
+        assert!(
+            took >= Duration::from_millis(900) && took < Duration::from_secs(3),
+            "{took:?}"
+        );
+        // No socket in any child: WezTerm isn't asked.
+        std::fs::write(proc.join("101/environ"), "WEZTERM_PANE=1\0").unwrap();
+        std::fs::write(proc.join("102/environ"), "WEZTERM_PANE=2\0").unwrap();
+        assert_eq!(child(pane("2")), Err(WEZTERM_HINT));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

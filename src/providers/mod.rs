@@ -38,6 +38,7 @@ mod tmux;
 mod vim;
 mod vimium;
 mod vscode;
+mod wezterm;
 mod xfce;
 mod xfce4_terminal;
 mod xmonad;
@@ -88,6 +89,7 @@ pub const KNOWN: &[&str] = &[
     "ranger",
     "xfce4_terminal",
     "helix",
+    "wezterm",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -128,6 +130,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "ranger" => ranger::sheet(),
         "xfce4_terminal" => xfce4_terminal::sheet(),
         "helix" => helix::sheet(),
+        "wezterm" => wezterm::sheet(ctx),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
