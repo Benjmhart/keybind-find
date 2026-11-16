@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Records one e2e case as a GIF for a provider PR's Demo section: the case's program, keybind-find's picker over it,
+# QUERY typed and a pick sending its key. Builds the image and keybind-find as tests/e2e/run does; needs only Docker.
+#
+#   tests/e2e/record CASE [QUERY]    QUERY: what to type in the picker (default: the case's description part, and
+#                                    then the pick must send the case's own key); the top entry is picked
+#   E2E_OUT=dir tests/e2e/record …   where CASE.gif goes (default: target/e2e-record in this checkout); a failed
+#                                    run keeps its logs in a temporary directory and prints where
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+repo=$(cd "$here/../.." && pwd)
+case=${1:-}
+usage="usage: tests/e2e/record CASE [QUERY]  (quote a QUERY with spaces)"
+[ -n "$case" ] && [ $# -le 2 ] || { echo "$usage" >&2; exit 2; }
+# Typed as keys: a newline would pick early.
+[[ "${2:-}" != *[[:cntrl:]]* ]] || { echo "record: QUERY has a control character" >&2; exit 2; }
+# The case's form and phase, from its line in `cases`: d and o cases have no window to show.
+read -r form phase < <(awk -v c="$case" '
+  /PHASE" = / { match($0, /PHASE" = [a-z0-9]+/); ph = substr($0, RSTART + 9, RLENGTH - 9) }
+  $2 == c && $1 ~ /^[a-z]$/ { print $1, ph; exit }' "$here/cases") || true
+[ -n "${form:-}" ] || { echo "record: no case $case in tests/e2e/cases" >&2; exit 2; }
+case $form in d | o) echo "record: $case is a \`$form\` case, with no window to record" >&2; exit 2 ;; esac
+# The niri phase runs only when named.
+cases=$case
+[ "${phase:-}" = niri ] && cases="$case niri-phase"
+out=${E2E_OUT:-$repo/target/e2e-record}
+mkdir -p "$out"
+out=$(cd "$out" && pwd)
+rm -f "$out/$case.gif"
+image=keybind-find-e2e
+docker build -t "$image" "$here" >&2
+volumes=(-v "$repo:/src:ro" -v keybind-find-e2e-target:/target -v keybind-find-e2e-cargo:/home/tester/.cargo/registry)
+docker run --rm "${volumes[@]}" "$image" bash /src/tests/e2e/harness.sh build
+# The container writes into a fresh directory of its own (its user's uid may not be ours); the GIF is copied out.
+tmp=$(mktemp -d)
+chmod a+rwx "$tmp"
+status=0
+docker run --rm --init --shm-size=1g --network none "${volumes[@]}" -v "$tmp:/tmp/out" \
+  -e RECORD=1 -e "CASES=$cases" -e "QUERY=${2:-}" \
+  "$image" bash /src/tests/e2e/harness.sh || status=$?
+gif=$out/$case.gif
+# A plain file only: the directory is writable by anyone, so a link there could point at anything.
+if [ -f "$tmp/$case.gif" ] && [ ! -L "$tmp/$case.gif" ]; then
+  cp "$tmp/$case.gif" "$gif" && echo "$gif ($(du -h "$gif" | cut -f1))"
+elif [ "$status" -eq 0 ]; then
+  echo "record: the run passed but made no GIF" >&2; status=1
+fi
+if [ "$status" -eq 0 ]; then rm -rf "$tmp"; else echo "record: the run's logs are in $tmp" >&2; fi
+exit "$status"

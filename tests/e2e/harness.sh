@@ -24,6 +24,12 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
   exec dbus-run-session -- bash "$0" "$@"
 fi
 KBF=/target/debug/keybind-find
+# A recording's picker: fzf in alacritty in every phase (under Wayland the default is fuzzel, not in the image). The
+# home is this run's copy, so normal runs never see it.
+if [ -n "${RECORD:-}" ]; then
+  mkdir -p "$HOME/.config/keybind-find"
+  printf '[picker]\nkind = "fzf"\n' >"$HOME/.config/keybind-find/config.toml"
+fi
 OUT=/tmp/out
 mkdir -p "$OUT"
 printf 'int main(void) { return 0; }\n' > /tmp/e2e.c
@@ -63,6 +69,131 @@ dump_and_check() {
     record "$name" "FAIL	$line	$(tr '\n\t' '  ' < "$OUT/$name.err" | cut -c1-300)"
     FAILED=1
   fi
+  return $ok
+}
+
+# demo NAME "PROVIDER|KEY|DESC": with RECORD set (tests/e2e/record), records NAME.gif of the program the case started:
+# keybind-find with no arguments (what a Super+/ binding runs), its picker, QUERY (default: DESC) typed, Return
+# picking the top entry so keybind-find sends its key, then 2 s of the program. X11 displays through x11grab, sway
+# through grim frames; one palette pass to a GIF of about 8 fps, 960 px wide, at most 10 MB, from at most 20 s. It
+# passes only when keybind-find logged one send (its usage log): of the case's own PROVIDER and KEY with the default
+# query, of any key with a QUERY given.
+demo() {
+  [ -n "${RECORD:-}" ] || return 0
+  local name=$1 want query=${QUERY:-} raw="$OUT/$name.rec" gif="$OUT/$name.gif" cap kbf before now="" size t0 t1
+  local usage="$HOME/.local/state/keybind-find/usage.tsv" sent0 sent
+  # The send to expect, as the usage log has it (PROVIDER<TAB>KEY); none for a QUERY of the user's.
+  want=""
+  [ -n "$query" ] || { want=${2%%|*}$'\t'${2#*|}; want=${want%%|*}; query=${2#*|*|}; query=${query%%|*}; }
+  rm -rf "$raw" "$raw.mkv" "$gif"
+  # wtype has no `--`: a leading `-` would be read as an option.
+  [[ "$query" != -* ]] || { record "$name.gif" "FAIL	a query can't start with -"; FAILED=1; return; }
+  sent0=$(cat "$usage" 2>/dev/null | wc -l)
+  # Capture: an X display (the i3 phase, or niri nested on its Xvfb), else sway's output. At most 20 s; the stop
+  # below ends it sooner.
+  local xdisp=${DISPLAY:-}
+  [ -n "${NIRI_SOCKET:-}" ] && xdisp=:78
+  t0=$(date +%s.%N)
+  if [ -n "$xdisp" ]; then
+    ffmpeg -loglevel error -f x11grab -framerate 8 -i "$xdisp" -t 20 -c:v libx264rgb -crf 0 -preset ultrafast \
+      "$raw.mkv" </dev/null >"$OUT/$name.rec.log" 2>&1 &
+  else
+    mkdir -p "$raw"
+    # A frame gets its number only once grim has written it whole, so the sequence has no gaps.
+    (i=0; end=$((SECONDS + 20)); while [ "$SECONDS" -lt "$end" ]; do
+       f=$raw/$(printf %05d "$i")
+       grim "$f.tmp" 2>>"$OUT/$name.rec.log" && mv "$f.tmp" "$f.png" && i=$((i + 1))
+       sleep 0.15
+     done) &
+  fi
+  cap=$!
+  sleep 1
+  before=$(focused)
+  setsid "$KBF" >"$OUT/$name.kbf.log" 2>&1 &
+  kbf=$!
+  for _ in $(seq 100); do
+    now=$(focused)
+    [ -n "$now" ] && [ "$now" != "$before" ] && break
+    now=""; sleep 0.1
+  done
+  if [ -z "$now" ]; then
+    record "$name.gif" "FAIL	the picker didn't appear	$(tail -c 300 "$OUT/$name.kbf.log" | tr '\n\t' '  ')"
+    FAILED=1
+    kill -- -"$kbf" "$cap" 2>/dev/null; wait "$kbf" "$cap" 2>/dev/null
+    rm -rf "$raw" "$raw.mkv"
+    return
+  fi
+  sleep 1.5
+  if [ -n "${DISPLAY:-}" ]; then
+    # fzf opens in key search on X11 (it reads pressed keys): Escape switches to text search.
+    xdotool key Escape; sleep 0.5
+    xdotool type --delay 120 -- "$query"; sleep 1.5
+    xdotool key Return
+  else
+    # One wtype: each run uploads a keymap and sway drops a key sent right after it; -s waits that out.
+    wtype -s 500 -d 120 "$query" -s 1500 -k Return
+  fi
+  local status=0
+  for _ in $(seq 100); do kill -0 "$kbf" 2>/dev/null || break; sleep 0.1; done
+  if kill -0 "$kbf" 2>/dev/null; then
+    status=still; kill -- -"$kbf" 2>/dev/null; wait "$kbf" 2>/dev/null
+  else
+    wait "$kbf"; status=$?
+  fi
+  sleep 2
+  t1=$(date +%s.%N)
+  local capped
+  capped=$(awk -v a="$t0" -v b="$t1" 'BEGIN { if (b - a >= 20) print 1 }')
+  # SIGTERM: ffmpeg finishes its file on it (a background job here ignores SIGINT); it ends the grim loop, after its
+  # grim (a child) is gone.
+  pkill -P "$cap" 2>/dev/null; kill "$cap" 2>/dev/null; wait "$cap" 2>/dev/null
+  local in=(-i "$raw.mkv") n
+  if [ -d "$raw" ]; then
+    # The frames' real rate: grim's own time adds to the 0.15 s between them.
+    n=$(ls "$raw"/*.png 2>/dev/null | wc -l)
+    in=(-framerate "$(awk -v n="$n" -v a="$t0" -v b="$t1" 'BEGIN { t = b - a; printf "%.2f", (t > 0 ? n / t : 5) }')" \
+      -i "$raw/%05d.png")
+  fi
+  if ! ffmpeg -loglevel error "${in[@]}" \
+       -vf "fps=8,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" -y "$gif" \
+       </dev/null >>"$OUT/$name.rec.log" 2>&1; then
+    record "$name.gif" "FAIL	no GIF	$(tail -c 300 "$OUT/$name.rec.log" | tr '\n\t' '  ')"
+    FAILED=1; rm -rf "$raw" "$raw.mkv"; return
+  fi
+  rm -rf "$raw" "$raw.mkv"
+  size=$(stat -c %s "$gif")
+  sent=$(tail -n +"$((sent0 + 1))" "$usage" 2>/dev/null | cut -f2,3)
+  # The GIF stays on a FAIL: it may show why.
+  if [ "$size" -gt 10485760 ]; then
+    record "$name.gif" "FAIL	$size bytes: over GitHub's 10 MB for a GIF"
+    FAILED=1
+  elif [ -n "$capped" ]; then
+    record "$name.gif" "FAIL	the capture hit its 20 s limit before the end"
+    FAILED=1
+  elif [ "$status" != 0 ]; then
+    [ "$status" = still ] && status="was still running after 10 s" || status="exited $status"
+    record "$name.gif" "FAIL	keybind-find $status	$(tail -c 300 "$OUT/$name.kbf.log" | tr '\n\t' '  ')"
+    FAILED=1
+  elif [ -z "$sent" ] || [[ "$sent" == *$'\n'* ]] || { [ -n "$want" ] && [ "$sent" != "$want" ]; }; then
+    sent=$(printf '%s' "$sent" | tr '\n\t' '; ')
+    record "$name.gif" "FAIL	sent '$sent'${want:+, not ${want/$'\t'/ }} (query: $query)	$(tail -c 200 \
+      "$OUT/$name.kbf.log" | tr '\n\t' '  ')"
+    FAILED=1
+  else
+    record "$name.gif" "ok	$size bytes	query: $query, sent $(printf '%s' "$sent" | tr '\t' ' ')"
+  fi
+}
+
+# focused: the focused window's id in this phase (X11: xdotool; niri: its IPC; sway: focused_con).
+focused() {
+  if [ -n "${DISPLAY:-}" ]; then
+    xdotool getactivewindow 2>/dev/null
+  elif [ -n "${NIRI_SOCKET:-}" ]; then
+    niri msg -j focused-window 2>/dev/null |
+      python3 -I -c 'import json,sys; w=json.load(sys.stdin); print(w["id"] if w else "")' 2>/dev/null
+  else
+    focused_con
+  fi
 }
 
 # x NAME "PROVIDERS" "PROVIDER|KEY|DESC" [SETTLE] -- COMMAND...: an X11 case under i3.
@@ -87,7 +218,7 @@ x() {
     FAILED=1
   else
     sleep "$settle"
-    dump_and_check "$name" "$providers" "$key"
+    dump_and_check "$name" "$providers" "$key" && demo "$name" "$key"
     i3-msg -q kill >/dev/null 2>&1
   fi
   sleep 0.3; kill -- -"$pid" 2>/dev/null; sleep 0.3
@@ -125,7 +256,7 @@ w() {
     pkill -x "$1" 2>/dev/null
   else
     sleep 1
-    dump_and_check "$name" "$providers" "$key"
+    dump_and_check "$name" "$providers" "$key" && demo "$name" "$key"
     swaymsg -q kill
   fi
   sleep 0.5
