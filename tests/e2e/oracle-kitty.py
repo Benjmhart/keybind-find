@@ -20,7 +20,8 @@ def main():
     for mode, km in opts.keyboard_modes.items():
         for defns in km.keymap.values():
             by_seq = {}
-            for d in defns:
+            # An empty definition is an unmapped key (`map KEY`, `no_op`): kitty passes it through.
+            for d in (d for d in defns if d.definition):
                 by_seq.setdefault(d.full_key_sequence_to_trigger, []).append(d)
             for seq, ds in by_seq.items():
                 # A key with any unconditional map is unconditional where no focus map applies.

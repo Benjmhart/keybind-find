@@ -31,6 +31,10 @@ printf 'fn main() {}\n' > /tmp/e2e.rs
 RESULTS=()
 FAILED=0
 SEEN=" "
+# oracle.py's own check, before any `o` case trusts it.
+python3 -I "$E/oracle.py" --self-test >/dev/null 2>"$OUT/oracle-self-test.err" || {
+  RESULTS+=("oracle-self-test	FAIL	$(tail -c 300 "$OUT/oracle-self-test.err" | tr '\n\t' '  ')"); FAILED=1
+}
 
 # Whether CASES (space-separated names; empty: all) selects this case. Every case name passes through here, so a
 # name in CASES that never does is a typo (reported at the end).
@@ -152,12 +156,12 @@ o() {
     record "$name" "FAIL	dump failed	$(tr '\n\t' '  ' < "$OUT/$name.err" | cut -c1-300)"
     FAILED=1; return
   }
-  if line=$(python3 -I "$E/oracle.py" "$provider" "$OUT/$name.report" "$OUT/$name.json" 2>&1); then
+  if line=$(python3 -I "$E/oracle.py" "$provider" "$OUT/$name.report" "$OUT/$name.json" 2>"$OUT/$name.oracle.err"); then
     record "$name" "$line"
   else
-    # A crash in oracle.py (no FAIL of its own) is a FAIL too.
-    line=$(printf '%s' "${line#FAIL	}" | tr '\n' ' ')
-    record "$name" "FAIL	$line	$(tr '\n\t' '  ' < "$OUT/$name.err" | cut -c1-300)"
+    # A crash in oracle.py (no FAIL of its own) is a FAIL too; the program's stderr may say why a key differs.
+    line=$(printf '%s ' "${line#FAIL	}" "$(tail -c 300 "$OUT/$name.oracle.err")" | tr '\n' ' ')
+    record "$name" "FAIL	$line	$(tail -c 300 "$OUT/$name.report.err" | tr '\n\t' '  ')"
     FAILED=1
   fi
 }
@@ -211,6 +215,7 @@ if wanted niri-phase; then
   for _ in $(seq 300); do
     NIRI_SOCKET=$(ls "$XDG_RUNTIME_DIR"/niri.*."$NIRI".sock 2>/dev/null | head -1)
     [ -n "$NIRI_SOCKET" ] && NIRI_SOCKET=$NIRI_SOCKET niri msg version >/dev/null 2>&1 && break
+    kill -0 "$NIRI" 2>/dev/null || break
     NIRI_SOCKET=""; sleep 0.1
   done
   if [ -n "$NIRI_SOCKET" ]; then

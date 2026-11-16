@@ -3,7 +3,7 @@
 # listed: "PROVIDER|KEY|part of its description[|scope=value,...]". x: under i3 (the focused window found through
 # xdotool); w: under sway; d: one provider dumped directly, after a setup command (its desktop can't run here);
 # o NAME PROVIDER -- COMMAND: the program's own key report (COMMAND) checked against `keybind-find dump PROVIDER` by
-# oracle.py.
+# oracle.py. The niri phase runs only when its name is wanted: name `niri-phase` with any niri case.
 if [ "$PHASE" = x11 ]; then
   # Programs in a terminal with no keys of its own (xterm), and i3's own keys.
   x xterm-zsh      "i3 zsh"     "i3|super+Return|exec xterm"        -- xterm -e zsh

@@ -93,7 +93,7 @@ KNOWN = {
         ("*hyper+*", "kitty.rs leaves out a hyper modifier: keybind-find's notation can't show it"),
         ("*caps_lock+*", "kitty.rs leaves out a caps_lock modifier: keybind-find's notation can't show it"),
         ("*num_lock+*", "kitty.rs leaves out a num_lock modifier: keybind-find's notation can't show it"),
-        ("*[?]*", "a key with no X keysym (a native key code, a non-ASCII character): kitty.rs leaves it out"),
+        ("*[?]*", "a non-ASCII character key has no X keysym: kitty.rs leaves it out"),
         ("*focus:*", "--when-focus-on maps apply only over some windows: kitty.rs leaves them out"),
     ],
 }
@@ -115,9 +115,10 @@ def dump_keys(sheet):
 def compare(report, dump, known):
     """(only in the report, only in the dump, stale known patterns). A known difference is a key the program has and
     keybind-find leaves out, so KNOWN covers only report-side keys: a dump-only key always fails."""
-    is_known = lambda k: any(fnmatch.fnmatchcase(k, p) for p, _ in known)
+    # `!…` (a name or line the oracle can't read) is never known.
+    is_known = lambda k: not k.startswith("!") and any(fnmatch.fnmatchcase(k, p) for p, _ in known)
     only_r, only_d = report - dump, dump - report
-    stale = [p for p, _ in known if not any(fnmatch.fnmatchcase(k, p) for k in only_r)]
+    stale = [p for p, _ in known if not any(is_known(k) and fnmatch.fnmatchcase(k, p) for k in only_r)]
     return sorted(k for k in only_r if not is_known(k)), sorted(only_d), stale
 
 
@@ -140,8 +141,9 @@ def main(provider, report_path, dump_path):
     if not report:
         print(f"FAIL\t{provider}'s report is empty")
         return 1
-    only_r, only_d, stale = compare(report, dump, KNOWN.get(provider, []))
-    counts = f"{provider}:{len(report)} keybind-find:{len(dump)}"
+    known = KNOWN.get(provider, [])
+    only_r, only_d, stale = compare(report, dump, known)
+    counts = f"{provider}:{len(report)} keybind-find:{len(dump)} known:{len(report - dump) - len(only_r)}"
     problems = []
     if only_r:
         problems.append(f"only in {provider}: {listed(only_r)}")
@@ -165,6 +167,7 @@ def self_test():
     assert kitty_key("ctrl+left_shift") == "ctrl+Shift_L" and kitty_key("media_play") == "XF86AudioPlay"
     assert kitty_report("\tctrl+shift+p f\t\nmv\tescape\t\n\n") == {"ctrl+shift+p f", "keyboard_mode=mv\tEscape"}
     assert kitty_report("warning: x\n") == {"!line:warning: x"}
+    assert compare({"!line:hyper+x ?"}, set(), [("*hyper+*", "r")]) == (["!line:hyper+x ?"], [], ["*hyper+*"])
     known = [("*hyper+*", "r"), ("stale*", "r")]
     report = {"ctrl+a", "ctrl+b", "hyper+x"}
     assert compare(report, {"ctrl+a", "ctrl+c"}, known) == (["ctrl+b"], ["ctrl+c"], ["stale*"])
