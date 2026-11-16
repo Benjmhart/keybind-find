@@ -27,7 +27,8 @@ if [ "$PHASE" = x11 ]; then
   x emacsclient-t  "i3 emacs"   "emacs|ctrl+c j|kill-buffer"        -- xterm -e emacsclient -t /tmp/e2e.c
   x screen         "i3 screen"  "screen|ctrl+a shift+x|quit"        -- xterm -e screen
   x tmux           "i3 tmux"    "tmux|ctrl+b X|kill-server"         -- xterm -e tmux
-  x zellij         "i3 zellij"  "zellij|alt+y|NewTab|input_mode=normal" -- xterm -e zellij
+  # Alt as ESC: by default xterm sets the eighth bit instead (Alt+y types `ù`), which zellij doesn't read as Alt.
+  x zellij         "i3 zellij"  "zellij|alt+y|NewTab|input_mode=normal" -- xterm -xrm 'XTerm*metaSendsEscape: true' -e zellij
   x less           "i3 less"    "less|X|quit"                       -- xterm -e less /etc/os-release
   # Terminals with keys of their own, a shell inside.
   x alacritty      "i3 alacritty zsh"       "alacritty|ctrl+shift+x|Quit"          -- alacritty -e zsh
