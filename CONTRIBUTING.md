@@ -104,6 +104,15 @@ installed on your machine and nothing shows on your screen. Run it after changin
 runs it before tagging. The cases are in `tests/e2e/cases`. To test newer programs, move `SNAPSHOT` (and `BASE`) in
 the Dockerfile to a later date.
 
+Where a program can print its own effective keys, an **oracle case** (`o` in `cases`) checks keybind-find's whole
+list against it, not just one remapped key: it runs the program's report on the same synthetic config, runs
+`keybind-find dump PROVIDER`, and fails on any key only one side has. kitty has one (`kitty-oracle`). The known
+differences (keys keybind-find leaves out on purpose) are listed per program in `KNOWN` in `tests/e2e/oracle.py`,
+each with its reason; one that no longer differs fails the case too. Adding an oracle takes three pieces: a function
+in `oracle.py` turning the program's report into keys in keybind-find's notation (in `REPORTS`), its `KNOWN` entry,
+and one `o` line in `cases`. `python3 tests/e2e/oracle.py --self-test` checks the comparison itself. After the sway
+phase, the harness also runs niri, nested on its own Xvfb (niri has no headless mode).
+
 If you use one of the best-effort programs, a bug report or a fix from real use is especially welcome.
 
 ## Reporting a bug

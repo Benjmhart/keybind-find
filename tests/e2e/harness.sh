@@ -137,6 +137,27 @@ d() {
   dump_and_check "$name" "$provider" "$key" "$provider"
 }
 
+# o NAME PROVIDER -- COMMAND...: the program as oracle. COMMAND prints the program's own effective keys; oracle.py
+# compares them with `keybind-find dump PROVIDER` on the same config.
+o() {
+  local name=$1 provider=$2 line
+  shift 3
+  wanted "$name" || return 0
+  command -v "$1" >/dev/null || { record "$name" "skip	$1 is not installed"; FAILED=1; return; }
+  timeout 60 "$@" >"$OUT/$name.report" 2>"$OUT/$name.report.err" || {
+    record "$name" "FAIL	report failed	$(tail -c 300 "$OUT/$name.report.err" | tr '\n\t' '  ')"
+    FAILED=1; return
+  }
+  timeout 60 "$KBF" dump "$provider" >"$OUT/$name.json" 2>"$OUT/$name.err"
+  if line=$(python3 -I "$E/oracle.py" "$provider" "$OUT/$name.report" "$OUT/$name.json" 2>&1); then
+    record "$name" "$line"
+  else
+    # A crash in oracle.py (no FAIL of its own) is a FAIL too.
+    record "$name" "FAIL	${line#FAIL	}	$(tr '\n\t' '  ' < "$OUT/$name.err" | cut -c1-300)"
+    FAILED=1
+  fi
+}
+
 # --- X11: Xvfb and i3 -------------------------------------------------------------------------------------------
 export DISPLAY=:77
 Xvfb :77 -screen 0 1600x1000x24 -nolisten tcp >"$OUT/xvfb.log" 2>&1 &
@@ -169,6 +190,34 @@ export SWAYSOCK WAYLAND_DISPLAY
 dbus-update-activation-environment WAYLAND_DISPLAY SWAYSOCK
 PHASE=wayland . "$E/cases"
 swaymsg -q exit 2>/dev/null; kill "$SWAY" 2>/dev/null
+unset SWAYSOCK WAYLAND_DISPLAY
+
+# --- niri: nested (winit) on its own Xvfb ------------------------------------------------------------------------
+# niri's binary has no headless mode (its headless backend is for its tests only); with DISPLAY set and no
+# WAYLAND_DISPLAY it runs as an X11 window, rendering through mesa's llvmpipe.
+export DISPLAY=:78
+Xvfb :78 -screen 0 1600x1000x24 -nolisten tcp >"$OUT/xvfb-niri.log" 2>&1 &
+XVFB=$!
+for _ in $(seq 100); do xprop -root >/dev/null 2>&1 && break; sleep 0.1; done
+NO_COLOR=1 niri >"$OUT/niri.log" 2>&1 &
+NIRI=$!
+NIRI_SOCKET=""
+for _ in $(seq 100); do
+  NIRI_SOCKET=$(ls "$XDG_RUNTIME_DIR"/niri.*.sock 2>/dev/null | head -1)
+  [ -n "$NIRI_SOCKET" ] && NIRI_SOCKET=$NIRI_SOCKET niri msg version >/dev/null 2>&1 && break
+  NIRI_SOCKET=""; sleep 0.1
+done
+if [ -n "$NIRI_SOCKET" ]; then
+  export NIRI_SOCKET
+  record niri-phase "ok	$(niri msg version 2>&1 | head -1)"
+  PHASE=niri . "$E/cases"
+  niri msg action quit --skip-confirmation >/dev/null 2>&1
+else
+  record niri-phase "FAIL	niri didn't start	$(tail -c 300 "$OUT/niri.log" | tr '\n\t' '  ')"
+  FAILED=1
+fi
+kill "$NIRI" "$XVFB" 2>/dev/null
+unset DISPLAY NIRI_SOCKET
 
 # --- Names asked for that no case has ---------------------------------------------------------------------------
 for n in ${CASES:-}; do

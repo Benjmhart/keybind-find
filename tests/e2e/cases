@@ -1,7 +1,9 @@
-# The e2e cases, sourced by harness.sh twice (PHASE=x11, then PHASE=wayland). Each names its case, the providers
-# that must answer (each with at least one bind), and one key from tests/e2e/home that must be listed:
-# "PROVIDER|KEY|part of its description[|scope=value,...]". x: under i3 (the focused window found through xdotool);
-# w: under sway; d: one provider dumped directly, after a setup command (its desktop can't run here).
+# The e2e cases, sourced by harness.sh once per phase (PHASE=x11, wayland, then niri: no niri cases yet). Each names
+# its case, the providers that must answer (each with at least one bind), and one key from tests/e2e/home that must be
+# listed: "PROVIDER|KEY|part of its description[|scope=value,...]". x: under i3 (the focused window found through
+# xdotool); w: under sway; d: one provider dumped directly, after a setup command (its desktop can't run here);
+# o NAME PROVIDER -- COMMAND: the program's own key report (COMMAND) checked against `keybind-find dump PROVIDER` by
+# oracle.py.
 if [ "$PHASE" = x11 ]; then
   # Programs in a terminal with no keys of its own (xterm), and i3's own keys.
   x xterm-zsh      "i3 zsh"     "i3|super+Return|exec xterm"        -- xterm -e zsh
@@ -45,7 +47,10 @@ if [ "$PHASE" = x11 ]; then
   # Desktops that can't run here: their providers, from the settings store.
   d xfce   xfce  "xfce|super+t|xterm"   -- sh -c "xfconf-query -c xfce4-keyboard-shortcuts -p '/commands/custom/<Super>t' -n -t string -s xterm && xfconf-query -c xfce4-keyboard-shortcuts -p /commands/custom/override -n -t bool -s true"
   d gnome  gnome "gnome|super+q|close"  -- gsettings set org.gnome.desktop.wm.keybindings close "['<Super>q']"
-else
+  # The program as oracle: its own report of its effective keys against `keybind-find dump PROVIDER`, key for key
+  # (tests/e2e/oracle.py; known differences listed there with their reasons).
+  o kitty-oracle kitty -- kitty +runpy "$(cat "$E/oracle-kitty.py")" "$HOME/.config/kitty/kitty.conf"
+elif [ "$PHASE" = wayland ]; then
   w foot-zsh       "sway foot zsh"       "sway|super+Return|exec foot"      -- foot zsh
   w foot-helix     "sway foot helix"     "foot|ctrl+shift+y|Spawns a new"   -- foot helix /tmp/e2e.rs
   w alacritty-way  "sway alacritty zsh"  "alacritty|ctrl+shift+x|Quit"      -- alacritty -e zsh
