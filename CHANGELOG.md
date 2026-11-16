@@ -5,6 +5,10 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- WezTerm: its keys from `wezterm show-keys`, as WezTerm reads your `wezterm.lua` (defaults, `keys`, key tables tagged `key_table`, leader binds as sequences), and the program in its focused pane, asked of `wezterm cli list-clients` with nothing to configure ([#48](https://github.com/Benjmhart/keybind-find/issues/48)).
+
 ## [1.1.2] - 2026-11-10
 
 ### Fixed

@@ -1,0 +1,50 @@
+[
+  {
+    "username": "tester",
+    "hostname": "e2e",
+    "pid": 5151,
+    "connection_elapsed": {
+      "secs": 0,
+      "nanos": 1200000
+    },
+    "idle_time": {
+      "secs": 0,
+      "nanos": 1200000
+    },
+    "workspace": "default",
+    "focused_pane_id": 0,
+    "ssh_auth_sock": null
+  },
+  {
+    "username": "tester",
+    "hostname": "e2e",
+    "pid": "GUI_PID",
+    "connection_elapsed": {
+      "secs": 7,
+      "nanos": 654031966
+    },
+    "idle_time": {
+      "secs": 7,
+      "nanos": 654031966
+    },
+    "workspace": "default",
+    "focused_pane_id": 3,
+    "ssh_auth_sock": null
+  },
+  {
+    "username": "tester",
+    "hostname": "e2e",
+    "pid": 6000,
+    "connection_elapsed": {
+      "secs": 1,
+      "nanos": 0
+    },
+    "idle_time": {
+      "secs": 1,
+      "nanos": 0
+    },
+    "workspace": "default",
+    "focused_pane_id": null,
+    "ssh_auth_sock": null
+  }
+]

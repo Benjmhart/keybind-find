@@ -37,7 +37,9 @@ if [ "$PHASE" = x11 ]; then
   x gnome-terminal "i3 gnome-terminal zsh"  "gnome-terminal|ctrl+shift+x|close tab" -- gnome-terminal --wait -- zsh
   x urxvt          "i3 zsh"                 "zsh|ctrl+x k|kill-whole-line"         -- urxvt -e zsh
   x terminator     "i3 zsh"                 "zsh|ctrl+x k|kill-whole-line"         -- terminator -x zsh
-  x wezterm        "i3 zsh"                 "zsh|ctrl+x k|kill-whole-line"         -- wezterm start --always-new-process -- zsh
+  x wezterm        "i3 wezterm zsh"         "wezterm|ctrl+shift+x|CloseCurrentTab" -- wezterm start --always-new-process -- zsh
+  # A second pane, focused on creation: the program in it comes from `wezterm cli list-clients`.
+  x wezterm-split  "i3 wezterm helix"       "helix|ctrl+s|Write changes"           -- wezterm start --always-new-process -- zsh -c 'wezterm cli split-pane -- helix /tmp/e2e.rs; exec zsh'
   # Apps by window class.
   x zathura        "i3 zathura"  "zathura|shift+x|quit"                   -- zathura
   x mpv            "i3 mpv"      "mpv|shift+x|quit"                       -- mpv --idle --force-window
@@ -50,6 +52,7 @@ if [ "$PHASE" = x11 ]; then
   # The program as oracle: its own report of its effective keys against `keybind-find dump PROVIDER`, key for key
   # (tests/e2e/oracle.py; known differences listed there with their reasons).
   o kitty-oracle kitty -- kitty +runpy "$(cat "$E/oracle-kitty.py")" "$HOME/.config/kitty/kitty.conf"
+  o wezterm-oracle wezterm -- wezterm show-keys --lua
 elif [ "$PHASE" = wayland ]; then
   w foot-zsh       "sway foot zsh"       "sway|super+Return|exec foot"      -- foot zsh
   w foot-helix     "sway foot helix"     "foot|ctrl+shift+y|Spawns a new"   -- foot helix /tmp/e2e.rs

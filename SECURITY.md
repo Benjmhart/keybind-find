@@ -16,7 +16,8 @@ Please report security problems privately, through GitHub's private vulnerabilit
   shell, under a time limit.
 - **It runs other programs**, always with explicit arguments:
   - the programs it reads: nvim (headless, with your config), `tmux`, `herdr`, `espanso`, `swaymsg`, `xdotool`,
-    `xprop`, `xmodmap`;
+    `xprop`, `xmodmap`, `wezterm` (`show-keys` runs your `wezterm.lua`, as WezTerm does on every start; `cli
+    list-clients`, without your config, asks the running WezTerm for its focused pane);
   - the picker: `alacritty` with `fzf`, `fuzzel` or `dmenu`, or whatever program `KEYBIND_FIND_PICKER` names;
   - `notify-send` for errors under a hotkey.
 

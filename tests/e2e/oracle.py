@@ -12,6 +12,7 @@ with its reason. A known difference that no longer differs fails the case, so th
 """
 import fnmatch
 import json
+import re
 import sys
 
 # --- kitty ------------------------------------------------------------------------------------------------------------
@@ -86,7 +87,94 @@ def kitty_report(text):
     return keys
 
 
-REPORTS = {"kitty": kitty_report}
+# --- wezterm ----------------------------------------------------------------------------------------------------------
+# `wezterm show-keys --lua` (wezterm-gui/src/inputmap.rs dump_config and lua_key at 76b606ec5): `keys = {`, then
+# `key_tables = {` with one `<name> = {` per table, and one `{ key = '<k>', mods = '<A|B>', action = … },` per bind.
+# Key names as lua_key_code prints them (KeyCode's names, `phys:` + PhysKeyCode's), in its own table. The oracle
+# compares keys and scopes only, not actions: it checks keybind-find's reading of the text form, its sections and its
+# key notation. A bind deduped away with a distinct action on a key already listed, or a wrong action, isn't caught;
+# and the name tables mirror wezterm.rs's, so a mapping mistake made in both places passes.
+WEZTERM_NAMES = {
+    "Enter": "Return", "Escape": "Escape", "Backspace": "BackSpace", "Space": "space", "Tab": "Tab",
+    "PageUp": "Prior", "PageDown": "Next", "Home": "Home", "End": "End", "Insert": "Insert", "LeftArrow": "Left",
+    "RightArrow": "Right", "UpArrow": "Up", "DownArrow": "Down", "Copy": "XF86Copy", "Cut": "XF86Cut",
+    "Paste": "XF86Paste", "VolumeUp": "XF86AudioRaiseVolume", "VolumeDown": "XF86AudioLowerVolume",
+    "VolumeMute": "XF86AudioMute",
+}
+WEZTERM_PHYS = {
+    "Return": "Return", "Delete": "Delete", "Backslash": "backslash", "Comma": "comma", "Equal": "equal",
+    "Grave": "grave", "LeftBracket": "bracketleft", "RightBracket": "bracketright", "Minus": "minus",
+    "Period": "period", "Quote": "apostrophe", "Semicolon": "semicolon", "Slash": "slash",
+}
+# The lua form has no leader line: the leader of tests/e2e/home/.config/wezterm/wezterm.lua (`config.leader`).
+WEZTERM_LEADER = "ctrl+a"
+
+
+def wezterm_key(key, mods):
+    """One lua bind's key (`X`, `phys:k`, `F5`) and mods (`SHIFT|CTRL`, `NONE`, `LEADER`) in keybind-find's notation."""
+    names = [m.removeprefix("LEFT_").removeprefix("RIGHT_") for m in mods.split("|") if m and m != "NONE"]
+    lead = "LEADER" in names
+    mods = [{"SHIFT": "shift", "ALT": "alt", "CTRL": "ctrl", "SUPER": "super"}.get(m, "!" + m) for m in names
+            if m != "LEADER"]
+    if key.startswith("phys:"):
+        k = key[5:]
+        sym = k.lower() if len(k) == 1 and k.isascii() and k.isalnum() else WEZTERM_PHYS.get(k) or WEZTERM_NAMES.get(
+            k) or (k if k[:1] == "F" and k[1:].isdigit() else "!" + key)
+    elif len(key) == 1:
+        if key.isascii() and key.isupper():
+            sym, mods = key.lower(), mods + ["shift"]
+        elif key.isascii() and key.isalnum():
+            sym = key
+        else:
+            sym = KITTY_CHARS.get(key, "?" + key)
+    elif key in WEZTERM_NAMES:
+        sym = WEZTERM_NAMES[key]
+    elif key[:1] == "F" and key[1:].isdigit():
+        sym = key
+    elif key.startswith("Numpad") and key[6:].isdigit():
+        sym = "KP_" + key[6:]
+    elif key.startswith("RawCode("):
+        sym = "raw:" + key[8:-1]
+    else:
+        sym = "!" + key
+    ordered = [m for m in MOD_ORDER if m in mods] + [m for m in dict.fromkeys(mods) if m not in MOD_ORDER]
+    chord = "+".join(ordered + [sym])
+    return f"{WEZTERM_LEADER} {chord}" if lead else chord
+
+
+def debug_char(key):
+    """A control character as lua_key_code writes it (Rust's escape_debug: `\\u{1}`, `\\n`, `\\0`) back to the
+    character, which then has no keysym, as in wezterm.rs."""
+    m = re.fullmatch(r"\\u\{([0-9a-f]+)\}", key)
+    if m:
+        return chr(int(m.group(1), 16))
+    return {"\\n": "\n", "\\0": "\0"}.get(key, key)
+
+
+WEZTERM_BIND = re.compile(r"\{ key = '((?:[^'\\]|\\.)*)', mods = '([^']*)', action = .*\},$")
+
+
+def wezterm_report(text):
+    """show-keys --lua's binds as keys, `key_table=NAME<TAB>` before a key table's; a line that isn't a table or a
+    bind (stray output) is kept as `!line:…`."""
+    keys, table = set(), None
+    for line in text.splitlines():
+        s = line.strip()
+        bind = WEZTERM_BIND.match(s)
+        if bind:
+            key = debug_char(re.sub(r"\\(.)", r"\1", bind.group(1)))
+            k = wezterm_key(key, bind.group(2))
+            keys.add(f"key_table={table}\t{k}" if table else k)
+        elif s in ("keys = {", "key_tables = {"):
+            table = None
+        elif s.endswith(" = {"):
+            table = s[:-4]
+        elif s not in ("", "}", "},", "return {", "local wezterm = require 'wezterm'", "local act = wezterm.action"):
+            keys.add("!line:" + s)
+    return keys
+
+
+REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report}
 
 KNOWN = {
     "kitty": [
@@ -95,6 +183,12 @@ KNOWN = {
         ("*num_lock+*", "kitty.rs leaves out a num_lock modifier: keybind-find's notation can't show it"),
         ("*[?]*", "a non-ASCII character key has no X keysym: kitty.rs leaves it out"),
         ("*focus:*", "--when-focus-on maps apply only over some windows: kitty.rs leaves them out"),
+    ],
+    "wezterm": [
+        ("*[?]*", "a non-ASCII or control character key has no X keysym: wezterm.rs leaves it out"),
+        ("*XF86Audio*", "wezterm.rs translates only the named keys it lists (no media keys): it leaves them out"),
+        ("*raw:*", "a raw key code has no X keysym: wezterm.rs leaves it out"),
+        ("key_table=*[ ]*\t*", "a key table name with a space can't be a scope: wezterm.rs leaves its binds out"),
     ],
 }
 
@@ -177,6 +271,29 @@ def self_test():
     # Every kitty KNOWN pattern is literal enough not to swallow an ordinary key (fnmatch's `?` is any character).
     for k in ("keyboard_mode=m\tctrl+shift+Down", "ctrl+!media_play"):
         assert not [p for p, _ in KNOWN["kitty"] if fnmatch.fnmatchcase(k, p)], k
+    assert wezterm_key("X", "CTRL") == "ctrl+shift+x" and wezterm_key("x", "SHIFT|CTRL") == "ctrl+shift+x"
+    assert wezterm_key("c", "LEADER") == "ctrl+a c" and wezterm_key("R", "LEADER") == "ctrl+a shift+r"
+    assert wezterm_key("phys:K", "ALT|CTRL") == "ctrl+alt+k" and wezterm_key("phys:Space", "NONE") == "space"
+    assert wezterm_key("'", "SHIFT|ALT|CTRL") == "ctrl+alt+shift+apostrophe" and wezterm_key("Numpad5", "NONE") == "KP_5"
+    assert wezterm_key("LeftArrow", "SUPER") == "super+Left" and wezterm_key("RawCode(12)", "CTRL") == "ctrl+raw:12"
+    assert wezterm_key("é", "NONE") == "?é" and wezterm_key("Hyper", "NONE") == "!Hyper"
+    assert wezterm_key("x", "ENHANCED_KEY") == "!ENHANCED_KEY+x"
+    assert wezterm_key("x", "LEFT_ALT|RIGHT_CTRL") == "ctrl+alt+x"
+    assert debug_char("\\u{1}") == "\x01" and debug_char("\\n") == "\n" and debug_char("\\") == "\\"
+    assert wezterm_key(debug_char("\\u{1}"), "CTRL") == "ctrl+?\x01" and debug_char("\\0") == "\0"
+    assert wezterm_key("F5", "CTRL") == "ctrl+F5" and wezterm_key("phys:F5", "NONE") == "F5"
+    # Each known pattern matches its own example, in the form the report gives it.
+    examples = {"*[?]*": wezterm_key(debug_char("\\u{1}"), "CTRL"), "*raw:*": wezterm_key("RawCode(123)", "CTRL"),
+                "*XF86Audio*": wezterm_key("VolumeUp", "CTRL"), "key_table=*[ ]*\t*": "key_table=e2e wide\tEscape"}
+    for p, _ in KNOWN["wezterm"]:
+        assert fnmatch.fnmatchcase(examples[p], p), p
+    assert wezterm_report("    { key = '\\\\u{1}', mods = 'CTRL', action = act.Nop },\n") == {"ctrl+?\x01"}
+    assert wezterm_report("    { key = '\\\\', mods = 'CTRL', action = act.Nop },\n") == {"ctrl+backslash"}
+    lua = ("return {\n  keys = {\n    { key = '\\'', mods = 'CTRL', action = act.Nop },\n  },\n  key_tables = {\n"
+           "    e2e wide = {\n      { key = 'Escape', mods = 'NONE', action = act.PopKeyTable },\n    },\n  }\n}\nstray\n")
+    assert wezterm_report(lua) == {"ctrl+apostrophe", "key_table=e2e wide\tEscape", "!line:stray"}
+    for k in ("key_table=e2e\tctrl+a c", "ctrl+a shift+r", "XF86Copy", "key_table=copy_mode\tshift+dollar"):
+        assert not [p for p, _ in KNOWN["wezterm"] if fnmatch.fnmatchcase(k, p)], k
     sheet = {"binds": {"k": [{"key": "Escape", "when": {"keyboard_mode": ["mv"]}}, {"key": "ctrl+a"}]}}
     assert dump_keys(sheet) == {"keyboard_mode=mv\tEscape", "ctrl+a"}
     print("oracle.py: self-test ok")
