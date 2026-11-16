@@ -17,7 +17,9 @@ Please report security problems privately, through GitHub's private vulnerabilit
 - **It runs other programs**, always with explicit arguments:
   - the programs it reads: nvim (headless, with your config), `tmux`, `herdr`, `espanso`, `swaymsg`, `xdotool`,
     `xprop`, `xmodmap`, `wezterm` (`show-keys` runs your `wezterm.lua`, as WezTerm does on every start; `cli
-    list-clients`, without your config, asks the running WezTerm for its focused pane);
+    list-clients`, without your config, asks the running WezTerm for its focused pane), `zellij` (`--version`, and
+    `setup --dump-keybinds` or `setup --dump-config`, which print zellij's built-in keys and start no session; zellij
+    creates its cache directory and a log under `/tmp/zellij-<uid>` as on any start);
   - the picker: `alacritty` with `fzf`, `fuzzel` or `dmenu`, or whatever program `KEYBIND_FIND_PICKER` names;
   - `notify-send` for errors under a hotkey.
 
@@ -28,7 +30,7 @@ Please report security problems privately, through GitHub's private vulnerabilit
   window manager's bindings don't fire. The grab ends on Escape, a run key, an error, 30 seconds with no key, or
   exit. Pressed keys are only matched against the list, never stored.
 - **It reads config files:** its own `config.toml`, sheets and Vimium backup, the configs of the programs it lists
-  (sway, alacritty, herdr and its `plugins.json`, Vimium's extension folder), xmonad's keymap dump, and `/proc` to
+  (sway, alacritty, herdr and its `plugins.json`, zellij's `config.kdl`, Vimium's extension folder), xmonad's keymap dump, and `/proc` to
   find the program inside a terminal.
 - **It writes:** the usage log, `$XDG_STATE_HOME/keybind-find/usage.tsv` (default `~/.local/state/...`), which holds
   the time, provider and key of each pick (an espanso trigger, never its replacement); and, while the fzf picker is

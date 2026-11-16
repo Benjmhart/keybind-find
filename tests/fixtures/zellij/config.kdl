@@ -1,0 +1,11 @@
+// Synthetic, for keybind-find's tests: a config.kdl choosing a preset and its leader keys, with binds on top of it.
+keybinds preset="default" primary="Alt" secondary="Ctrl Shift" {
+    shared_among "pane" "tab" {
+        bind "F5" { Detach; }
+    }
+    normal {
+        bind "Alt y" { NewTab; }
+    }
+    unbind "Alt q"
+}
+show_startup_tips false

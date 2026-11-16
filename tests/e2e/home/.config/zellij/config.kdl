@@ -1,0 +1,10 @@
+// keybind-find's e2e: zellij's default preset, one bind added and one key unbound in every mode.
+keybinds {
+    normal {
+        bind "Alt y" { NewTab; }
+    }
+    unbind "Ctrl q"
+}
+// It must exist (else zellij writes one and opens its setup), and starts with nothing over the panes.
+show_startup_tips false
+show_release_notes false

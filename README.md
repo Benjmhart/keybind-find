@@ -29,6 +29,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | foot | its default key, search and URL bindings for its version (1.28.0 built in) with your `foot.ini` on top, and its text bindings | none ([below](#foot)) |
 | Xfce Terminal | its menu and scrolling shortcuts: xfce4-terminal's defaults for its version (1.2.0 built in) with your `accels.scm` on top | none ([below](#xfce-terminal)) |
 | GNOME Terminal | its keyboard shortcuts as its preferences set them, from `gsettings` (not on GNOME under Wayland, where the window isn't read) | `gsettings` ([below](#gnome-terminal)) |
+| zellij | its keys in every mode, each tagged with its mode (`input_mode`): the installed zellij's keybinding preset (from 0.46) or default keys (before), with your `config.kdl` on top | none ([below](#zellij)) |
 | nvim | your maps from a headless nvim with your config, with each map's `desc` | none |
 | Emacs | the keys active in the buffer you are in, from the running Emacs over its server, with its major mode and evil state; with no server, the global map (and evil's) of your init file from `emacs --batch` | `server-start` in your init, or `emacs --daemon`, for the live read ([below](#emacs)) |
 | vim | your maps (`:map`, `:map!`, `:tmap`, `:lmap`): asked of the running vim when it has a server (with its buffer's maps, mode and filetype), else from a headless vim with your vimrc; not vim's built-in keys | none; without a server it runs your vimrc ([below](#vim)) |
@@ -56,7 +57,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | espanso | `espanso match list`; picking a match types its trigger | none |
 | anything else | a sheet you write, or a script that prints one; a global sheet (`"provider": "*"`) lists things with no key, such as macros, that a pick runs (`"run": [argv]`) | [docs/sheets.md](docs/sheets.md) |
 
-nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, helix, herdr, tmux, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
+nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, helix, herdr, tmux, zellij, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
 sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
@@ -487,6 +488,31 @@ pane for a moment (it records focus when the window repaints). Without an answer
 one-line warning above. A Flatpak WezTerm has no `wezterm` on
 your `PATH`, so its keys aren't listed (one line says so), and a window whose class you changed (`--class`) isn't
 recognised as WezTerm.
+
+### zellij
+
+When zellij is the program in the focused terminal, keybind-find lists its keys in every mode, each tagged with the
+mode it works in (`[input_mode=pane]`): zellij has no way to ask a client which mode it is in, so all are shown. They
+come from the installed zellij (`zellij --version`), with your `config.kdl` applied on top as zellij applies it
+(`clear-defaults`, `shared`, `shared_except`, `shared_among`, `bind`, `unbind`); the file is the one zellij finds:
+`$ZELLIJ_CONFIG_FILE`, else `config.kdl` in `$ZELLIJ_CONFIG_DIR`, `~/.config/zellij`, `$XDG_CONFIG_HOME/zellij` or
+`/etc/zellij`.
+
+- From 0.46, the defaults are the keybinding preset your `keybinds preset="…"` names (`default` when none), as
+  `zellij setup --dump-keybinds <preset>` prints it, with its `{primary}`, `{secondary}` and `{unlock}` leader keys
+  taken from your `keybinds primary="…" secondary="…" unlock="…"`, else from the preset. A preset zellij can't print,
+  or leader keys that are empty or the same, give the `default` preset with its own leaders and a one-line note, as
+  zellij does.
+- Before 0.46, the defaults are the `keybinds` of `zellij setup --dump-config`.
+
+A config zellij would refuse (a key or mode it doesn't know, a `clear-defaults` that isn't `true` or `false`, a KDL
+error) gives one line naming the file and line, and no zellij keys. A key keybind-find can't send (a non-ASCII
+character) is left out and counted in one line. Each bind's description is its actions as written
+(`NewPane "Down"; SwitchToMode "Normal"`); they are shown, never checked.
+
+Not seen: keys a layout sets, `zellij options --keybinds-preset` (and `--keybinds-primary` and the rest) given for one
+session, a client started with `--config`, and a preset in `keybinds_dir`; mouse binds are never listed. The program in
+zellij's focused pane (a shell, nvim) isn't found yet: only zellij's own keys are listed.
 
 ### kitty
 

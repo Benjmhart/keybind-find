@@ -8,7 +8,8 @@ difference, an empty report or an unknown provider.
 Per provider, three pieces: REPORTS[provider] turns the report into a set of keys in keybind-find's notation (scope
 first where the program has modes: `keyboard_mode=MODE<TAB>KEY`), dump_keys builds the same set from the dump (shared:
 every bind's key, after its `when` scopes), and KNOWN[provider] lists the known differences, each an fnmatch pattern
-with its reason. A known difference that no longer differs fails the case, so the list can't rot.
+with its reason (and "dump" for a key only keybind-find has). A known difference that no longer differs fails the case,
+so the list can't rot.
 """
 import fnmatch
 import json
@@ -174,7 +175,93 @@ def wezterm_report(text):
     return keys
 
 
-REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report}
+# --- zellij -----------------------------------------------------------------------------------------------------------
+# `zellij setup --dump-keybinds PRESET` (0.46.0): the preset file itself, read here by bind lines and block depth (not
+# KDL): `preset { defaults { primary "Ctrl" … } }` gives the placeholders' values, each `keybinds` child block names its
+# modes (a mode, or `shared`/`shared_except`/`shared_among` over 0.46's InputMode list), each `bind "k1" "k2" { … }`
+# line in one gives keys; `mousebinds` and `//` comment lines are skipped. Keys and modes only, not actions: it checks
+# keybind-find's KDL reading, its shared* expansion and its key notation. A preset holds no user config, so the user's
+# changes (tests/e2e/home/.config/zellij/config.kdl) are the KNOWN differences, each failing as stale if keybind-find
+# stops applying it.
+ZELLIJ_MODES = ["normal", "locked", "resize", "pane", "tab", "scroll", "entersearch", "search", "renametab",
+                "renamepane", "session", "move", "prompt", "tmux", "renamesession"]
+ZELLIJ_NAMES = {
+    "pagedown": "Next", "pageup": "Prior", "left": "Left", "right": "Right", "up": "Up", "down": "Down",
+    "home": "Home", "end": "End", "backspace": "BackSpace", "delete": "Delete", "del": "Delete", "insert": "Insert",
+    "tab": "Tab", "esc": "Escape", "enter": "Return", "space": "space", "capslock": "Caps_Lock",
+    "scrolllock": "Scroll_Lock", "numlock": "Num_Lock", "printscreen": "Print", "pause": "Pause", "menu": "Menu",
+}
+ZELLIJ_NAMES.update({f"f{n}": f"F{n}" for n in range(1, 13)})
+KDL_STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+def zellij_key(text):
+    """One zellij key (`Ctrl Alt h`, `H`, `PageDown`) in keybind-find's notation."""
+    *mods, bare = text.split() or ["!empty"]
+    mods = [m.lower() if m.lower() in MOD_ORDER else "!" + m for m in mods]
+    if bare.lower() in ZELLIJ_NAMES:
+        sym = ZELLIJ_NAMES[bare.lower()]
+    elif len(bare) == 1 and bare.isascii() and bare.isalnum():
+        sym = bare.lower()
+        if bare.isupper():
+            mods.append("shift")
+    elif len(bare) == 1:
+        sym = KITTY_CHARS.get(bare, "?" + bare)
+    else:
+        sym = "!" + bare
+    ordered = [m for m in MOD_ORDER if m in mods] + [m for m in dict.fromkeys(mods) if m not in MOD_ORDER]
+    return "+".join(ordered + [sym])
+
+
+def zellij_modes(header):
+    """The modes a `keybinds` child block's header line names."""
+    name, args = header.split()[0], [a.lower() for a in KDL_STRING.findall(header)]
+    if name == "shared":
+        return list(ZELLIJ_MODES)
+    if name == "shared_except":
+        return [m for m in ZELLIJ_MODES if m not in args]
+    if name == "shared_among":
+        return [m for m in ZELLIJ_MODES if m in args]
+    return [name.lower()]
+
+
+def zellij_report(text):
+    """A preset's binds as `input_mode=MODE<TAB>KEY`; a line in a mode block that isn't a bind is kept as `!line:…`."""
+    keys, leaders, stack, modes = set(), {}, [], []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("//"):
+            continue
+        # Braces inside strings (`"{primary} g"`) don't count.
+        bare = KDL_STRING.sub('""', s)
+        net = bare.count("{") - bare.count("}")
+        if stack == ["preset", "defaults"] and KDL_STRING.search(s):
+            leaders[s.split()[0]] = KDL_STRING.search(s).group(1)
+        elif stack == ["keybinds"] and net > 0:
+            modes = zellij_modes(s)
+        elif len(stack) == 2 and stack[0] == "keybinds":
+            if s.startswith("bind "):
+                for k in KDL_STRING.findall(bare_args(s)):
+                    k = re.sub(r"\\(.)", r"\1", k)
+                    for name, value in leaders.items():
+                        k = k.replace("{" + name + "}", value)
+                    keys.update(f"input_mode={m}\t{zellij_key(k)}" for m in modes)
+            elif s != "}":
+                keys.add("!line:" + s)
+        if net > 0:
+            stack += [s.split()[0]] * net
+        elif net < 0:
+            del stack[net:]
+    return keys
+
+
+def bare_args(s):
+    """A bind line's part before its action block."""
+    m = re.match(r'bind((?:\s+"(?:[^"\\]|\\.)*")+)', s)
+    return m.group(1) if m else ""
+
+
+REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report, "zellij": zellij_report}
 
 KNOWN = {
     "kitty": [
@@ -189,6 +276,11 @@ KNOWN = {
         ("*XF86Audio*", "wezterm.rs translates only the named keys it lists (no media keys): it leaves them out"),
         ("*raw:*", "a raw key code has no X keysym: wezterm.rs leaves it out"),
         ("key_table=*[ ]*\t*", "a key table name with a space can't be a scope: wezterm.rs leaves its binds out"),
+    ],
+    "zellij": [
+        ("input_mode=*\tctrl+q", "config.kdl's top-level `unbind \"Ctrl q\"`: unbound in every mode, as zellij does"),
+        ("input_mode=normal\talt+y", "config.kdl's `bind \"Alt y\" { NewTab; }` in normal: the preset can't show it",
+         "dump"),
     ],
 }
 
@@ -208,12 +300,18 @@ def dump_keys(sheet):
 
 def compare(report, dump, known):
     """(only in the report, only in the dump, stale known patterns). A known difference is a key the program has and
-    keybind-find leaves out, so KNOWN covers only report-side keys: a dump-only key always fails."""
+    keybind-find leaves out, so KNOWN covers report-side keys; an entry marked "dump" (a third item) instead covers a
+    key only keybind-find has, for a report that can't show the user's config (zellij's preset). Any other key only one
+    side has fails."""
     # `!…` (a name or line the oracle can't read) is never known.
-    is_known = lambda k: not k.startswith("!") and any(fnmatch.fnmatchcase(k, p) for p, _ in known)
-    only_r, only_d = report - dump, dump - report
-    stale = [p for p, _ in known if not any(is_known(k) and fnmatch.fnmatchcase(k, p) for k in only_r)]
-    return sorted(k for k in only_r if not is_known(k)), sorted(only_d), stale
+    def known_in(keys, side):
+        pats = [k[0] for k in known if (k[2:] == ("dump",)) == (side == "dump")]
+        hit = lambda k: not k.startswith("!") and any(fnmatch.fnmatchcase(k, p) for p in pats)
+        stale = [p for p in pats if not any(hit(k) and fnmatch.fnmatchcase(k, p) for k in keys)]
+        return sorted(k for k in keys if not hit(k)), stale
+    only_r, stale_r = known_in(report - dump, "report")
+    only_d, stale_d = known_in(dump - report, "dump")
+    return only_r, only_d, stale_r + stale_d
 
 
 def listed(keys):
@@ -237,7 +335,7 @@ def main(provider, report_path, dump_path):
         return 1
     known = KNOWN.get(provider, [])
     only_r, only_d, stale = compare(report, dump, known)
-    counts = f"{provider}:{len(report)} keybind-find:{len(dump)} known:{len(report - dump) - len(only_r)}"
+    counts = f"{provider}:{len(report)} keybind-find:{len(dump)} known:{len(report ^ dump) - len(only_r) - len(only_d)}"
     problems = []
     if only_r:
         problems.append(f"only in {provider}: {listed(only_r)}")
@@ -294,6 +392,42 @@ def self_test():
     assert wezterm_report(lua) == {"ctrl+apostrophe", "key_table=e2e wide\tEscape", "!line:stray"}
     for k in ("key_table=e2e\tctrl+a c", "ctrl+a shift+r", "XF86Copy", "key_table=copy_mode\tshift+dollar"):
         assert not [p for p, _ in KNOWN["wezterm"] if fnmatch.fnmatchcase(k, p)], k
+    assert zellij_key("Ctrl Alt h") == "ctrl+alt+h" and zellij_key("alt ctrl  h") == "ctrl+alt+h"
+    assert zellij_key("H") == "shift+h" and zellij_key("Alt Shift p") == "alt+shift+p"
+    assert zellij_key("PageDown") == "Next" and zellij_key("esc") == "Escape" and zellij_key("Space") == "space"
+    assert zellij_key('"') == "quotedbl" and zellij_key("%") == "percent" and zellij_key("F12") == "F12"
+    assert zellij_key("Hyper x") == "!Hyper+x" and zellij_key("é") == "?é" and zellij_key("F13") == "!F13"
+    preset = ('preset {\n  defaults {\n    primary "Ctrl"\n    secondary "Alt"\n  }\n}\nkeybinds {\n'
+              '  // bind "x" { Nop; }\n  locked {\n    bind "{primary} g" { SwitchToMode "Normal"; }\n  }\n'
+              '  shared_except "locked" "tmux" {\n    bind "{secondary} h" "{secondary} Left" { MoveFocus "Left"; }\n  }\n'
+              '  tmux {\n    bind "\\"" { NewPane "Down"; }\n    bind "{" { Nop; }\n    bind "w" {\n      LaunchOrFocusPlugin "a" {\n'
+              '        floating true\n      };\n      SwitchToMode "Normal"\n    }\n    stray\n  }\n'
+              '  shared_among "pane" {\n    bind "Shift s" { Nop; }\n  }\n}\nmousebinds {\n  shared {\n'
+              '    bind "Left" { Click; }\n  }\n}\n')
+    r = zellij_report(preset)
+    assert {k for k in r if k.startswith("input_mode=tmux")} == {
+        "input_mode=tmux\tquotedbl", "input_mode=tmux\tbraceleft", "input_mode=tmux\tw"}, r
+    assert "input_mode=locked\tctrl+g" in r and "input_mode=pane\tshift+s" in r and "!line:stray" in r
+    assert {k for k in r if k.endswith("\talt+h")} == {f"input_mode={m}\talt+h" for m in ZELLIJ_MODES
+                                                      if m not in ("locked", "tmux")}
+    assert len(r) == 1 + 13 * 2 + 3 + 1 + 1, len(r)
+    assert zellij_modes("shared {") == ZELLIJ_MODES and zellij_modes('shared_among "tab" "Pane" {') == ["pane", "tab"]
+    assert zellij_modes("Normal {") == ["normal"]
+    # Each zellij KNOWN pattern matches its own example and no ordinary key; the "dump" one covers only that side.
+    zk = KNOWN["zellij"]
+    assert fnmatch.fnmatchcase("input_mode=pane\tctrl+q", zk[0][0])
+    assert fnmatch.fnmatchcase("input_mode=normal\talt+y", zk[1][0])
+    for k in ("input_mode=pane\tctrl+alt+q", "input_mode=normal\tctrl+qx", "input_mode=pane\talt+y",
+              "input_mode=normal\tshift+alt+y"):
+        assert not [p for p, *_ in zk if fnmatch.fnmatchcase(k, p)], k
+    both = {"input_mode=pane\tctrl+g"}
+    assert compare(both | {"input_mode=pane\tctrl+q"}, both | {"input_mode=normal\talt+y"}, zk) == ([], [], [])
+    # alt+y in the report instead: not known on that side, and the dump pattern goes stale.
+    assert compare(both | {"input_mode=normal\talt+y"}, both, zk[1:]) == (
+        ["input_mode=normal\talt+y"], [], ["input_mode=normal\talt+y"])
+    # A dump-only key a report pattern would match still fails.
+    assert compare(both, both | {"input_mode=pane\tctrl+q"}, zk[:1]) == ([], ["input_mode=pane\tctrl+q"],
+                                                                         ["input_mode=*\tctrl+q"])
     sheet = {"binds": {"k": [{"key": "Escape", "when": {"keyboard_mode": ["mv"]}}, {"key": "ctrl+a"}]}}
     assert dump_keys(sheet) == {"keyboard_mode=mv\tEscape", "ctrl+a"}
     print("oracle.py: self-test ok")

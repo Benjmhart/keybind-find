@@ -23,6 +23,10 @@ RUN echo "Server = https://archive.archlinux.org/repos/${SNAPSHOT}/\$repo/os/\$a
  && pacman -Scc --noconfirm
 # sway ships with cap_sys_nice, which a container's capability set doesn't allow: its exec fails with EPERM.
 RUN setcap -r /usr/bin/sway
+# zellij 0.46.0, newer than the snapshot (which has 0.45.1): its keybinding presets are what keybind-find reads now; 0.45
+# is covered by unit tests. Pinned by file name, its signature checked by pacman; its dependencies are in the snapshot.
+RUN pacman -U --noconfirm https://archive.archlinux.org/packages/z/zellij/zellij-0.46.0-1-x86_64.pkg.tar.zst \
+ && pacman -Scc --noconfirm
 
 # Programs that refuse to run as root (and a home that looks like a user's). The cache directories are created here
 # so the named volumes `run` mounts on them start out owned by this user.
