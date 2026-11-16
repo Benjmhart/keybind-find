@@ -116,8 +116,9 @@ phase, the harness also runs niri, nested on its own Xvfb (niri has no headless 
 `tests/e2e/record CASE [QUERY]` makes a provider PR's demo GIF from the same container: the case's program,
 keybind-find's picker over it, QUERY typed and a pick sending its key (written to `target/e2e-record/CASE.gif`, or
 `$E2E_OUT`). Attach it without committing it: put `![<program> in keybind-find](./CASE.gif)` in the PR body file, next
-to the GIF, and run `gh pr create --body-file body.md --attach 'CASE.gif#<program> in keybind-find'` (or
-`gh pr edit N --attach …` later; gh 2.104 or newer).
+to the GIF, and from that directory run
+`gh pr create --body-file body.md --attach 'CASE.gif#<program> in keybind-find'` (or `gh pr edit N --attach …` later;
+gh 2.104 or newer).
 
 If you use one of the best-effort programs, a bug report or a fix from real use is especially welcome.
 
