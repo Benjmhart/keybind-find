@@ -30,7 +30,19 @@ KITTY_NAMES = {
     "page_down": "Next", "home": "Home", "end": "End", "caps_lock": "Caps_Lock", "scroll_lock": "Scroll_Lock",
     "num_lock": "Num_Lock", "print_screen": "Print", "pause": "Pause", "menu": "Menu", "space": "space",
     "kp_page_up": "KP_Prior", "kp_page_down": "KP_Next",
+    "media_play": "XF86AudioPlay", "media_play_pause": "XF86AudioPlay", "media_pause": "XF86AudioPause",
+    "media_stop": "XF86AudioStop", "media_fast_forward": "XF86AudioForward", "media_rewind": "XF86AudioRewind",
+    "media_track_next": "XF86AudioNext", "media_track_previous": "XF86AudioPrev", "media_record": "XF86AudioRecord",
+    "lower_volume": "XF86AudioLowerVolume", "raise_volume": "XF86AudioRaiseVolume", "mute_volume": "XF86AudioMute",
+    "iso_level3_shift": "ISO_Level3_Shift", "iso_level5_shift": "ISO_Level5_Shift",
 }
+# left_shift, right_control, …: X's Shift_L, Control_R, …
+for side in ("left", "right"):
+    for mod, x in (("shift", "Shift"), ("control", "Control"), ("alt", "Alt"), ("super", "Super"), ("hyper", "Hyper"),
+                   ("meta", "Meta")):
+        KITTY_NAMES[f"{side}_{mod}"] = f"{x}_{side[0].upper()}"
+# ponytail: a native key (`map ctrl+XF86AudioPlay`) prints as its code (`0x1008ff14`, glfw isn't initialised under
+# +runpy), so it shows as a difference; give the oracle a keysym table when a case maps one.
 # keybind-find's chord order: these first, in this order; any other modifier after them, as written.
 MOD_ORDER = ["super", "ctrl", "alt", "shift"]
 
@@ -54,17 +66,21 @@ def kitty_key(name):
     elif key.startswith("XF86"):
         sym = key
     else:
-        sym = "?" + key  # an unknown name: shows up as a difference, never matches by accident
+        sym = "!" + key  # a name this table lacks: a difference no KNOWN pattern covers
     ordered = [m for m in MOD_ORDER if m in mods] + [m for m in dict.fromkeys(mods) if m not in MOD_ORDER]
     return "+".join(ordered + [sym])
 
 
 def kitty_report(text):
-    """oracle-kitty.py's lines (MODE<TAB>KEYS<TAB>FLAGS) as keys; a --when-focus-on map gets a `focus:` prefix."""
+    """oracle-kitty.py's lines (MODE<TAB>KEYS<TAB>FLAGS) as keys; a --when-focus-on map gets a `focus:` prefix, and
+    a line that isn't one (stray output) is kept as `!line:…`, a difference no KNOWN pattern covers."""
     keys = set()
-    for line in text.splitlines():
-        mode, seq, flags = (line.split("\t") + ["", ""])[:3]
-        key = " ".join(kitty_key(k) for k in seq.split(">"))
+    for line in filter(None, text.splitlines()):
+        if line.count("\t") != 2:
+            keys.add("!line:" + line)
+            continue
+        mode, seq, flags = line.split("\t")
+        key = " ".join(kitty_key(k) for k in seq.split(" "))
         key = ("focus:" if flags == "focus" else "") + key
         keys.add(f"keyboard_mode={mode}\t{key}" if mode else key)
     return keys
@@ -97,11 +113,12 @@ def dump_keys(sheet):
 
 
 def compare(report, dump, known):
-    """(only in the report, only in the dump, stale known patterns), known differences removed."""
+    """(only in the report, only in the dump, stale known patterns). A known difference is a key the program has and
+    keybind-find leaves out, so KNOWN covers only report-side keys: a dump-only key always fails."""
     is_known = lambda k: any(fnmatch.fnmatchcase(k, p) for p, _ in known)
     only_r, only_d = report - dump, dump - report
-    stale = [p for p, _ in known if not any(fnmatch.fnmatchcase(k, p) for k in only_r | only_d)]
-    return sorted(k for k in only_r if not is_known(k)), sorted(k for k in only_d if not is_known(k)), stale
+    stale = [p for p, _ in known if not any(fnmatch.fnmatchcase(k, p) for k in only_r)]
+    return sorted(k for k in only_r if not is_known(k)), sorted(only_d), stale
 
 
 def listed(keys):
@@ -143,14 +160,20 @@ def self_test():
     assert kitty_key("ctrl+shift+alt+t") == "ctrl+alt+shift+t"
     assert kitty_key("hyper+ctrl+kp_add") == "ctrl+hyper+KP_Add"
     assert kitty_key("ctrl+shift+f11") == "ctrl+shift+F11"
-    assert kitty_key("ctrl+bogus_name") == "ctrl+?bogus_name"
-    assert kitty_report("\tctrl+shift+p>f\t\nmv\tescape\t\n") == {"ctrl+shift+p f", "keyboard_mode=mv\tEscape"}
+    assert kitty_key("ctrl+bogus_name") == "ctrl+!bogus_name"
+    assert kitty_key("ctrl+é") == "ctrl+?é"
+    assert kitty_key("ctrl+left_shift") == "ctrl+Shift_L" and kitty_key("media_play") == "XF86AudioPlay"
+    assert kitty_report("\tctrl+shift+p f\t\nmv\tescape\t\n\n") == {"ctrl+shift+p f", "keyboard_mode=mv\tEscape"}
+    assert kitty_report("warning: x\n") == {"!line:warning: x"}
     known = [("*hyper+*", "r"), ("stale*", "r")]
     report = {"ctrl+a", "ctrl+b", "hyper+x"}
     assert compare(report, {"ctrl+a", "ctrl+c"}, known) == (["ctrl+b"], ["ctrl+c"], ["stale*"])
+    # A known pattern never hides a key only keybind-find has, nor counts it as still differing.
+    assert compare({"ctrl+a"}, {"ctrl+a", "hyper+y"}, known[:1]) == ([], ["hyper+y"], ["*hyper+*"])
     assert compare(report, {"ctrl+a", "ctrl+b"}, known[:1]) == ([], [], [])
     # Every kitty KNOWN pattern is literal enough not to swallow an ordinary key (fnmatch's `?` is any character).
-    assert not [p for p, _ in KNOWN["kitty"] if fnmatch.fnmatchcase("keyboard_mode=m\tctrl+shift+Down", p)]
+    for k in ("keyboard_mode=m\tctrl+shift+Down", "ctrl+!media_play"):
+        assert not [p for p, _ in KNOWN["kitty"] if fnmatch.fnmatchcase(k, p)], k
     sheet = {"binds": {"k": [{"key": "Escape", "when": {"keyboard_mode": ["mv"]}}, {"key": "ctrl+a"}]}}
     assert dump_keys(sheet) == {"keyboard_mode=mv\tEscape", "ctrl+a"}
     print("oracle.py: self-test ok")

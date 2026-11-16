@@ -1,8 +1,8 @@
 # kitty's own effective keymap, for tests/e2e/oracle.py: `kitty +runpy "$(cat oracle-kitty.py)" KITTY.CONF`.
 # Loads the config with kitty's own reader (load_config: defaults, kitty_mod, clear_all_shortcuts, includes, modes)
 # and prints one line per shortcut: MODE<TAB>KEYS<TAB>FLAGS, KEYS as kitty names them (`ctrl+shift+page_up`, a
-# sequence joined by `>`), FLAGS `focus` for a --when-focus-on map. Enumerated as kitty's debug_config.py
-# build_shortcut_map does. kitty internals, pinned by the image's kitty (0.49.2).
+# sequence joined by a space), FLAGS `focus` when every map on the key is --when-focus-on. Enumerated as kitty's
+# debug_config.py build_shortcut_map does. kitty internals, pinned by the image's kitty (0.49.2).
 # One function: +runpy exec()s this inside a function, so top-level names aren't visible to nested scopes.
 
 
@@ -23,8 +23,9 @@ def main():
             for d in defns:
                 by_seq.setdefault(d.full_key_sequence_to_trigger, []).append(d)
             for seq, ds in by_seq.items():
-                focus = any(d.options.when_focus_on for d in ds)
-                print(f"{mode}\t{'>'.join(name(k) for k in seq)}\t{'focus' if focus else ''}")
+                # A key with any unconditional map is unconditional where no focus map applies.
+                focus = all(d.options.when_focus_on for d in ds)
+                print(f"{mode}\t{' '.join(name(k) for k in seq)}\t{'focus' if focus else ''}")
 
 
 main()
