@@ -59,7 +59,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 
 nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, helix, herdr, tmux, zellij, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
-sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
+sway `app_id`, Hyprland `class`); nvim also inside a herdr, tmux or zellij pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
 GNOME Terminal, Xfce Terminal, WezTerm, Ghostty and Terminator), keybind-find finds the focused one on X11 when the
 terminal puts the window's id in each shell's environment (`WINDOWID`: Xfce Terminal, kitty, urxvt, alacritty), every
@@ -521,8 +521,11 @@ session, a client started with `--config`; and presets the running zellij would 
 place of the built-in one). Mouse binds are never listed. keybind-find reads its own environment and `PATH`, not the
 zellij client's: `ZELLIJ_CONFIG_FILE`, `ZELLIJ_CONFIG_DIR` or `XDG_CONFIG_HOME` set only in your shell, a `zellij` that
 isn't on the `PATH` of whatever starts keybind-find, or a client still running an older zellij after an upgrade, give
-a different list than the running zellij has. The program in zellij's focused pane (a shell, nvim) isn't found yet:
-only zellij's own keys are listed.
+a different list than the running zellij has. nvim in zellij's focused pane is found when zellij has one session with
+one client and names nvim as that pane's command (`zellij action list-clients`; zellij names a pane editing a file
+after its `scrollback_editor` or the server's `$EDITOR`, `vi` when neither is set, so `nvim file` is seen only when that
+is nvim); its keys are read from its config, not the running nvim. Several sessions or clients give one line and only
+zellij's keys.
 
 ### kitty
 

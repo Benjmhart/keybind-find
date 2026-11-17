@@ -1,0 +1,6 @@
+// keybind-find's e2e: one pane running nvim, for the zellij-nvim case.
+layout {
+    pane command="nvim" {
+        args "/tmp/e2e.c"
+    }
+}

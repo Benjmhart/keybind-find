@@ -86,7 +86,7 @@ fn focus(
     (ctx, program)
 }
 
-/// nvim inside herdr, tmux or screen, each asked through `run` only in its own context; screen also reads `proc`
+/// nvim inside herdr, tmux, screen or zellij, each asked through `run` only in its own context; screen also reads `proc`
 /// (`/proc`). Both are test seams.
 fn add_nested_nvim(
     providers: &mut Vec<&'static str>,
@@ -96,6 +96,7 @@ fn add_nested_nvim(
     add_nvim_in(providers, "herdr", || herdr_pane_runs_nvim(run));
     add_nvim_in(providers, "tmux", || tmux_pane_runs_nvim(run));
     add_nvim_in(providers, "screen", || screen_window_runs_nvim(run, proc));
+    add_nvim_in(providers, "zellij", || zellij_pane_runs_nvim(run));
 }
 
 /// In a context holding the multiplexer `outer` (herdr, tmux), adds nvim after it when its focused pane runs nvim.
@@ -348,6 +349,46 @@ fn newest_client(clients: &str) -> anyhow::Result<Option<&str>> {
         }
     }
     Ok(newest.map(|(_, rest)| rest))
+}
+
+/// Asks zellij (through `run`, a test seam) whether its one client's focused pane runs nvim. zellij picks the session:
+/// none or several active is its error. No pid is recorded: the nvim provider reads nvim's config.
+/// ponytail: one client only; several are an error, not a guess. Find the pane's process by `ZELLIJ_PANE_ID` in
+/// `/proc/*/environ` when nvim's live maps are wanted inside zellij.
+fn zellij_pane_runs_nvim(
+    run: impl Fn(&str, &[&str]) -> anyhow::Result<String>,
+) -> anyhow::Result<bool> {
+    // `action list-clients` never starts a session: with none active it exits 1.
+    zellij_client_runs_nvim(&run("zellij", &["action", "list-clients"])?)
+}
+
+/// From `zellij action list-clients`' table (`CLIENT_ID ZELLIJ_PANE_ID RUNNING_COMMAND`): whether its one client's
+/// command's program (first word, file name) is nvim. No client, several, or another table is an error.
+fn zellij_client_runs_nvim(table: &str) -> anyhow::Result<bool> {
+    let mut lines = table.lines().filter(|l| !l.trim().is_empty());
+    let header: Vec<&str> = lines
+        .next()
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect();
+    if header != ["CLIENT_ID", "ZELLIJ_PANE_ID", "RUNNING_COMMAND"] {
+        // zellij 0.46 exits 0 with several sessions, their names on stdout and its question on stderr.
+        bail!(
+            "zellij printed no client table (with several sessions it lists them and asks which)"
+        );
+    }
+    let rows: Vec<&str> = lines.collect();
+    let [row] = rows.as_slice() else {
+        bail!(
+            "{} zellij clients; can't tell which is in this window",
+            rows.len()
+        );
+    };
+    let program = row
+        .split_whitespace()
+        .nth(2)
+        .with_context(|| format!("zellij printed the client row {row:?}, with no command"))?;
+    Ok(std::path::Path::new(program).file_name() == Some("nvim".as_ref()))
 }
 
 /// Asks herdr (through `run`, a test seam) whether its focused pane runs nvim. `focused_pane_id` is the focus of
@@ -939,7 +980,11 @@ fn focused(node: &serde_json::Value) -> Option<&serde_json::Value> {
 fn run(program: &str, args: &[&str]) -> anyhow::Result<String> {
     let mut cmd = Command::new(program);
     // A UTF-8 locale keeps xprop from octal-escaping non-ASCII titles when launched with a bare environment.
-    cmd.args(args).env("LC_ALL", "C.UTF-8");
+    // From `/` with no mise auto-install, as zellij's provider runs zellij.
+    cmd.args(args)
+        .env("LC_ALL", "C.UTF-8")
+        .env("MISE_NOT_FOUND_AUTO_INSTALL", "0")
+        .current_dir("/");
     run_for(cmd, Duration::from_secs(1))
 }
 
@@ -2299,6 +2344,85 @@ mod tests {
     }
 
     #[test]
+    fn nvim_is_added_in_zellij_when_its_one_client_runs_nvim() {
+        let zellij = || providers_for(Some("xmonad"), Some("Alacritty"), Some("zellij"), &[]);
+        assert_eq!(
+            zellij(),
+            ["xmonad", "espanso", "alacritty", "zellij", "sheets"]
+        );
+        let header = "CLIENT_ID  ZELLIJ_PANE_ID RUNNING_COMMAND\n";
+        let row = |command: &str| format!("1          terminal_0     {command:<15}\n");
+        let calls = std::cell::RefCell::new(Vec::new());
+        let with = |out: anyhow::Result<String>| {
+            let out = std::cell::RefCell::new(Some(out));
+            let fake = |program: &str, args: &[&str]| {
+                calls
+                    .borrow_mut()
+                    .push(format!("{program} {}", args.join(" ")));
+                out.borrow_mut().take().unwrap()
+            };
+            let mut p = zellij();
+            add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
+            p
+        };
+        let with_nvim = ["xmonad", "espanso", "alacritty", "zellij", "nvim", "sheets"];
+        assert_eq!(with(Ok(format!("{header}{}", row("nvim x")))), with_nvim);
+        assert_eq!(*calls.borrow(), ["zellij action list-clients"]);
+        assert_eq!(
+            with(Ok(format!("{header}{}", row("/usr/bin/nvim x")))),
+            with_nvim
+        );
+        assert_eq!(with(Ok(format!("{header}{}", row("zsh")))), zellij());
+        // zellij shows a pane editing a file as `$EDITOR <file>` (vi when unset), even when nvim runs it.
+        assert_eq!(with(Ok(format!("{header}{}", row("vi x")))), zellij());
+        assert_eq!(with(Ok(format!("{header}{}", row("nvimx a")))), zellij());
+        // Can't tell: the plain context (`add_nvim_in` warns once on the error).
+        let two = format!(
+            "{header}{}{}",
+            row("nvim x"),
+            row("zsh").replacen('1', "2", 1)
+        );
+        for out in [
+            Ok(two.clone()),
+            Ok(header.to_string()),
+            Ok(row("nvim x")),
+            Err(anyhow::anyhow!(
+                "zellij failed (exit status: 1): There is no active session!"
+            )),
+            Err(anyhow::anyhow!(
+                "zellij failed (exit status: 1): Please specify the session name"
+            )),
+            // What 0.46 prints with several sessions: exit 0, their names.
+            Ok(
+                "\x1b[32;1ma\x1b[m [Created 2s ago] \n\x1b[32;1mb\x1b[m [Created 2s ago] \n"
+                    .to_string(),
+            ),
+        ] {
+            assert_eq!(with(out), zellij());
+        }
+        assert!(format!("{:#}", zellij_client_runs_nvim(&two).unwrap_err())
+            .contains("2 zellij clients"));
+        assert!(zellij_client_runs_nvim(header).is_err());
+        assert!(zellij_client_runs_nvim(&format!("{header}1 terminal_0\n")).is_err());
+        assert!(zellij_client_runs_nvim(&row("nvim x")).is_err());
+        // A line before the rows that isn't the header: not the table.
+        assert!(zellij_client_runs_nvim(&format!("a note\n{}", row("nvim x"))).is_err());
+        assert!(zellij_client_runs_nvim(&format!("{header}{}", row("nvim x"))).unwrap());
+        // No zellij in the context: zellij is never run.
+        calls.borrow_mut().clear();
+        let fake = |program: &str, args: &[&str]| {
+            calls
+                .borrow_mut()
+                .push(format!("{program} {}", args.join(" ")));
+            Ok(format!("{header}{}", row("nvim x")))
+        };
+        let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("zsh"), &[]);
+        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
+        assert!(calls.borrow().is_empty());
+        assert!(!p.contains(&"nvim"));
+    }
+
+    #[test]
     fn nvim_is_added_only_in_a_screen_context() {
         let screen = || providers_for(Some("xmonad"), Some("Alacritty"), Some("screen"), &[]);
         assert_eq!(
@@ -3434,6 +3558,11 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         assert!(run("false", &[]).is_err());
         assert!(run("/nonexistent-kbf", &[]).is_err());
         assert_eq!(run("sh", &["-c", "echo x"]).unwrap(), "x\n");
+        // From `/`, with no mise auto-install (zellij is run this way).
+        assert_eq!(
+            run("sh", &["-c", "pwd; echo $MISE_NOT_FOUND_AUTO_INSTALL"]).unwrap(),
+            "/\n0\n"
+        );
         let err = run("sh", &["-c", "echo one >&2; echo two >&2; exit 3"]).unwrap_err();
         assert!(err.to_string().ends_with("one two"), "{err}");
         // An empty stderr: the reason is on stdout.
