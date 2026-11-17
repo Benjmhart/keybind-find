@@ -496,21 +496,24 @@ mode it works in (`[input_mode=pane]`): zellij has no way to ask a client which 
 come from the installed zellij (`zellij --version`), with your `config.kdl` applied on top as zellij applies it
 (`clear-defaults`, `shared`, `shared_except`, `shared_among`, `bind`, `unbind`); the file is the one zellij finds:
 `$ZELLIJ_CONFIG_FILE`, else `config.kdl` in `$ZELLIJ_CONFIG_DIR`, `~/.config/zellij`, `$XDG_CONFIG_HOME/zellij` or
-`/etc/zellij`.
+`/etc/zellij` (a relative `$ZELLIJ_CONFIG_FILE` is taken from keybind-find's own working directory, not the
+zellij client's).
 
 - From 0.46, the defaults are the keybinding preset your `keybinds preset="…"` names (`default` when none), as
-  `zellij setup --dump-keybinds=<preset>` prints it: one of zellij's built-in presets, else
-  `keybinds/<preset>.kdl` in zellij's default config directory. Its `{primary}`, `{secondary}` and `{unlock}` leader
-  keys come from your `keybinds primary="…" secondary="…" unlock="…"`, else from the preset. A preset zellij can't
-  print, or leader keys that are empty or the same, give zellij's built-in `default` preset with its own leaders and a
-  one-line note. A key or mode in zellij's own output that keybind-find doesn't know (a newer zellij's) is left out
-  and counted in one line.
+  `zellij setup --dump-keybinds=<preset>` prints it: one of zellij's built-in presets (`default`, `unlock-first`),
+  else your `keybinds/<preset>.kdl` in zellij's default config directory. Its `{primary}`, `{secondary}` and
+  `{unlock}` leader keys come from your `keybinds primary="…" secondary="…" unlock="…"`, else from the preset. A
+  preset zellij can't print, your own preset with anything zellij would refuse in it, or leader keys that are empty,
+  the same, or make a key invalid, give zellij's built-in `default` preset with its own leaders and a one-line note.
+  In zellij's own built-in text, a mode, key, `{placeholder}` or instruction keybind-find doesn't know (a newer
+  zellij's) is left out and counted in one line, unless the key holds a leader value you gave.
 - Before 0.46, the defaults are the `keybinds` of `zellij setup --dump-config`.
 
 A config zellij would refuse (a key or mode it doesn't know, a `clear-defaults` that isn't `true` or `false`, a KDL
 error) gives one line naming the file and line, and no zellij keys. A key keybind-find can't send (a non-ASCII
 character) is left out and counted in one line. Each bind's description is its actions as written
-(`NewPane "Down"; SwitchToMode "Normal"`); they are shown, never checked.
+(`NewPane "Down"; SwitchToMode "Normal"`); they are shown, never checked. A bind with no actions (`bind "x" { }`)
+hides the default for its key and isn't listed.
 
 Not seen: keys a layout sets, `zellij options --keybinds-preset` (and `--keybinds-primary` and the rest) given for one
 session, a client started with `--config`; and presets the running zellij would find but `--dump-keybinds` doesn't (in
