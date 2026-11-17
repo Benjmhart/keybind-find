@@ -747,8 +747,11 @@ mod tests {
 
     const BSPWM_BINDS: usize = 85;
 
-    /// A fake `/proc`: `(pid, cmdline args, environ or None, cwd)`, each owned by this user.
-    fn fake_proc(name: &str, procs: &[(u32, &[&str], Option<&[&str]>, &str)]) -> PathBuf {
+    /// A fake process: pid, cmdline arguments, environ (`None`: unreadable), cwd.
+    type Proc<'a> = (u32, &'a [&'a str], Option<&'a [&'a str]>, &'a str);
+
+    /// A fake `/proc` of `procs`, each an `sxhkd` owned by this user.
+    fn fake_proc(name: &str, procs: &[Proc]) -> PathBuf {
         let dir = crate::test_tmp().join(format!("kbf-sxhkd-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         for (pid, args, environ, cwd) in procs {
