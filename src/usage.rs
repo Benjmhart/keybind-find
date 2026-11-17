@@ -70,8 +70,8 @@ pub fn rank(entries: &mut [Entry], counts: &Counts) {
 }
 
 /// One entry from each program in turn, each program keeping its order, so the first screen isn't all one program.
-/// The turns go: the innermost program (the last in the usual order), then the window manager, then the rest from
-/// inner to outer.
+/// The turns go: the innermost program (the last in the usual order), then the window managers (sxhkd's keys count as
+/// one), then the rest from inner to outer.
 fn alternate(entries: &mut [Entry]) {
     let mut groups: Vec<Vec<Entry>> = Vec::new();
     for e in entries.iter() {
@@ -81,15 +81,15 @@ fn alternate(entries: &mut [Entry]) {
         }
     }
     groups.reverse();
-    let wm = groups.iter().position(|g| {
-        matches!(
-            g[0].provider.as_str(),
-            "xmonad" | "sway" | "hyprland" | "kde" | "xfce" | "i3" | "gnome"
-        )
-    });
-    if let Some(wm @ 1..) = wm {
-        let g = groups.remove(wm);
-        groups.insert(1, g);
+    // Every window-manager group (sxhkd's keys beside i3's), each keeping its place among them.
+    if !groups.is_empty() {
+        let (wms, rest): (Vec<_>, Vec<_>) = groups.split_off(1).into_iter().partition(|g| {
+            matches!(
+                g[0].provider.as_str(),
+                "xmonad" | "sway" | "hyprland" | "kde" | "xfce" | "i3" | "gnome" | "sxhkd"
+            )
+        });
+        groups.extend(wms.into_iter().chain(rest));
     }
     let mut turns: Vec<_> = groups.into_iter().map(Vec::into_iter).collect();
     let mut out = Vec::with_capacity(entries.len());
@@ -265,6 +265,15 @@ mod tests {
         assert_eq!(
             ranked(&[("xmonad", 2), ("espanso", 1), ("sheets", 2)], ""),
             ["sheets0", "xmonad0", "espanso0", "sheets1", "xmonad1"]
+        );
+        // sxhkd's keys are a window manager's: with i3's (inner to outer, so sxhkd first) or alone.
+        assert_eq!(
+            ranked(&[("i3", 1), ("sxhkd", 2), ("espanso", 1), ("nvim", 2)], ""),
+            ["nvim0", "sxhkd0", "i30", "espanso0", "nvim1", "sxhkd1"]
+        );
+        assert_eq!(
+            ranked(&[("sxhkd", 1), ("espanso", 1), ("nvim", 1)], ""),
+            ["nvim0", "sxhkd0", "espanso0"]
         );
         // sway and Hyprland are window managers too.
         assert_eq!(

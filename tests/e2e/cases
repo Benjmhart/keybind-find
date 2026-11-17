@@ -37,6 +37,12 @@ if [ "$PHASE" = x11 ]; then
   x zellij-nvim    "i3 zellij nvim" "nvim|backslash x|e2e quit"       -- xterm -e env EDITOR=nvim zellij --layout /tmp/home/.config/zellij/nvim.kdl
   pkill -x zellij || true
   x less           "i3 less"    "less|X|quit"                       -- xterm -e less /etc/os-release
+  # sxhkd's hotkeys beside i3's, from the sxhkd running on this display (stopped after, so later cases don't list it).
+  # sxhkd exits without SHELL (it runs commands through it), which the harness leaves unset.
+  wanted sxhkd && { SHELL=/bin/sh sxhkd >"$OUT/sxhkd.log" 2>&1 & }
+  wanted sxhkd && for _ in $(seq 50); do pgrep -x sxhkd >/dev/null && break; sleep 0.1; done
+  x sxhkd          "i3 sxhkd zsh" "sxhkd|super+alt+x|e2e quit"       -- xterm -e zsh
+  wanted sxhkd && pkill -x sxhkd && for _ in $(seq 50); do pgrep -x sxhkd >/dev/null || break; sleep 0.1; done
   # Terminals with keys of their own, a shell inside.
   x alacritty      "i3 alacritty zsh"       "alacritty|ctrl+shift+x|Quit"          -- alacritty -e zsh
   x kitty          "i3 kitty zsh"           "kitty|ctrl+shift+x|close_window"      -- kitty zsh

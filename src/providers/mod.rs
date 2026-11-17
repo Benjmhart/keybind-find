@@ -35,6 +35,7 @@ mod screen;
 mod sheets;
 mod shells;
 mod sway;
+mod sxhkd;
 mod tmux;
 mod vim;
 mod vimium;
@@ -49,6 +50,7 @@ mod zed;
 mod zellij;
 
 pub(crate) use sheets::is_browser;
+pub(crate) use sxhkd::running as sxhkd_running;
 pub(crate) use vscode::is_vscode;
 pub(crate) use zed::is_zed;
 
@@ -93,6 +95,7 @@ pub const KNOWN: &[&str] = &[
     "helix",
     "wezterm",
     "zellij",
+    "sxhkd",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -135,6 +138,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "helix" => helix::sheet(),
         "wezterm" => wezterm::sheet(ctx),
         "zellij" => zellij::sheet(),
+        "sxhkd" => sxhkd::sheet(ctx),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
