@@ -342,7 +342,7 @@ impl<'a> Src<'a> {
 
     /// The keys of a `bind` or `unbind` node, each with the leaders' placeholders put in first (a preset's keys; one
     /// with no value for a placeholder is invalid). In zellij's own text an invalid key is skipped, and counted when
-    /// `counted` (a bind's), unless the user gave one of its placeholders a value.
+    /// `counted` (a bind's), unless every placeholder had a value and the user gave one of them.
     fn keys(&self, node: &KdlNode, counted: bool) -> anyhow::Result<Vec<Key>> {
         let mut keys = Vec::new();
         for raw in self.strings(node)? {
@@ -357,7 +357,7 @@ impl<'a> Src<'a> {
             };
             match k.as_deref().and_then(Key::parse) {
                 Some(key) => keys.push(key),
-                None if self.own && !users() => self.count(usize::from(counted)),
+                None if self.own && !(k.is_some() && users()) => self.count(usize::from(counted)),
                 None => {
                     let k = k.as_deref().unwrap_or(raw);
                     return Err(self.at(node, format!("invalid key {k:?}")));
@@ -513,8 +513,10 @@ fn placeholders_in(text: &str) -> Vec<&str> {
     found
 }
 
-/// `key` with each placeholder it holds replaced by its value, in one pass (a value's own `{…}` stays), then whitespace
-/// collapsed (`substitute_placeholders`); `None` when one has no value.
+/// `key` with its placeholders put in as zellij's `substitute_placeholders` does: for each placeholder in the original
+/// key, in order, every `{name}` in the text so far is replaced by its value (so a value holding a later placeholder's
+/// `{…}` is replaced again, and one holding an earlier one's stays); then whitespace collapsed. `None` when one has no
+/// value.
 fn substitute(key: &str, values: &BTreeMap<String, String>) -> Option<String> {
     let mut out = key.to_string();
     for name in placeholders_in(key) {
@@ -1513,6 +1515,29 @@ mod tests {
         let user = leaders(&[("primary", "Alt")]);
         let e = format!("{:#}", preset_binds(p, &user, true).unwrap_err());
         assert_eq!(e, "line 5: invalid key \"Alt F13\"");
+        // ... but not one whose other placeholder is unknown here (a newer zellij's): left out and counted.
+        let newer = "keybinds {\n  pane { bind \"{primary} {hyper} x\" { Quit; }; bind \"y\" { Quit; }; }\n}\n";
+        let (binds, unknown) = preset_binds(newer, &user, true).unwrap();
+        assert_eq!(
+            (rows(&sheet_of(&binds).unwrap().0), unknown),
+            (vec!["pane y = Quit".to_string()], 1)
+        );
+        // `shared_except` naming only an unknown mode binds in every known one, nothing counted; `shared_among` naming
+        // none binds nowhere and counts nothing.
+        let shared = "keybinds {\n  shared_except \"newmode\" { bind \"q\" { Quit; }; }\n\
+                      shared_among { bind \"w\" { Quit; }; }\n}\n";
+        let (binds, unknown) = preset_binds(shared, &BTreeMap::new(), true).unwrap();
+        let r = rows(&sheet_of(&binds).unwrap().0);
+        assert_eq!((r.len(), unknown), (MODES.len(), 0));
+        assert!(r.iter().all(|r| r.ends_with(" q = Quit")));
+        // In the user's config, no row and no note either.
+        let (f, _g) = config(
+            "among",
+            "keybinds {\n  shared_among { bind \"w\" { Quit; }; }\n}\n",
+        );
+        let (sheet, notes) = read_with("0.46.0", Some(&f)).0.unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        assert!(!rows(&sheet).iter().any(|r| r.ends_with(" w = Quit")));
     }
 
     #[test]
@@ -2070,6 +2095,8 @@ mod tests {
 
     #[test]
     fn the_command() {
+        // AC #2: each run is given 2 s.
+        assert_eq!(TIMEOUT, Duration::from_secs(2));
         let cmd = command(&["setup", "--dump-keybinds=default"]);
         assert_eq!(cmd.get_program(), "zellij");
         let args: Vec<_> = cmd

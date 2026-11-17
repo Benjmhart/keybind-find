@@ -3,16 +3,19 @@
 
 use kdl::{KdlDocument, KdlNode};
 
-/// The parser (kdl's v1, nom) recurses once per `{ }` level and once per `*`, `/` or run of other text in a `/* */`
-/// comment, and a stack overflow aborts the whole process. So it runs on a thread of its own with `STACK`, and
-/// `parse` first refuses a text deeper than `MAX_DEPTH` or with a comment holding more than `MAX_COMMENT` `*` and `/`.
-/// Measured 2026-11-16: the worst text within both bounds parses on a 32 MiB stack in a debug build; on 64 MiB the
-/// parser took ~4,600 levels or ~22k comment tokens in debug, ~297k tokens in release (2 MiB, the providers' threads:
-/// 143 levels and ~670 tokens in debug, ~9k tokens in release). zellij's files nest 4 deep; the whole 0.45 default
-/// config commented out holds about 700 `*` and `/`.
+/// The parser (kdl's v1, nom) recurses once per `{ }` level, once per `*`, `/` or run of other text in a `/* */`
+/// comment, and once per `/-` in a chain of them (one after another, with only whitespace and comments between), and
+/// a stack overflow aborts the whole process. So it runs on a thread of its own with `STACK`, and `parse` first
+/// refuses a text past `MAX_DEPTH` levels, `MAX_COMMENT` comment parts or `MAX_CHAIN` chained `/-`. zellij's own
+/// parser (the same kdl 4) runs on its 8 MiB main thread, so a file past these is one zellij can't load either.
+/// Measured 2026-11-16 in a debug build on 2 MiB (release takes ~7-30x more): ~143 levels, ~684 comment parts, ~140
+/// chained `/-`; the worst text within all three bounds (`the_bounds_fit_the_stack`) needs between 24 and 32 MiB in
+/// debug, so `STACK` leaves twice that.
+/// zellij's files nest 4 deep; the whole 0.45 default config commented out is about 1,400 comment parts.
 const STACK: usize = 64 << 20;
 const MAX_DEPTH: usize = 256;
 const MAX_COMMENT: usize = 8192;
+const MAX_CHAIN: usize = 256;
 
 /// `text` as a KDL v1 document; a failure is `line N: <message>`, from the first diagnostic.
 pub(crate) fn parse(text: &str) -> anyhow::Result<KdlDocument> {
@@ -27,6 +30,8 @@ pub(crate) fn parse(text: &str) -> anyhow::Result<KdlDocument> {
     });
     let parsed = match parsed {
         Ok(Ok(parsed)) => parsed,
+        // The default panic hook has already printed its own line; kdl 4.7.1's panics are believed unreachable from
+        // `parse_v1`.
         Ok(Err(_)) => anyhow::bail!("the KDL parser failed (a panic)"),
         Err(e) => anyhow::bail!("the KDL parser failed: can't start its thread: {e}"),
     };
@@ -40,16 +45,36 @@ pub(crate) fn parse(text: &str) -> anyhow::Result<KdlDocument> {
     })
 }
 
-/// Where `text` goes past `MAX_DEPTH` or `MAX_COMMENT`, and which: a scan of KDL v1's strings (`"…"` with escapes,
-/// `r#"…"#` raw), `//` line comments and nested `/* */` comments, counting `{` levels outside them.
+/// Where `text` goes past `MAX_DEPTH`, `MAX_COMMENT` or `MAX_CHAIN`, and which: a scan of KDL v1's strings (`"…"`
+/// with escapes, `r#"…"#` raw), `//` line comments (to any of v1's newlines) and nested `/* */` comments, counting
+/// `{` levels and chained `/-` outside them.
 fn too_deep(text: &str) -> Option<(usize, String)> {
     let b = text.as_bytes();
     let at = |i: usize, s: &[u8]| b[i..].starts_with(s);
-    let (mut i, mut depth) = (0, 0usize);
+    let newline = |i: usize| {
+        [
+            &b"\n"[..],
+            b"\r",
+            b"\x0c",
+            b"\xc2\x85",
+            b"\xe2\x80\xa8",
+            b"\xe2\x80\xa9",
+        ]
+        .iter()
+        .any(|n| at(i, n))
+    };
+    let (mut i, mut depth, mut chain) = (0, 0usize, 0usize);
     while i < b.len() {
-        let hashes = b[i + 1..].iter().take_while(|&&c| c == b'#').count();
+        let hashes = match b[i] {
+            b'r' => b[i + 1..].iter().take_while(|&&c| c == b'#').count(),
+            _ => 0,
+        };
         // ponytail: any `r"`/`r#"` counts, even ending a name (`bar"`): that text is no KDL, and the parser stops there.
         let raw = b[i] == b'r' && b.get(i + 1 + hashes) == Some(&b'"');
+        // Whitespace and comments keep a `/-` chain going; anything else ends it.
+        if !(b[i].is_ascii_whitespace() || newline(i) || at(i, b"/")) {
+            chain = 0;
+        }
         if b[i] == b'"' {
             i += 1;
             while i < b.len() && b[i] != b'"' {
@@ -63,28 +88,38 @@ fn too_deep(text: &str) -> Option<(usize, String)> {
                 i += 1;
             }
         } else if at(i, b"//") {
-            while i < b.len() && b[i] != b'\n' {
+            while i < b.len() && !newline(i) {
                 i += 1;
             }
+            continue;
         } else if at(i, b"/*") {
-            let (start, mut open, mut marks) = (i, 0usize, 0usize);
+            // Each `*`, `/` and run of other text is a step of the parser's.
+            let (start, mut open, mut parts, mut run) = (i, 0usize, 0usize, false);
             while i < b.len() && (open > 0 || i == start) {
                 if at(i, b"/*") || at(i, b"*/") {
                     open = if b[i] == b'/' { open + 1 } else { open - 1 };
-                    marks += 2;
+                    (parts, run) = (parts + 2, false);
                     i += 2;
                 } else {
-                    marks += usize::from(b[i] == b'*' || b[i] == b'/');
+                    let mark = b[i] == b'*' || b[i] == b'/';
+                    parts += usize::from(mark || !run);
+                    run = !mark;
                     i += 1;
                 }
-                if marks > MAX_COMMENT {
+                if parts > MAX_COMMENT {
                     return Some((
                         start,
-                        format!("a /* */ comment with more than {MAX_COMMENT} `*` and `/`"),
+                        format!("a /* */ comment of more than {MAX_COMMENT} parts (`*`, `/` and the text between)"),
                     ));
                 }
             }
             continue;
+        } else if at(i, b"/-") {
+            chain += 1;
+            if chain > MAX_CHAIN {
+                return Some((i, format!("more than {MAX_CHAIN} `/-` in a row")));
+            }
+            i += 1;
         } else if b[i] == b'{' {
             depth += 1;
             if depth > MAX_DEPTH {
@@ -140,7 +175,8 @@ mod tests {
         ))
         .unwrap();
         assert!(parse(&format!("/*\n{d}\n*/\n").repeat(10)).is_ok());
-        assert!(parse(&format!("/*\n{}\n*/\n", d.repeat(10))).is_ok());
+        // Ten in one comment are over the bound: one error.
+        assert!(err(&format!("/*\n{}\n*/\n", d.repeat(10))).contains("comment of more than"));
         let nested = |n: usize| format!("{}{}", "b {\n".repeat(n), "}\n".repeat(n));
         assert!(parse(&nested(256)).is_ok());
         // Past the bounds: one error each.
@@ -149,11 +185,45 @@ mod tests {
             err(&format!("a\n{}", "b {".repeat(100_000))),
             "line 2: nested more than 256 deep"
         );
-        let e = "line 2: a /* */ comment with more than 8192 `*` and `/`";
+        let e = "line 2: a /* */ comment of more than 8192 parts (`*`, `/` and the text between)";
         assert_eq!(err(&format!("a\n/* {} */\n", "* ".repeat(20_000))), e);
-        assert_eq!(err(&format!("a\n/* {} */\n", "/".repeat(8191))), e);
-        assert!(parse(&format!("a\n/* {} */\n", "/".repeat(8188))).is_ok());
+        // `/*`, then 8,189 parts (a space, the `/`s), then `*/`: 8,193.
+        assert_eq!(err(&format!("a\n/* {} */\n", "/".repeat(8187))), e);
+        assert!(parse(&format!("a\n/* {} */\n", "/".repeat(8186))).is_ok());
+        // Text between marks counts too: `*a` is two parts.
+        assert_eq!(err(&format!("a\n/*{}*/\n", "*a".repeat(4095))), e);
+        assert!(parse(&format!("a\n/*{}*/\n", "*a".repeat(4094))).is_ok());
         assert_eq!(err(&format!("a\n{}", "/*".repeat(5000))), e);
+        // A chain of `/-`, of nodes or of entries, whitespace and comments between: one error past 256.
+        let chain = "line 1: more than 256 `/-` in a row";
+        assert_eq!(err(&format!("{}a\n", "/-".repeat(30_000))), chain);
+        assert_eq!(err(&format!("a {}1\n", "/- ".repeat(50_000))), chain);
+        assert_eq!(
+            err(&format!("a {}1\n", "/- /* c */ // c\n".repeat(300)))
+                .split(':')
+                .nth(1),
+            Some(" more than 256 `/-` in a row")
+        );
+        assert!(
+            parse(&format!("{}a\n", "/-".repeat(256))).is_ok()
+                || !err(&format!("{}a\n", "/-".repeat(256))).contains("in a row")
+        );
+        // Separate slashdashed binds aren't a chain.
+        let binds = format!(
+            "keybinds {{\n  normal {{\n{}  }}\n}}\n",
+            "    /-bind \"a\" { Quit; }\n    bind \"b\" { Quit; }\n".repeat(300)
+        );
+        assert!(parse(&binds).is_ok(), "{:#}", parse(&binds).unwrap_err());
+        // A `//` comment ends at any of KDL v1's newlines, and what follows counts.
+        for nl in ["\r", "\r\n", "\u{c}", "\u{85}", "\u{2028}", "\u{2029}"] {
+            let t = format!("// x{nl}{}", "b {".repeat(100_000));
+            assert!(err(&t).ends_with("nested more than 256 deep"), "{nl:?}");
+        }
+        assert!(parse(&format!("// x\ra \"\n{}\"\n", "{".repeat(300))).is_ok());
+        // Many `#` (no `r` before them) scan in linear time.
+        let started = std::time::Instant::now();
+        assert!(too_deep(&"#".repeat(400_000)).is_none());
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
         // A raw string ends at its quote and hashes, with no escapes: the braces after it count.
         assert_eq!(
             err(&format!("a r\"\\\"\n{}", "b {".repeat(3000))),
@@ -185,17 +255,23 @@ mod tests {
 
     #[test]
     fn the_bounds_fit_the_stack() {
-        // The worst texts within both bounds: 255 levels around a comment of 8,190 `*` and `/` in each shape.
+        // The worst texts within all bounds: 255 levels, a chain of 256 `/-`, then a comment of 8,192 parts in each
+        // shape (marks alone, marks and text, nested comments).
         let nest = "b {\n".repeat(255);
+        let close = "}\n".repeat(255);
         for body in [
-            "*a".repeat(4095),
+            "*".repeat(8188),
+            "*a".repeat(4094),
             "/*".repeat(2047) + &"*/".repeat(2047),
-            "/a".repeat(4095),
-            "*".repeat(8186),
         ] {
-            let t = format!("{nest}/* {body} */ c\n{}", "}\n".repeat(255));
-            assert!(too_deep(&t).is_none());
-            assert!(parse(&t).is_ok());
+            // A chain of node slashdashes is an error at the end (a `/-` is no node), after the parser went through it all.
+            let nodes = format!("{nest}{}/*{body}*/c\n{close}", "/-".repeat(256));
+            assert!(too_deep(&nodes).is_none());
+            assert!(err(&nodes).starts_with("line 257: "));
+            let entries = format!("{nest}a {}/*{body}*/ 1\n{close}", "/- ".repeat(256));
+            assert!(too_deep(&entries).is_none());
+            // So is a chain of entry slashdashes (a `/-` is no value); both return, no abort.
+            assert!(err(&entries).starts_with("line 256: "));
         }
     }
 
