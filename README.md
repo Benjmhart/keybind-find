@@ -650,7 +650,7 @@ is a key sequence (`super+w a`). A comment right above a hotkey is its descripti
 expands to several keys); a comment block followed by a blank line is a section title, the category of the hotkeys
 under it; with neither, the category is `bspc`'s subcommand (`node`, `desktop`) or `sxhkd`. Commands are shown, never
 run; a pick presses the key, which sxhkd then acts on. Hotkeys keybind-find can't send (`hyper`, `meta`, `mode_switch`,
-`lock`, `mod2`, `mod3`, `mod5` or `any`; a pointer button; an upper-case letter, which sxhkd never matches; an
+`lock`, `mod2`, `mod3`, `mod5` or `any`; a pointer button; an upper-case letter; an
 unknown key name) are left out, counted in one line. A file that can't be read is one line, and the others still
 count. With no sxhkd running, `keybind-find dump sxhkd` reads the default path and says so. sxhkd prints no list of
 its hotkeys, so there is nothing to check the list against but its files. Under Wayland sxhkd isn't listed.

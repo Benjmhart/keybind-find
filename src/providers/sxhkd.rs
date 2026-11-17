@@ -59,7 +59,7 @@ fn read(proc: &Path, uid: Option<u32>, env: Env) -> anyhow::Result<(Sheet, Vec<S
     if left_out > 0 {
         notes.push(format!(
             "leaving out {left_out} hotkey(s) keybind-find can't send (hyper, meta, mode_switch, lock, mod2, mod3, \
-             mod5 or any; a pointer button; an upper-case letter, which sxhkd never matches; or a name not in the \
+             mod5 or any; a pointer button; an upper-case letter; or a name not in the \
              key notation)"
         ));
     }
@@ -337,8 +337,8 @@ fn expand(hotkey: &[u8], command: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
 }
 
 /// `get_token` (`src/parse.c:2513-2545`): the first token of `src` split on the bytes of `sep` (leading separators
-/// skipped) and how many bytes were read (C's `ign`, the separators after it, is unused here). `\` escapes the next byte; it is kept unless that
-/// byte is `\`, a separator, or the end.
+/// skipped) and how many bytes were read (C's `ign`, the separators after it, is unused here). `\` escapes the next
+/// byte; it is kept unless that byte is `\`, a separator, or the end.
 fn get_token(src: &[u8], sep: &[u8]) -> (Vec<u8>, usize) {
     let mut dst = Vec::new();
     let (mut i, mut inhibit, mut found) = (0, false, false);
@@ -495,8 +495,9 @@ fn key(hotkey: &[u8]) -> Option<String> {
                     return None
                 }
                 // Each name must be a keysym in the notation (sxhkd drops a hotkey with an unknown name); the last
-                // wins, as `parse_keysym` overwrites it. The notation refuses an upper-case letter: sxhkd matches the
-                // unshifted keysym (`parse_event`, `src/parse.c:2424-2449`).
+                // wins, as `parse_keysym` overwrites it. The notation refuses an upper-case letter, so it is left out.
+                // ponytail: sxhkd binds `A` as shift + the key holding it (`make_chord`, `src/types.c:135-175`); list
+                // it as `shift+a` if that's wanted (the layout decides which key that is).
                 _ => {
                     let name = std::str::from_utf8(name).ok()?;
                     name.parse::<keybind_find_sheet::Keysym>().ok()?;
