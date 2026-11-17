@@ -6,13 +6,17 @@
 # scroll commands of data/keyboard-layouts/default.keytab. KStandardAction names and texts from kconfigwidgets tag
 # v6.31.0 (commit 02b7a0bd5f9eaff65900dd85029a7edefdfb14bd) src/kstandardaction_p.h; their default keys, where Konsole sets
 # none, from kconfig tag v6.31.0 (commit a25acdfb1f51c9d8af3426f03380a9de5c88817a) src/gui/kstandardshortcut.cpp; the window's own
-# open_kcommand_bar, help_contents and help_whats_this from kxmlgui tag v6.31.0 (commit e47ccaf51aa34a538117161cac1f0b8039e66526)
-# src/kxmlguiwindow.cpp and src/khelpmenu.cpp; add_bookmark's name from kbookmarks tag v6.31.0
-# (commit 4942bef169183eda666f470cf8a18ce4e16ec75e) src/widgets/kbookmarkmenu.cpp. The KDE Frameworks are LGPL-2.0-or-later.
+# actions (open_kcommand_bar, the help menu's: src/kxmlguiwindow.cpp:176-204, 400-418, src/khelpmenu.cpp:129-157;
+# options_configure_toolbars: :343; the toolbar toggles: src/ktoolbarhandler.cpp:94, 114) from
+# kxmlgui tag v6.31.0 (commit e47ccaf51aa34a538117161cac1f0b8039e66526), with texts from kconfig src/gui/kstandardactions_p.h; the bookmark
+# menu's names (src/widgets/kbookmarkmenu.cpp:315, 336, 355, 386; Konsole src/BookmarkMenu.cpp:28) from kbookmarks
+# tag v6.31.0 (commit 4942bef169183eda666f470cf8a18ce4e16ec75e). The KDE Frameworks are LGPL-2.0-or-later.
+# The plugins' action names (quickcommands-*, sshmanager-*) are made up: those actions are in no collection.
 #
-# One row per action: `action` its action-collection name; `client` the KXMLGUI file that can change it (konsole:
-# konsoleui.rc, session: sessionui.rc; plugin and keytab: none); `desc` its English text with `&` removed; `keys` its
-# default shortcuts as Qt portable text (none: []); `category`.
+# One row per action: `action` its action-collection name; `client` what can change it: konsole (konsoleui.rc) and
+# session (sessionui.rc), each also cleared and set by a shortcut scheme; toolbar: cleared and set by a scheme only;
+# pluginmenu: cleared by a scheme only; plugin, keytab and fixed: nothing. `desc` its English text with `&` removed;
+# `keys` its default shortcuts as Qt portable text (none: []); `category`.
 
 [[action]]
 action = "new-tab"
@@ -884,7 +888,7 @@ category = "window"
 
 [[action]]
 action = "quickcommands-show"
-client = "plugin"
+client = "pluginmenu"
 desc = "Show Quick Commands"
 keys = ["Ctrl+Shift+F1"]
 category = "window"
@@ -898,7 +902,7 @@ category = "session"
 
 [[action]]
 action = "sshmanager-show"
-client = "plugin"
+client = "pluginmenu"
 desc = "Show SSH Manager"
 keys = ["Ctrl+Shift+F2"]
 category = "window"
@@ -919,7 +923,7 @@ category = "window"
 
 [[action]]
 action = "help_contents"
-client = "konsole"
+client = "fixed"
 desc = "Konsole Handbook"
 keys = []
 category = "window"
@@ -933,9 +937,93 @@ category = "window"
 
 [[action]]
 action = "hamburger_menu"
-client = "konsole"
+client = "session"
 desc = "Open Menu"
 keys = ["Shift+F10"]
+category = "window"
+
+[[action]]
+action = "help_report_bug"
+client = "konsole"
+desc = "Report Bug…"
+keys = []
+category = "window"
+
+[[action]]
+action = "switch_application_language"
+client = "konsole"
+desc = "Configure Language…"
+keys = []
+category = "window"
+
+[[action]]
+action = "help_about_app"
+client = "konsole"
+desc = "About Konsole"
+keys = []
+category = "window"
+
+[[action]]
+action = "help_about_kde"
+client = "konsole"
+desc = "About KDE"
+keys = []
+category = "window"
+
+[[action]]
+action = "help_donate"
+client = "konsole"
+desc = "Donate"
+keys = []
+category = "window"
+
+[[action]]
+action = "options_configure_toolbars"
+client = "konsole"
+desc = "Configure Toolbars…"
+keys = []
+category = "window"
+
+[[action]]
+action = "edit_bookmarks"
+client = "konsole"
+desc = "Edit Bookmarks…"
+keys = []
+category = "window"
+
+[[action]]
+action = "add_bookmarks_list"
+client = "konsole"
+desc = "Bookmark Tabs as Folder…"
+keys = []
+category = "window"
+
+[[action]]
+action = "new_bookmark_folder"
+client = "konsole"
+desc = "New Bookmark Folder…"
+keys = []
+category = "window"
+
+[[action]]
+action = "mainToolBar"
+client = "toolbar"
+desc = "Main Toolbar"
+keys = []
+category = "window"
+
+[[action]]
+action = "sessionToolbar"
+client = "toolbar"
+desc = "Session Toolbar"
+keys = []
+category = "window"
+
+[[action]]
+action = "toolbars_submenu_action"
+client = "toolbar"
+desc = "Toolbars Shown"
+keys = []
 category = "window"
 
 [[action]]

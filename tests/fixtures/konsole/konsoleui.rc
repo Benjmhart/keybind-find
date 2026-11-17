@@ -4,6 +4,7 @@
 <gui name="konsole" version="20">
     <MenuBar>
         <Menu name="file"><text>File</text>
+            <ActionProperties scheme="Default"><Action name="clone-tab" shortcut="Ctrl+Alt+N"/></ActionProperties>
             <Action name="new-window"/>
             <Action name="new-tab"/>
             <Action name="clone-tab"/>
@@ -72,11 +73,24 @@
         <Action name="new-tab" shortcut="Ctrl+Shift+T; Ctrl+T"/>
         <Action name="new-window" shortcut=""/>
         <Action name="detach-tab" accel="Ctrl+Shift+J"/>
+        <Action name="save-layout" ACCEL="Ctrl+Alt+U"/>
+        <Action name="last-tab" shortcut="Ctrl+;; Ctrl+T"/>
+        <Action name="split-view-top-bottom" shortcut="Ctrl+Alt+A;
+Ctrl+Alt+B"/>
         <Action name="split-view-auto" shortcut='Ctrl+&amp;'/>
-        <Action name="some-plugin-action" shortcut="Meta+K"/>
+        <Action name="no-such-action" shortcut="Meta+K"/>
+        <Action name="help_about_kde" shortcut="Ctrl+Alt+K"/>
         <Action name="focus-view-next" shortcut="Num+5"/>
         <action name="clone-tab" shortcut="Ctrl+Alt+&#x43;"/>
         <Action shortcut="Ctrl+Alt+Z"/>
+        <Action name="" shortcut="Ctrl+Alt+Y"/>
+        <Action name="edit_copy" shortcut="Ctrl+Alt+E"/>
+        <Action name="hamburger_menu" shortcut="Ctrl+Alt+H"/>
+        <Action name="help_contents" shortcut="F1"/>
+        <Action name="quickcommands-show" shortcut="Ctrl+Alt+F"/>
+        <Action name="manage-profiles" shortcut="Ctrl+Alt+P">
+            <Action name="detach-view" shortcut="Ctrl+Alt+D"/>
+        </Action>
     </ActionProperties>
     <ActionProperties scheme="Default">
         <Action name="close-window" shortcut="Ctrl+Alt+W"/>

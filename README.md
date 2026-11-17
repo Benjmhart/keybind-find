@@ -608,12 +608,16 @@ own (Find Action, What's This, Open Menu); one version, not checked against the 
 changes you make in Settings → Configure Keyboard Shortcuts, which Konsole saves in
 `~/.local/share/kxmlgui5/konsole/konsoleui.rc` and `sessionui.rc` (the first of each found under `$XDG_DATA_HOME` or
 `~/.local/share`, then each `$XDG_DATA_DIRS` entry): a changed shortcut replaces the default, an empty one removes it,
-and an action keybind-find doesn't know is listed by its name. A file that can't be read is one line, and the defaults
+and an action keybind-find doesn't know is listed by its name (a stale entry for an action Konsole no longer has
+too). The file is read as it is: KXMLGUI's merging of an older or hand-written file with the shipped one isn't
+modelled. A file that can't be read is one line, and the defaults
 show. From `~/.config/konsolerc` (or under `$XDG_CONFIG_HOME`): a shortcut scheme other than Default (`[Shortcut
 Schemes]`) starts from no shortcuts and applies `konsole/shortcuts/<scheme>` from the same data directories, as Konsole
 does (without that file, a line says so and the list keeps only what doesn't come from a scheme); your profile
-shortcuts (`[Profile Shortcuts]`) are listed as `New tab with profile <name>`, which is what they do. Changes to the
-standard shortcuts made for all KDE apps (`kdeglobals`) aren't read. Of the keyboard layout (`.keytab`), only the
+shortcuts (`[Profile Shortcuts]`) are listed as `New tab with profile <name>`, which is what they do (one for a
+profile you have since deleted too). Changes to the standard shortcuts made for all KDE apps (`kdeglobals`) aren't
+read, nor a system-wide `konsolerc` in `$XDG_CONFIG_DIRS`. The Quick Commands and SSH Manager plugins' quick-access
+keys are listed with their defaults: a key you set in their docks (kept in their own settings) isn't read. Of the keyboard layout (`.keytab`), only the
 default layout's scrolling keys are listed (`shift+Prior`, `shift+Up`, …; they don't work while a full-screen program
 such as vim runs); a profile using another layout isn't followed, and the rest of a layout is what keys send to the
 program, not Konsole shortcuts. Keys keybind-find can't send (keypad keys) are left out, counted in one line.

@@ -85,8 +85,9 @@
         <Action name="edit_find" />
         <Action name="hamburger_menu"/>
     </ToolBar>
-    <ActionProperties scheme="Default">
+    <actionproperties scheme="Default">
         <Action name="edit_copy" shortcut="Ctrl+Alt+C"/>
         <Action name="split-view-left-right" shortcut="Ctrl+Alt+L"/>
-    </ActionProperties>
+        <Action name="hamburger_menu" shortcut="Ctrl+Alt+O"/>
+    </actionproperties>
 </gui>
