@@ -1,7 +1,10 @@
 //! KDL v1 documents (zellij's config and presets) through the `kdl` crate: a parse whose error names
 //! its line, and a node's line. Each provider walks the document itself.
 
+use anyhow::Context as _;
 use kdl::{KdlDocument, KdlNode};
+use std::sync::mpsc::RecvTimeoutError;
+use std::time::Duration;
 
 /// The parser (kdl's v1, nom) recurses once per `{ }` level, once per `*`, `/` or run of other text in a `/* */`
 /// comment, and once per `/-` in a chain of them (one after another, with only whitespace and comments between), and
@@ -17,32 +20,44 @@ const MAX_DEPTH: usize = 256;
 const MAX_COMMENT: usize = 8192;
 const MAX_CHAIN: usize = 256;
 
+/// How long the parser may take. Some short texts send kdl 4's parser into exponential backtracking (slashdashed
+/// entries and children, re-parsed at each level); a real config parses in milliseconds. 2 s, as each zellij run
+/// gets: the picker waits on this.
+const TIMEOUT: Duration = Duration::from_secs(2);
+
 /// `text` as a KDL v1 document; a failure is `line N: <message>`, from the first diagnostic.
 pub(crate) fn parse(text: &str) -> anyhow::Result<KdlDocument> {
     if let Some((at, what)) = too_deep(text) {
         anyhow::bail!("line {}: {what}", line_at(text, at));
     }
-    let parsed = std::thread::scope(|s| {
-        std::thread::Builder::new()
-            .stack_size(STACK)
-            .spawn_scoped(s, || KdlDocument::parse_v1(text))
-            .map(|t| t.join())
-    });
-    let parsed = match parsed {
-        Ok(Ok(parsed)) => parsed,
-        // The default panic hook has already printed its own line; kdl 4.7.1's panics are believed unreachable from
-        // `parse_v1`.
-        Ok(Err(_)) => anyhow::bail!("the KDL parser failed (a panic)"),
-        Err(e) => anyhow::bail!("the KDL parser failed: can't start its thread: {e}"),
-    };
-    parsed.map_err(|e| match e.diagnostics.first() {
-        Some(d) => anyhow::anyhow!(
-            "line {}: {}",
-            line_at(text, d.span.offset()),
-            d.message.as_deref().unwrap_or("not KDL")
-        ),
-        None => anyhow::anyhow!("not KDL"),
-    })
+    let (send, receive) = std::sync::mpsc::channel();
+    let owned = text.to_string();
+    // ponytail: a parse that times out is left running on its thread, burning a core until the process (one picker
+    // run) exits; kdl's parser can't be stopped.
+    std::thread::Builder::new()
+        .stack_size(STACK)
+        .spawn(move || {
+            let _ = send.send(KdlDocument::parse_v1(&owned).map_err(
+                |e| match e.diagnostics.first() {
+                    Some(d) => anyhow::anyhow!(
+                        "line {}: {}",
+                        line_at(&owned, d.span.offset()),
+                        d.message.as_deref().unwrap_or("not KDL")
+                    ),
+                    None => anyhow::anyhow!("not KDL"),
+                },
+            ));
+        })
+        .context("the KDL parser failed: can't start its thread")?;
+    match receive.recv_timeout(TIMEOUT) {
+        Ok(parsed) => parsed,
+        Err(RecvTimeoutError::Timeout) => {
+            anyhow::bail!("the file took longer than {}s to parse", TIMEOUT.as_secs())
+        }
+        // The thread ended without a result: a panic. The default panic hook has already printed its own line;
+        // kdl 4.7.1's panics are believed unreachable from `parse_v1`.
+        Err(RecvTimeoutError::Disconnected) => anyhow::bail!("the KDL parser failed (a panic)"),
+    }
 }
 
 /// Where `text` goes past `MAX_DEPTH`, `MAX_COMMENT` or `MAX_CHAIN`, and which: a scan of KDL v1's strings (`"…"`
@@ -71,8 +86,9 @@ fn too_deep(text: &str) -> Option<(usize, String)> {
         };
         // ponytail: any `r"`/`r#"` counts, even ending a name (`bar"`): that text is no KDL, and the parser stops there.
         let raw = b[i] == b'r' && b.get(i + 1 + hashes) == Some(&b'"');
-        // Whitespace and comments keep a `/-` chain going; anything else ends it.
-        if !(b[i].is_ascii_whitespace() || newline(i) || at(i, b"/")) {
+        // Whitespace (a `\` line continuation, any non-ASCII byte: v1 has Unicode spaces) and comments keep a `/-`
+        // chain going; anything else ends it. So 257 slashdashed non-ASCII names in a row are refused too.
+        if !(b[i].is_ascii_whitespace() || b[i] == b'\\' || b[i] >= 0x80 || at(i, b"/")) {
             chain = 0;
         }
         if b[i] == b'"' {
@@ -208,6 +224,19 @@ mod tests {
             parse(&format!("{}a\n", "/-".repeat(256))).is_ok()
                 || !err(&format!("{}a\n", "/-".repeat(256))).contains("in a row")
         );
+        // Also through `\` line continuations and Unicode spaces.
+        for t in [
+            format!("a {}1\n", "/- \\\n".repeat(100_000)),
+            format!("{}a\n", "/-\u{3000}".repeat(100_000)),
+            format!("a {}1\n", "/-\u{a0}".repeat(100_000)),
+            format!("{}a\n", "/-\u{feff}".repeat(1_000_000)),
+        ] {
+            assert!(
+                err(&t).ends_with("more than 256 `/-` in a row"),
+                "{}",
+                &t[..12]
+            );
+        }
         // Separate slashdashed binds aren't a chain.
         let binds = format!(
             "keybinds {{\n  normal {{\n{}  }}\n}}\n",
@@ -276,6 +305,29 @@ mod tests {
     }
 
     #[test]
+    fn slow_texts_time_out() {
+        // kdl 4's parser backtracks exponentially on these (each doubles or triples per `n`): one error at the
+        // timeout, the parse left running.
+        let n = 24;
+        for t in [
+            format!("a {}{}\n", "/- ".repeat(n), "{} ".repeat(n)),
+            "/-b {\n".repeat(n) + &"}\n".repeat(n),
+            format!(
+                "{}/*{}*/\n{}",
+                "a /-{\n".repeat(255),
+                "*".repeat(8188),
+                "}\n".repeat(255)
+            ),
+        ] {
+            assert!(too_deep(&t).is_none());
+            let started = std::time::Instant::now();
+            assert_eq!(err(&t), "the file took longer than 2s to parse");
+            let took = started.elapsed();
+            assert!(took >= TIMEOUT && took < Duration::from_secs(3), "{took:?}");
+        }
+    }
+
+    #[test]
     fn node_lines() {
         let text = "a\n// c\nb { x; }\n\"é\" 1\nd\n";
         let doc = parse(text).unwrap();
@@ -322,7 +374,14 @@ mod tests {
         ] {
             let path = format!("{}/tests/fixtures/zellij/{f}", env!("CARGO_MANIFEST_DIR"));
             let text = std::fs::read_to_string(&path).unwrap();
+            let started = std::time::Instant::now();
             let doc = parse(&text).unwrap_or_else(|e| panic!("{f}: {e:#}"));
+            // Far inside the timeout, in a debug build too.
+            assert!(
+                started.elapsed() < Duration::from_millis(500),
+                "{f}: {:?}",
+                started.elapsed()
+            );
             assert!(
                 doc.nodes().iter().any(|n| n.name().value() == "keybinds"),
                 "{f}"
