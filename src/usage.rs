@@ -86,7 +86,15 @@ fn alternate(entries: &mut [Entry]) {
         let (wms, rest): (Vec<_>, Vec<_>) = groups.split_off(1).into_iter().partition(|g| {
             matches!(
                 g[0].provider.as_str(),
-                "xmonad" | "sway" | "hyprland" | "kde" | "xfce" | "i3" | "gnome" | "sxhkd"
+                "xmonad"
+                    | "sway"
+                    | "hyprland"
+                    | "kde"
+                    | "xfce"
+                    | "i3"
+                    | "gnome"
+                    | "awesome"
+                    | "sxhkd"
             )
         });
         groups.extend(wms.into_iter().chain(rest));
@@ -299,6 +307,10 @@ mod tests {
         assert_eq!(
             ranked(&[("gnome", 1), ("espanso", 1), ("nvim", 1)], ""),
             ["nvim0", "gnome0", "espanso0"]
+        );
+        assert_eq!(
+            ranked(&[("awesome", 1), ("espanso", 1), ("nvim", 1)], ""),
+            ["nvim0", "awesome0", "espanso0"]
         );
     }
 

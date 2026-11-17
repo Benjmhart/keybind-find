@@ -1,9 +1,10 @@
-# The e2e cases, sourced by harness.sh once per phase (PHASE=x11, wayland, then niri: no niri cases yet). Each names
-# its case, the providers that must answer (each with at least one bind), and one key from tests/e2e/home that must be
-# listed: "PROVIDER|KEY|part of its description[|scope=value,...]". x: under i3 (the focused window found through
-# xdotool); w: under sway; d: one provider dumped directly, after a setup command (its desktop can't run here);
-# o NAME PROVIDER -- COMMAND: the program's own key report (COMMAND) checked against `keybind-find dump PROVIDER` by
-# oracle.py. The niri phase runs only when its name is wanted: name `niri-phase` with any niri case.
+# The e2e cases, sourced by harness.sh once per phase (PHASE=x11, awesome, wayland, then niri: no niri cases yet).
+# Each names its case, the providers that must answer (each with at least one bind), and one key from tests/e2e/home
+# that must be listed: "PROVIDER|KEY|part of its description[|scope=value,...]". x: under i3, or under awesome in its
+# phase (the focused window found through xdotool); w: under sway; d: one provider dumped directly, after a setup
+# command (its desktop can't run here); o NAME PROVIDER -- COMMAND: the program's own key report (COMMAND) checked
+# against `keybind-find dump PROVIDER` by oracle.py. The niri phase runs only when its name is wanted: name
+# `niri-phase` with any niri case.
 if [ "$PHASE" = x11 ]; then
   # Programs in a terminal with no keys of its own (xterm), and i3's own keys.
   x xterm-zsh      "i3 zsh"     "i3|super+Return|exec xterm"        -- xterm -e zsh
@@ -71,6 +72,23 @@ if [ "$PHASE" = x11 ]; then
   o wezterm-oracle wezterm -- wezterm show-keys --lua
   # zellij prints no effective keys: its preset is the oracle, the config's changes its KNOWN differences.
   o zellij-oracle zellij -- zellij setup --dump-keybinds default
+elif [ "$PHASE" = awesome ]; then
+  # awesome on the same display, i3 stopped: its keys from the running awesome over D-Bus
+  # (tests/e2e/home/.config/awesome/rc.lua: the stock rc.lua plus keys of our own).
+  x awesome        "awesome zsh"  "awesome|super+shift+x|e2e quit"   -- xterm -e zsh
+  # awesome's own report: its installed root.keys() as hex MODS,KEY, without the Lock and Mod2 variants awful.key adds
+  # (lib/awful/key.lua:24,120-130 at v4.3), deduplicated. Global keys only: the stock rc's client keys are KNOWN.
+  AWESOME_REPORT='local function h(s) return (s:gsub(".", function(c) return ("%02x"):format(c:byte()) end)) end
+local o, seen = {}, {}
+for _, k in ipairs(root.keys()) do
+  local m = {}
+  for _, x in ipairs(k.modifiers) do if x ~= "Lock" and x ~= "Mod2" then m[#m + 1] = x end end
+  local e = h(table.concat(m, "\0")) .. "," .. h(k.key or "")
+  if not seen[e] then seen[e], o[#o + 1] = true, e end
+end
+return table.concat(o, ";")'
+  o awesome-oracle awesome -- dbus-send --session --dest=org.awesomewm.awful --type=method_call --print-reply \
+    --reply-timeout=2000 / org.awesomewm.awful.Remote.Eval "string:$AWESOME_REPORT"
 elif [ "$PHASE" = wayland ]; then
   w foot-zsh       "sway foot zsh"       "sway|super+Return|exec foot"      -- foot zsh
   w foot-helix     "sway foot helix"     "foot|ctrl+shift+y|Spawns a new"   -- foot helix /tmp/e2e.rs

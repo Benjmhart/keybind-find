@@ -21,7 +21,8 @@ The lists are read from the programs' real configuration, your own bindings incl
 | Xfce | xfwm4's window shortcuts and your application shortcuts, from `xfconf-query` (X11) | `xfconf-query` ([below](#xfce)) |
 | GNOME | its window, shell, mutter and media-key shortcuts, your custom shortcuts and the overlay key, from `gsettings`; on X11 also the focused window | `gsettings`; on Wayland picks are not sent and the list opens in fzf ([below](#gnome)) |
 | sxhkd (bspwm, or any X11 window manager) | the hotkeys of your running sxhkd, from the config files it loaded, with each one's comment, `{a,b}` sequences expanded and chains as key sequences | none ([below](#sxhkd)) |
-| any other X11 window manager | the focused window, so every app below works; not the window manager's own keys, but sxhkd's when it runs | an EWMH window manager (it sets `_NET_ACTIVE_WINDOW`) |
+| awesome | its keys from the running awesome over D-Bus (the hotkeys its own popup shows), with each key's description and group | none for the stock config; your `rc.lua` must `require("awful")` ([below](#awesome)) |
+| any other X11 window manager (openbox, qtile, dwm, …) | the focused window, so every app below works; not the window manager's own keys, but sxhkd's when it runs | an EWMH window manager (it sets `_NET_ACTIVE_WINDOW`) |
 | other Wayland compositors (niri) | espanso only: the focused window isn't read, so no app below | untested |
 | alacritty | its keys: alacritty's defaults merged with your `[[keyboard.bindings]]` | none |
 | Ghostty | its keys from `ghostty +list-keybinds`, as your config sets them | none ([below](#ghostty)) |
@@ -666,6 +667,33 @@ not read: i3 4.20 and newer reply with every file it included and its variables 
 itself (matching their case exactly, where i3 ignores case), and `set_from_resource` variables stay as written. `bindcode` lines (keycodes, with no key name to show or send) are left out, counted in one line. A key
 bound twice, which i3 reports as an error, shows its last binding, while i3 runs the first. Without `i3-msg`, or with
 no i3 answering, that is one line and the list goes on without i3's keys.
+
+### awesome
+
+Under awesome, keybind-find asks the running awesome for its hotkeys over D-Bus, the way `awesome-client` does
+(`dbus-send` to `org.awesomewm.awful`, with a fixed Lua snippet that only reads). It lists what awesome's own hotkeys
+popup (`Super+s`) reads: every key created with `awful.key`, global and client keys alike, each with its `description`
+under its `group` (else `awesome`); the popup hides a key with no description, keybind-find shows it as
+`no description`. Like the popup, that is every key ever created with `awful.key`, not only the ones installed now: a
+key made again (per client in a `manage` handler, or when keys are rebuilt) is listed again, and a key created but never
+installed is listed too. Your `rc.lua` is never read or run by keybind-find: awesome has already run it.
+
+Modifiers show as `super` (Mod4), `alt` (Mod1), `ctrl` and `shift`; the number-row keycodes the stock config binds
+tags to (`#10` to `#19`) show as `1` to `0`, as the popup labels them. Those keycodes are sent as the keys `1` to `0`,
+so on a layout whose number row types other characters (AZERTY) the sent key may not be that key. An upper-case
+letter key (`"J"`) is listed as `shift+j`, but awesome 4.3 matches keys by their unshifted symbol, so such a key, like
+a shifted symbol (`"#"`), never fires there. A modifier name awesome doesn't know (`"Super"`, `"mod4"`) is ignored
+by awesome, so the key fires without it; keybind-find drops it too and says how many keys had one. Keys with a `Mod2`,
+`Mod3`, `Mod5`, `Lock` or `Any` modifier, any other keycode (`#94`), a key name keybind-find can't send (a non-ASCII
+character, or a number of two or more digits, which awesome can't resolve), and entries that aren't one key
+(awesome-git's key groups) are left out, counted in one line. Under awesome-git, a key made with one key (`keys =
+{{"y"}}`) is read as awesome-git's popup reads it.
+
+awesome answers only when your `rc.lua` loads `awful` (`require("awful")`, as the stock config does), awesome was
+built with D-Bus, and keybind-find runs on awesome's session bus. Bind keybind-find with `awful.spawn("keybind-find")`,
+not `os.execute` or `io.popen`: awesome runs one thing at a time, so while it waits for keybind-find it can't answer
+it. Without any of that, without `dbus-send`, or when awesome doesn't answer in 2 s, that is one line naming the cause
+and the list goes on without awesome's keys.
 
 ### sxhkd
 
