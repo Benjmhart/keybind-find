@@ -5,6 +5,7 @@ use crate::sheet::Sheet;
 
 mod alacritty;
 mod alacritty_defaults;
+mod awesome;
 mod emacs;
 mod espanso;
 mod foot;
@@ -98,6 +99,7 @@ pub const KNOWN: &[&str] = &[
     "zellij",
     "sxhkd",
     "konsole",
+    "awesome",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -142,6 +144,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "zellij" => zellij::sheet(),
         "sxhkd" => sxhkd::sheet(ctx),
         "konsole" => konsole::sheet(),
+        "awesome" => awesome::sheet(ctx),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",

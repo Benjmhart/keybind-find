@@ -14,7 +14,7 @@ ARG SNAPSHOT=2026/10/30
 RUN echo "Server = https://archive.archlinux.org/repos/${SNAPSHOT}/\$repo/os/\$arch" > /etc/pacman.d/mirrorlist \
  && pacman -Syyuu --noconfirm --needed \
       rust gcc python util-linux \
-      xorg-server-xvfb xorg-xprop xdotool i3-wm sxhkd sway niri dbus mesa vulkan-swrast ttf-dejavu \
+      xorg-server-xvfb xorg-xprop xdotool i3-wm sxhkd awesome sway niri dbus mesa vulkan-swrast ttf-dejavu \
       ffmpeg grim fzf wtype xorg-xmodmap \
       xterm alacritty kitty ghostty foot xfce4-terminal gnome-terminal rxvt-unicode terminator wezterm konsole \
       zsh bash fish tmux screen less \

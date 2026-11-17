@@ -20,7 +20,10 @@ Please report security problems privately, through GitHub's private vulnerabilit
     list-clients`, without your config, asks the running WezTerm for its focused pane), `zellij` (`--version`, and
     `setup --dump-keybinds=<preset>` or `setup --dump-config`, which print zellij's built-in keys and start no session; zellij
     creates its cache directory and a log under `/tmp/zellij-<uid>` as on any start; and `action list-clients`, which
-    asks the one running session for its focused pane's command and starts none);
+    asks the one running session for its focused pane's command and starts none), `dbus-send` (under awesome: it asks
+    the running awesome for its hotkeys through `org.awesomewm.awful.Remote.Eval`, as `awesome-client` does; the Lua it
+    sends is a fixed snippet in keybind-find that only reads `awful.key.hotkeys`, with nothing of yours put into it, and
+    the reply is hex-decoded text, never run);
   - the picker: `alacritty` with `fzf`, `fuzzel` or `dmenu`, or whatever program `KEYBIND_FIND_PICKER` names;
   - `notify-send` for errors under a hotkey.
 

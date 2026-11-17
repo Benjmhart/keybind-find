@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs inside the e2e image (tests/e2e/run starts it): builds keybind-find from /src, then for each case in `cases`
-# starts the program for real (X11: Xvfb + i3; Wayland: headless sway), waits until it has focus, runs
+# starts the program for real (X11: Xvfb + i3, then awesome; Wayland: headless sway), waits until it has focus, runs
 # `keybind-find dump` and checks it with check.py. Prints a table; exits 1 if any case failed or was skipped.
 # `harness.sh build` only builds (run gives that step the network; the cases run without one).
 set -u
@@ -89,8 +89,8 @@ demo() {
   # wtype has no `--`: a leading `-` would be read as an option.
   [[ "$query" != -* ]] || { record "$name.gif" "FAIL	a query can't start with -"; FAILED=1; return; }
   sent0=$(cat "$usage" 2>/dev/null | wc -l)
-  # Capture: an X display (the i3 phase, or niri nested on its Xvfb), else sway's output. At most 20 s; the stop
-  # below ends it sooner.
+  # Capture: an X display (the i3 and awesome phases, or niri nested on its Xvfb), else sway's output. At most 20 s;
+  # the stop below ends it sooner.
   local xdisp=${DISPLAY:-}
   [ -n "${NIRI_SOCKET:-}" ] && xdisp=:78
   t0=$(date +%s.%N)
@@ -196,7 +196,8 @@ focused() {
   fi
 }
 
-# x NAME "PROVIDERS" "PROVIDER|KEY|DESC" [SETTLE] -- COMMAND...: an X11 case under i3.
+# x NAME "PROVIDERS" "PROVIDER|KEY|DESC" [SETTLE] -- COMMAND...: an X11 case under i3 (or awesome in its phase, where
+# `i3-msg kill` fails harmlessly and the process-group kill closes the window).
 x() {
   local name=$1 providers=$2 key=$3 settle=1
   shift 3
@@ -307,11 +308,34 @@ i3 -c "$HOME/.config/i3/config" >"$OUT/i3.log" 2>&1 &
 I3=$!
 for _ in $(seq 100); do i3-msg -q nop 2>/dev/null && break; sleep 0.1; done
 PHASE=x11 . "$E/cases"
+kill "$I3" 2>/dev/null; wait "$I3" 2>/dev/null
+
+# --- X11: awesome on the same display ---------------------------------------------------------------------------
+# i3 gone first (one window manager per display). awesome answers on this session bus once its rc.lua has loaded awful,
+# which owns org.awesomewm.awful (lib/awful/dbus.lua:16 at v4.3): the cases wait for that name.
+awesome -c "$HOME/.config/awesome/rc.lua" >"$OUT/awesome.log" 2>&1 &
+AWESOME=$!
+owned=""
+for _ in $(seq 100); do
+  dbus-send --session --dest=org.freedesktop.DBus --type=method_call --print-reply / \
+    org.freedesktop.DBus.NameHasOwner string:org.awesomewm.awful 2>/dev/null | grep -q 'boolean true' &&
+    { owned=1; break; }
+  kill -0 "$AWESOME" 2>/dev/null || break
+  sleep 0.1
+done
+if [ -n "$owned" ]; then
+  PHASE=awesome . "$E/cases"
+else
+  record awesome-phase "FAIL	awesome didn't start	$(tail -c 300 "$OUT/awesome.log" | tr '\n\t' '  ')"
+  FAILED=1
+fi
+# Stopped before anything else runs, and waited for: nothing after this phase sees awesome.
+kill "$AWESOME" 2>/dev/null; wait "$AWESOME" 2>/dev/null
 # The daemons the cases left (outside their process groups), so none carries this display into the next phase.
 emacsclient -e '(kill-emacs)' >/dev/null 2>&1
 tmux kill-server 2>/dev/null
 pkill -x screen 2>/dev/null; pkill -x gnome-terminal- 2>/dev/null
-kill "$I3" "$XVFB" 2>/dev/null
+kill "$XVFB" 2>/dev/null
 unset DISPLAY
 
 # --- Wayland: headless sway ---------------------------------------------------------------------------------------

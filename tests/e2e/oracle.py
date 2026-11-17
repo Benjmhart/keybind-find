@@ -267,7 +267,57 @@ def bare_args(s):
     return m.group(1) if m else ""
 
 
-REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report, "zellij": zellij_report}
+# --- awesome ----------------------------------------------------------------------------------------------------------
+# `cases`' report chunk, sent by dbus-send: one string (`method return …` then `   string "…"`), `;`-separated
+# `MODS,KEY` entries, each field hex (the modifiers joined by NUL), from root.keys(): each key object's `modifiers`
+# (X's names, objects/key.c:228-244 and common/xutil.c:56-76 at v4.3) and `key` (a keysym name, or `#N` for a keycode,
+# objects/key.c:303-321). Translated as awesome.rs's AC says, in the oracle's own tables: Mod4 super, Mod1 alt,
+# Control ctrl, Shift shift, any other modifier kept by its X name; `#10`…`#19` the number row (`1`…`0`), any other
+# keycode kept as `#N`; a one-character key by KITTY_CHARS, upper case as shift; a name outside the notation `?name`.
+# ponytail: a key bound with Mod2 or Lock shows here without it (the chunk drops awful.key's variants), so it differs
+# unexplained; e2e's rc.lua binds none.
+AWESOME_MODS = {"Mod4": "super", "Mod1": "alt", "Control": "ctrl", "Shift": "shift"}
+AWESOME_NUMBER_ROW = {f"#{10 + i}": str((i + 1) % 10) for i in range(10)}
+
+
+def awesome_key(mods, key):
+    """One root key's modifiers (X names) and key in keybind-find's notation."""
+    mods = [AWESOME_MODS.get(m, m) for m in mods]
+    if key in AWESOME_NUMBER_ROW:
+        sym = AWESOME_NUMBER_ROW[key]
+    elif key.startswith("#") and len(key) > 1:
+        sym = key
+    elif len(key) == 1 and key.isascii() and key.isalnum():
+        sym = key.lower()
+        if key.isupper():
+            mods.append("shift")
+    elif len(key) == 1:
+        sym = KITTY_CHARS.get(key, "?" + key)
+    elif re.fullmatch(r"[A-Za-z0-9_]+", key):
+        sym = key
+    else:
+        sym = "?" + key
+    ordered = [m for m in MOD_ORDER if m in mods] + [m for m in dict.fromkeys(mods) if m not in MOD_ORDER]
+    return "+".join(ordered + [sym])
+
+
+def awesome_report(text):
+    """The chunk's reply as keys; anything that isn't one hex `MODS,KEY` entry is kept as `!line:…`."""
+    m = re.fullmatch(r'method return [^\n]*\n   string "([0-9a-f,;]*)"\n', text)
+    if not m:
+        return {"!line:" + text.strip()[:200]}
+    keys = set()
+    for entry in filter(None, m.group(1).split(";")):
+        fields = entry.split(",")
+        if len(fields) != 2:
+            keys.add("!line:" + entry)
+            continue
+        mods, key = (bytes.fromhex(f).decode() for f in fields)
+        keys.add(awesome_key([x for x in mods.split("\0") if x], key))
+    return keys
+
+
+REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report, "zellij": zellij_report, "awesome": awesome_report}
 
 KNOWN = {
     "kitty": [
@@ -287,6 +337,19 @@ KNOWN = {
         ("input_mode=*\tctrl+q", "config.kdl's top-level `unbind \"Ctrl q\"`: unbound in every mode, as zellij does"),
         ("input_mode=normal\talt+y", "config.kdl's `bind \"Alt y\" { NewTab; }` in normal: the preset can't show it",
          "dump"),
+    ],
+    # The stock rc.lua's clientkeys (awesomerc.lua:347-392 at v4.3) are set on each client by its rules, not in
+    # root.keys(): the `o` case opens no window, so awesome's report can't show them.
+    "awesome": [(k, "a stock client key (clientkeys): on each client, not in root.keys()", "dump") for k in (
+        "super+f", "super+shift+c", "super+ctrl+space", "super+ctrl+Return", "super+o", "super+t", "super+n",
+        "super+m", "super+ctrl+m", "super+shift+m")] + [
+        ("*+Mod3+*", "awesome.rs leaves out a Mod3 modifier: xdotool can't press it"),
+        ("*+Mod5+*", "awesome.rs leaves out a Mod5 modifier: xdotool can't press it"),
+        ("Any+*", "awesome.rs leaves out the Any modifier: no one chord to send"),
+        ("*#[0-9]*", "awesome.rs leaves out a keycode other than the number row's: it has no key name"),
+        # awesome turns the character into its keysym (objects/key.c:110-160); awesome.rs reads the character, which
+        # has no keysym in its table.
+        ("super+eacute", "awesome.rs leaves out a non-ASCII character key (`é` in rc.lua)"),
     ],
 }
 
@@ -470,6 +533,25 @@ def self_test():
     assert counts("k", {"a", "b"}, {"a", "c"}, [], ["c"]) == "k:2 keybind-find:2 known:1"
     sheet = {"binds": {"k": [{"key": "Escape", "when": {"keyboard_mode": ["mv"]}}, {"key": "ctrl+a"}]}}
     assert dump_keys(sheet) == {"keyboard_mode=mv\tEscape", "ctrl+a"}
+    assert awesome_key(["Mod4", "Shift"], "Return") == "super+shift+Return"
+    assert awesome_key(["Control", "Mod1"], "Delete") == "ctrl+alt+Delete"
+    assert awesome_key(["Mod4"], "#10") == "super+1" and awesome_key(["Mod4"], "#19") == "super+0"
+    assert awesome_key(["Mod4", "Control", "Shift"], "#18") == "super+ctrl+shift+9"
+    assert awesome_key(["Mod4"], "#94") == "super+#94" and awesome_key(["Mod4"], "J") == "super+shift+j"
+    assert awesome_key(["Mod4", "Mod3"], "x") == "super+Mod3+x" and awesome_key(["Any"], "F13") == "Any+F13"
+    assert awesome_key([], "/") == "slash" and awesome_key(["Mod4"], "é") == "super+?é"
+    hexed = lambda mods, key: ",".join(s.encode().hex() for s in ("\0".join(mods), key))
+    out = ("method return time=1.0 sender=:1.3 -> destination=:1.9 serial=4 reply_serial=2\n   string \""
+           + ";".join([hexed(["Mod4"], "s"), hexed(["Mod4", "Control"], "#10"), hexed([], "XF86AudioMute")]) + "\"\n")
+    assert awesome_report(out) == {"super+s", "super+ctrl+1", "XF86AudioMute"}, awesome_report(out)
+    assert awesome_report("Error org.x: y\n") == {"!line:Error org.x: y"}
+    ak = KNOWN["awesome"]
+    examples = {"*+Mod3+*": "super+Mod3+x", "*+Mod5+*": "super+Mod5+x", "Any+*": "Any+F13", "*#[0-9]*": "super+#94",
+                "super+eacute": "super+eacute"}
+    for p, *_ in ak:
+        assert fnmatch.fnmatchcase(examples.get(p, p), p), p
+    for k in ("super+x", "super+shift+x", "super+1", "ctrl+alt+Delete", "super+numbersign", "super+mod5+x"):
+        assert not [p for p, *_ in ak if fnmatch.fnmatchcase(k, p)], k
     print("oracle.py: self-test ok")
     return 0
 
