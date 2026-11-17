@@ -153,7 +153,7 @@ fn reach(client: &str) -> (bool, bool) {
 
 /// `konsolerc [Shortcuts]`, where `KActionCollection::writeSettings` saves the keys of a collection with no ui file
 /// (the toolbar toggles) and `readSettings` reads them (kxmlgui kactioncollection.cpp:551-575, 700-760): an empty
-/// value keeps the default (none), `none` is no key, a list is separated by "; ".
+/// value is the default, and the toggles have none; `none` is no key; a list is separated by "; ".
 fn toolbar_keys(rows: &mut [Action], konsolerc: &str) {
     for (path, entries) in kde::ini(konsolerc) {
         if path.len() != 1 || path[0] != "Shortcuts" {
@@ -163,9 +163,7 @@ fn toolbar_keys(rows: &mut [Action], konsolerc: &str) {
             for r in rows.iter_mut().filter(|r| {
                 r.action == name && (r.client == "toolbar" || r.client == "toolbarmenu")
             }) {
-                if !value.is_empty() {
-                    r.keys = split_list(&value);
-                }
+                r.keys = split_list(&value);
             }
         }
     }
@@ -838,7 +836,11 @@ mod tests {
         }
         // A comment in the subset (its quote is text); an end tag with a space before `>`.
         assert_eq!(
-            xml("<!DOCTYPE gui [ <!-- don't --> <?pi ' ?> ]><gui></gui >"),
+            xml("<!DOCTYPE gui [ <!-- don't --> ]><gui></gui >"),
+            Ok(vec![(0, "gui".into(), vec![])])
+        );
+        assert_eq!(
+            xml("<!DOCTYPE gui [ <?pi ' ?> ]><gui/>"),
             Ok(vec![(0, "gui".into(), vec![])])
         );
         // A quoted `]>` inside the internal subset doesn't end the DOCTYPE.
@@ -900,6 +902,14 @@ mod tests {
             let (s, _) = parse(&pinned(), &f);
             assert!(get(&s, "new-tab").is_empty(), "{doc}");
         }
+        // A nested one before the top-level one: the top-level one applies.
+        let mut f = files(&rc, &[]);
+        f.scheme = Some((
+            "Mine".into(),
+            Some("<gui><Menu><ActionProperties/></Menu><ActionProperties><Action name='new-tab' shortcut='Ctrl+Alt+N'/></ActionProperties></gui>"),
+        ));
+        let (s, _) = parse(&pinned(), &f);
+        assert_eq!(get(&s, "new-tab"), [("ctrl+alt+n", "New Tab")]);
         // The plugins' toggles: cleared, and no scheme file names them; their quick-access keys stay.
         assert!(get(&s, "quickcommands-show").is_empty());
         assert_eq!(
@@ -931,7 +941,7 @@ mod tests {
 
     #[test]
     fn toolbar_toggles_from_konsolerc() {
-        let rc = "[Shortcuts]\nmainToolBar=Ctrl+Alt+B\nsessionToolbar=\ntoolbars_submenu_action=none\nnew-tab=Ctrl+Alt+Z\n";
+        let rc = "[Shortcuts]\nmainToolBar=Ctrl+Alt+B\nsessionToolbar=\ntoolbars_submenu_action=none\nnew-tab=Ctrl+Alt+Z\n[General]\nmainToolBar=Ctrl+Alt+S\n";
         let (s, _) = parse(&pinned(), &files(rc, &[]));
         assert_eq!(get(&s, "mainToolBar"), [("ctrl+alt+b", "Main Toolbar")]);
         assert!(
@@ -946,6 +956,17 @@ mod tests {
         let (s, _) = parse(&pinned(), &f);
         assert_eq!(get(&s, "mainToolBar"), [("ctrl+alt+b", "Main Toolbar")]);
         assert!(get(&s, "new-tab").is_empty());
+        // A scheme file can set it.
+        f.scheme = Some((
+            "Mine".into(),
+            Some("<gui><ActionProperties><Action name='mainToolBar' shortcut='Ctrl+Alt+M'/></ActionProperties></gui>"),
+        ));
+        let (s, _) = parse(&pinned(), &f);
+        assert_eq!(get(&s, "mainToolBar"), [("ctrl+alt+m", "Main Toolbar")]);
+        // An unknown name twice in one file: listed once, with the last key.
+        let ui = "<gui><ActionProperties><Action name='foo' shortcut='Ctrl+Alt+1'/><Action name='foo' shortcut='Ctrl+Alt+2'/></ActionProperties></gui>";
+        let (s, _) = parse(&pinned(), &files("", &[("konsole", ui)]));
+        assert_eq!(get(&s, "foo"), [("ctrl+alt+2", "foo")]);
     }
 
     #[test]
