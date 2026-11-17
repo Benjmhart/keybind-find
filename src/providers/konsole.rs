@@ -759,14 +759,14 @@ mod tests {
             ("<gui a='&#xFFFF;'/>", "unknown entity &#xFFFF;"),
             ("<gui\u{a0}a='b'/>", "a bad tag name \"gui\\u{a0}a='b'\""),
             ("<gui><![CDATA[x</gui>", "unclosed CDATA"),
-            // A quoted `]>` inside the internal subset doesn't end the DOCTYPE.
-            (
-                "<!DOCTYPE gui [ <!ENTITY x \"]><a/>\"> ]><gui/><b/>",
-                "a second root element",
-            ),
         ] {
             assert_eq!(xml(bad), Err(why.to_string()), "{bad}");
         }
+        // A quoted `]>` inside the internal subset doesn't end the DOCTYPE.
+        assert_eq!(
+            xml("<!DOCTYPE gui [ <!ENTITY x \"]><a/>\"> ]><gui/>"),
+            Ok(vec![(0, "gui".into(), vec![])])
+        );
         // CDATA skipped; a quoted `]>` in the subset; a line end or tab in a value is a space, a reference to one stays.
         let doc = xml("<!DOCTYPE gui [ <!ENTITY x \"]>\"> ]><gui a='x&#10;y' b='1\t2\r\n3\n4'><![CDATA[<z/>]]></gui>")
             .unwrap();
