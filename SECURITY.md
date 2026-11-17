@@ -31,8 +31,9 @@ Please report security problems privately, through GitHub's private vulnerabilit
   window manager's bindings don't fire. The grab ends on Escape, a run key, an error, 30 seconds with no key, or
   exit. Pressed keys are only matched against the list, never stored.
 - **It reads config files:** its own `config.toml`, sheets and Vimium backup, the configs of the programs it lists
-  (sway, alacritty, herdr and its `plugins.json`, zellij's `config.kdl`, Vimium's extension folder), xmonad's keymap dump, and `/proc` to
-  find the program inside a terminal.
+  (sway, alacritty, herdr and its `plugins.json`, zellij's `config.kdl`, sxhkd's `sxhkdrc` and extra configs, Vimium's
+  extension folder), xmonad's keymap dump, and `/proc` to find the program inside a terminal and your own sxhkd's
+  config files (`/proc/<pid>/{cmdline,environ,cwd}` of your `sxhkd` processes only).
 - **It writes:** the usage log, `$XDG_STATE_HOME/keybind-find/usage.tsv` (default `~/.local/state/...`), which holds
   the time, provider and key of each pick (an espanso trigger, never its replacement); and, while the fzf picker is
   open, a `0700` directory under `$XDG_RUNTIME_DIR` (else the temporary directory) with the list, the key-search list,

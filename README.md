@@ -20,7 +20,8 @@ The lists are read from the programs' real configuration, your own bindings incl
 | i3 | the bindings of the config i3 has loaded (`i3-msg -t get_config`; from 4.20, includes followed and variables replaced by i3) | none ([below](#i3)) |
 | Xfce | xfwm4's window shortcuts and your application shortcuts, from `xfconf-query` (X11) | `xfconf-query` ([below](#xfce)) |
 | GNOME | its window, shell, mutter and media-key shortcuts, your custom shortcuts and the overlay key, from `gsettings`; on X11 also the focused window | `gsettings`; on Wayland picks are not sent and the list opens in fzf ([below](#gnome)) |
-| any other X11 window manager | the focused window, so every app below works; not the window manager's own keys | an EWMH window manager (it sets `_NET_ACTIVE_WINDOW`) |
+| sxhkd (bspwm, or any X11 window manager) | the hotkeys of your running sxhkd, from the config files it loaded, with each one's comment, `{a,b}` sequences expanded and chains as key sequences | none ([below](#sxhkd)) |
+| any other X11 window manager | the focused window, so every app below works; not the window manager's own keys, but sxhkd's when it runs | an EWMH window manager (it sets `_NET_ACTIVE_WINDOW`) |
 | other Wayland compositors (niri) | espanso only: the focused window isn't read, so no app below | untested |
 | alacritty | its keys: alacritty's defaults merged with your `[[keyboard.bindings]]` | none |
 | Ghostty | its keys from `ghostty +list-keybinds`, as your config sets them | none ([below](#ghostty)) |
@@ -636,6 +637,23 @@ not read: i3 4.20 and newer reply with every file it included and its variables 
 itself (matching their case exactly, where i3 ignores case), and `set_from_resource` variables stay as written. `bindcode` lines (keycodes, with no key name to show or send) are left out, counted in one line. A key
 bound twice, which i3 reports as an error, shows its last binding, while i3 runs the first. Without `i3-msg`, or with
 no i3 answering, that is one line and the list goes on without i3's keys.
+
+### sxhkd
+
+On X11, whatever the window manager (bspwm has no keys of its own: they are sxhkd's), keybind-find lists the hotkeys
+of each `sxhkd` you run, right after the window manager's keys. It reads the files that sxhkd loaded, found as sxhkd
+finds them: `-c FILE` from its command line, else `$XDG_CONFIG_HOME/sxhkd/sxhkdrc` or `~/.config/sxhkd/sxhkdrc` from
+sxhkd's own environment, then each extra config named after the options. Lines are read as sxhkd 0.6.3 reads them
+(`#` only at the start of a line, `\` continuing a line), and `{a,b}` and `{1-9}` sequences are expanded as sxhkd
+expands them, so `super + {_,shift + }{1-9,0}` lists twenty keys, each with its own command. A chain (`super + w ; a`)
+is a key sequence (`super+w a`). A comment right above a hotkey is its description (with the command when it
+expands to several keys); a comment block followed by a blank line is a section title, the category of the hotkeys
+under it; with neither, the category is `bspc`'s subcommand (`node`, `desktop`) or `sxhkd`. Commands are shown, never
+run; a pick presses the key, which sxhkd then acts on. Hotkeys keybind-find can't send (`hyper`, `meta`, `mode_switch`,
+`lock`, `mod2`, `mod3`, `mod5` or `any`; a pointer button; an upper-case letter, which sxhkd never matches; an
+unknown key name) are left out, counted in one line. A file that can't be read is one line, and the others still
+count. With no sxhkd running, `keybind-find dump sxhkd` reads the default path and says so. sxhkd prints no list of
+its hotkeys, so there is nothing to check the list against but its files. Under Wayland sxhkd isn't listed.
 
 ### Xfce
 

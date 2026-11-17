@@ -21,6 +21,12 @@ pub fn detect() -> Context {
     let wayland = set(env_var("WAYLAND_DISPLAY"));
     let session = current_session();
     let (mut ctx, program) = focus(session, wayland, read_focus, run);
+    add_sxhkd(
+        &mut ctx.providers,
+        wayland,
+        std::path::Path::new("/proc"),
+        own_uid(),
+    );
     for warning in add_nested_nvim(&mut ctx.providers, run, std::path::Path::new("/proc")) {
         eprintln!("{warning}");
     }
@@ -47,9 +53,8 @@ fn current_session() -> Option<&'static str> {
         |p| p.exists(),
         wm_check_name,
         || {
-            use std::os::unix::fs::MetadataExt;
-            std::fs::metadata("/proc/self")
-                .map(|m| user_comms(std::path::Path::new("/proc"), m.uid()))
+            own_uid()
+                .map(|uid| user_comms(std::path::Path::new("/proc"), uid))
                 .unwrap_or_default()
         },
     )
@@ -86,6 +91,24 @@ fn focus(
     };
     let program = settle(&mut ctx, wm, focus);
     (ctx, program)
+}
+
+/// sxhkd's hotkeys on X11, whatever the session (sxhkd runs under any X11 window manager): right after the
+/// window-manager provider (first without one) when one of `uid`'s processes in `proc` is `sxhkd`. Under Wayland an
+/// sxhkd on XWayland sees X clients only: not added.
+fn add_sxhkd(
+    providers: &mut Vec<&'static str>,
+    wayland: bool,
+    proc: &std::path::Path,
+    uid: Option<u32>,
+) {
+    if wayland || uid.is_none_or(|uid| user_pids(proc, uid, "sxhkd").is_empty()) {
+        return;
+    }
+    let after_wm = providers
+        .first()
+        .is_some_and(|p| wm_provider(Some(p)).is_some());
+    providers.insert(usize::from(after_wm), "sxhkd");
 }
 
 /// nvim inside herdr, tmux, screen or zellij, each asked through `run` only in its own context; screen also reads `proc`
@@ -664,6 +687,26 @@ fn check_window_id(xprop: &str) -> Option<&str> {
 /// ponytail: any of the user's processes, not just this login's: a second X display of the same user's can name
 /// this one. Only the last step reads it; scope it by `/proc/<pid>/sessionid` if that bites.
 fn user_comms(proc: &std::path::Path, uid: u32) -> Vec<String> {
+    user_procs(proc, uid).into_iter().map(|(_, c)| c).collect()
+}
+
+/// The pids of `uid`'s processes in `proc` whose `comm` is exactly `comm`, by pid.
+pub(crate) fn user_pids(proc: &std::path::Path, uid: u32, comm: &str) -> Vec<u32> {
+    user_procs(proc, uid)
+        .into_iter()
+        .filter(|(_, c)| c == comm)
+        .map(|(p, _)| p)
+        .collect()
+}
+
+/// This process's uid, as `/proc/self` is owned; `None` without `/proc`.
+pub(crate) fn own_uid() -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata("/proc/self").ok().map(|m| m.uid())
+}
+
+/// `(pid, comm)` of `uid`'s processes in `proc`, by pid (see `user_comms`).
+fn user_procs(proc: &std::path::Path, uid: u32) -> Vec<(u32, String)> {
     use std::os::unix::fs::MetadataExt;
     let Ok(entries) = std::fs::read_dir(proc) else {
         return Vec::new();
@@ -680,7 +723,7 @@ fn user_comms(proc: &std::path::Path, uid: u32) -> Vec<String> {
         })
         .collect();
     comms.sort();
-    comms.into_iter().map(|(_, c)| c).collect()
+    comms
 }
 
 /// Terminal window classes (X11 `WM_CLASS`, sway `app_id`) whose program inside is looked up, matched ignoring case.
@@ -3292,6 +3335,45 @@ mod tests {
         assert_eq!(mine, ["zsh", "xmonad-x86_64-l"]);
         assert!(theirs.is_empty());
         assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn sxhkd_follows_the_window_manager_on_x11() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = crate::test_tmp().join(format!("kbf-sxhkd-ctx-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (pid, comm) in [("5", "sxhkd"), ("7", "sxhkd-helper"), ("9", "sxhkd")] {
+            std::fs::create_dir_all(dir.join(pid)).unwrap();
+            std::fs::write(dir.join(pid).join("comm"), format!("{comm}\n")).unwrap();
+        }
+        let none = crate::test_tmp().join(format!("kbf-sxhkd-none-{}", std::process::id()));
+        std::fs::create_dir_all(none.join("7")).unwrap();
+        std::fs::write(none.join("7").join("comm"), "sxhkd-helper\n").unwrap();
+        let uid = std::fs::metadata(&dir).unwrap().uid();
+        let with = |session, wayland, proc: &std::path::Path, uid| {
+            let mut p = providers_for(wm_provider(session), Some("XTerm"), Some("zsh"), &[]);
+            add_sxhkd(&mut p, wayland, proc, uid);
+            p
+        };
+        let pids = user_pids(&dir, uid, "sxhkd");
+        let i3 = with(Some("i3"), false, &dir, Some(uid));
+        let bspwm = with(Some("bspwm"), false, &dir, Some(uid));
+        let sway = with(Some("sway"), true, &dir, Some(uid));
+        let theirs = with(Some("i3"), false, &dir, Some(uid.wrapping_add(1)));
+        let helper = with(Some("i3"), false, &none, Some(uid));
+        let no_proc = with(Some("i3"), false, &dir, None);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&none);
+        // `comm` exactly.
+        assert_eq!(pids, [5, 9]);
+        assert_eq!(i3, ["i3", "sxhkd", "espanso", "zsh", "sheets"]);
+        // No window-manager provider: first.
+        assert_eq!(bspwm, ["sxhkd", "espanso", "zsh", "sheets"]);
+        // Never on Wayland.
+        assert_eq!(sway, ["sway", "espanso", "zsh", "sheets"]);
+        for p in [theirs, helper, no_proc] {
+            assert_eq!(p, ["i3", "espanso", "zsh", "sheets"]);
+        }
     }
 
     #[test]

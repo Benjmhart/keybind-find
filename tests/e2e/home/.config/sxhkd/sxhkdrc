@@ -1,0 +1,11 @@
+# e2e quit
+super + alt + x
+	echo quit
+
+# e2e pair
+super + alt + {_,shift + }z
+	echo {one,two}
+
+# e2e chain
+super + alt + c ; d
+	echo chain
