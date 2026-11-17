@@ -525,12 +525,13 @@ a different list than the running zellij has; and zellij's sessions are looked f
 keybind-find's own `ZELLIJ_SOCKET_DIR`, `XDG_RUNTIME_DIR` or `TMPDIR`.
 
 nvim in zellij's focused pane is found from `zellij action list-clients`, its keys read from its config (not the
-running nvim). zellij names a pane that runs vi, vim or nvim on exactly one file (`FILE` or `+N FILE`) after its
-`scrollback_editor`, else the server's `$EDITOR`, else `$VISUAL`, else `vi` (an empty `$EDITOR`: no renaming). So nvim
-on one file is found only when that editor is nvim, and with nvim as the editor a vim pane on one file is taken for
-nvim and nvim's keys are listed. Several sessions (detached ones count), several clients, no client listed (as while
-the pane's scrollback is open in the editor) or a zellij without `action list-clients` give one line and only
-zellij's keys.
+running nvim). zellij shows a pane running vi, vim or nvim on exactly one file (`FILE` or `+N FILE`) under the name
+of its editor (`scrollback_editor`, else the server's `$EDITOR`, which config.kdl's `env` block can set, else
+`$VISUAL`, else `vi`; an empty `$EDITOR` renames nothing) when that editor is itself vi, vim or nvim. So nvim on one
+file is missed when that editor is vi or vim (vi when none is set), and with nvim as the editor a vi or vim pane on
+one file is taken for nvim. Several sessions (detached ones count), several clients, no client attached, no client
+listed (as while the pane's scrollback is open in the editor) or a zellij without `action list-clients` give one line
+and only zellij's keys.
 
 ### kitty
 

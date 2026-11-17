@@ -90,6 +90,7 @@ fn focus(
 
 /// nvim inside herdr, tmux, screen or zellij, each asked through `run` only in its own context; screen also reads `proc`
 /// (`/proc`). Both are test seams. Returns the warnings, for stderr.
+#[must_use]
 fn add_nested_nvim(
     providers: &mut Vec<&'static str>,
     run: impl Fn(&str, &[&str]) -> anyhow::Result<String> + Copy,
@@ -106,9 +107,10 @@ fn add_nested_nvim(
     .collect()
 }
 
-/// In a context holding the multiplexer `outer` (herdr, tmux), adds nvim after it when its focused pane runs nvim.
+/// In a context holding the multiplexer `outer` (herdr, tmux, screen, zellij), adds nvim after it when its focused pane runs nvim.
 /// Only that context calls `query`, so no other context pays for it; a failed query keeps the plain context and
 /// returns its one-line warning.
+#[must_use]
 fn add_nvim_in(
     providers: &mut Vec<&'static str>,
     outer: &str,
@@ -116,15 +118,15 @@ fn add_nvim_in(
 ) -> Option<String> {
     let i = providers.iter().position(|p| *p == outer)?;
     match query() {
-        Ok(true) => providers.insert(i + 1, "nvim"),
-        Ok(false) => {}
-        Err(e) => {
-            return Some(format!(
-                "keybind-find: {outer} pane: {e:#}; showing {outer}'s bindings without nvim's"
-            ))
+        Ok(true) => {
+            providers.insert(i + 1, "nvim");
+            None
         }
+        Ok(false) => None,
+        Err(e) => Some(format!(
+            "keybind-find: {outer} pane: {e:#}; showing {outer}'s bindings without nvim's"
+        )),
     }
-    None
 }
 
 /// The pid of the nvim found in the focused window (the terminal's foreground program, the program in tmux's or
@@ -387,8 +389,8 @@ fn zellij_client_runs_nvim(table: &str) -> anyhow::Result<bool> {
     }
     let rows: Vec<&str> = lines.collect();
     if rows.is_empty() {
-        // As when the pane's scrollback is open in the editor: zellij swaps the pane out and lists no client.
-        bail!("zellij listed no client (its scrollback editor may be open)");
+        // No client attached, or the pane's scrollback open in the editor (zellij swaps the pane out).
+        bail!("zellij listed no client (none attached to its session, or its scrollback is open in the editor)");
     }
     let [row] = rows.as_slice() else {
         bail!(
@@ -2184,23 +2186,32 @@ mod tests {
     fn nvim_is_added_only_in_a_herdr_context() {
         let herdr = || providers_for(Some("xmonad"), Some("Alacritty"), Some("herdr"), &[]);
         let mut p = herdr();
-        add_nvim_in(&mut p, "herdr", || Ok(true));
+        assert_eq!(add_nvim_in(&mut p, "herdr", || Ok(true)), None);
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "herdr", "nvim", "sheets"]
         );
         let mut p = herdr();
-        add_nvim_in(&mut p, "herdr", || Ok(false));
+        assert_eq!(add_nvim_in(&mut p, "herdr", || Ok(false)), None);
         assert_eq!(p, herdr());
         // herdr can't be queried: the plain herdr context.
         let mut p = herdr();
-        add_nvim_in(&mut p, "herdr", || anyhow::bail!("running herdr"));
+        assert_eq!(
+            add_nvim_in(&mut p, "herdr", || anyhow::bail!("running herdr")),
+            Some(
+                "keybind-find: herdr pane: running herdr; showing herdr's bindings without nvim's"
+                    .to_string()
+            )
+        );
         assert_eq!(p, herdr());
         // Any other context never queries herdr.
         for child in [Some("zsh"), Some("nvim"), Some("tmux"), None] {
             let mut p = providers_for(Some("xmonad"), Some("Alacritty"), child, &[]);
             let before = p.clone();
-            add_nvim_in(&mut p, "herdr", || panic!("herdr queried for {child:?}"));
+            assert_eq!(
+                add_nvim_in(&mut p, "herdr", || panic!("herdr queried for {child:?}")),
+                None
+            );
             assert_eq!(p, before);
         }
     }
@@ -2241,21 +2252,30 @@ mod tests {
     fn nvim_is_added_only_in_a_tmux_context() {
         let tmux = || providers_for(Some("xmonad"), Some("Alacritty"), Some("tmux: client"), &[]);
         let mut p = tmux();
-        add_nvim_in(&mut p, "tmux", || Ok(true));
+        assert_eq!(add_nvim_in(&mut p, "tmux", || Ok(true)), None);
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "tmux", "nvim", "sheets"]
         );
         let mut p = tmux();
-        add_nvim_in(&mut p, "tmux", || Ok(false));
+        assert_eq!(add_nvim_in(&mut p, "tmux", || Ok(false)), None);
         assert_eq!(p, tmux());
         let mut p = tmux();
-        add_nvim_in(&mut p, "tmux", || anyhow::bail!("running tmux"));
+        assert_eq!(
+            add_nvim_in(&mut p, "tmux", || anyhow::bail!("running tmux")),
+            Some(
+                "keybind-find: tmux pane: running tmux; showing tmux's bindings without nvim's"
+                    .to_string()
+            )
+        );
         assert_eq!(p, tmux());
         for child in [Some("zsh"), Some("nvim"), Some("herdr"), None] {
             let mut p = providers_for(Some("xmonad"), Some("Alacritty"), child, &[]);
             let before = p.clone();
-            add_nvim_in(&mut p, "tmux", || panic!("tmux queried for {child:?}"));
+            assert_eq!(
+                add_nvim_in(&mut p, "tmux", || panic!("tmux queried for {child:?}")),
+                None
+            );
             assert_eq!(p, before);
         }
     }
@@ -2331,7 +2351,7 @@ mod tests {
         // Through `add_nested_nvim`: nvim right after screen.
         let screen = || providers_for(Some("xmonad"), Some("Alacritty"), Some("screen"), &[]);
         let mut p = screen();
-        add_nested_nvim(&mut p, fake, &dir);
+        assert!(add_nested_nvim(&mut p, fake, &dir).is_empty());
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "screen", "nvim", "sheets"]
@@ -2341,7 +2361,7 @@ mod tests {
         window.set("0 (bash)");
         let bash = screen_window_program(fake, &dir);
         let mut p = screen();
-        add_nested_nvim(&mut p, fake, &dir);
+        assert!(add_nested_nvim(&mut p, fake, &dir).is_empty());
         assert_eq!(p, screen());
         // A window without a readable stat: its own process is the program.
         write("400/environ", b"WINDOW=4\0");
@@ -2447,7 +2467,7 @@ mod tests {
             .contains("2 zellij clients"));
         assert_eq!(
             format!("{:#}", zellij_client_runs_nvim(header).unwrap_err()),
-            "zellij listed no client (its scrollback editor may be open)"
+            "zellij listed no client (none attached to its session, or its scrollback is open in the editor)"
         );
         // All three columns, not just the first.
         assert!(
@@ -2480,7 +2500,7 @@ mod tests {
             ["xmonad", "espanso", "alacritty", "screen", "sheets"]
         );
         let mut p = screen();
-        add_nvim_in(&mut p, "screen", || Ok(true));
+        assert_eq!(add_nvim_in(&mut p, "screen", || Ok(true)), None);
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "screen", "nvim", "sheets"]
@@ -2494,12 +2514,17 @@ mod tests {
             anyhow::bail!("No Sockets found")
         };
         let mut p = screen();
-        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
+        let warnings = add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
         assert_eq!(p, screen());
+        assert_eq!(warnings.len(), 1);
+        assert!(
+            warnings[0].contains("screen pane: No Sockets found"),
+            "{warnings:?}"
+        );
         assert_eq!(*calls.borrow(), ["screen -ls"]);
         calls.borrow_mut().clear();
         let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("zsh"), &[]);
-        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
+        assert!(add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent")).is_empty());
         assert!(calls.borrow().is_empty());
     }
 
@@ -2515,7 +2540,7 @@ mod tests {
             })
         };
         let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("tmux: client"), &[]);
-        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
+        assert!(add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent")).is_empty());
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "tmux", "nvim", "sheets"]
@@ -2524,7 +2549,7 @@ mod tests {
         assert_eq!(*calls.borrow(), ["tmux", "tmux"]);
         calls.borrow_mut().clear();
         let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("herdr"), &[]);
-        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
+        assert!(add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent")).is_empty());
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "herdr", "nvim", "sheets"]
@@ -2532,7 +2557,7 @@ mod tests {
         assert_eq!(*calls.borrow(), ["herdr", "herdr"]);
         calls.borrow_mut().clear();
         let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("zsh"), &[]);
-        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
+        assert!(add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent")).is_empty());
         assert!(calls.borrow().is_empty());
     }
 
@@ -3610,8 +3635,15 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         assert_eq!(run("sh", &["-c", "echo x"]).unwrap(), "x\n");
         // No mise auto-install; the launcher's working directory, but zellij from `/`.
         assert_eq!(
-            run("sh", &["-c", "pwd; echo $MISE_NOT_FOUND_AUTO_INSTALL"]).unwrap(),
-            format!("{}\n0\n", std::env::current_dir().unwrap().display())
+            run("sh", &["-c", "pwd -P; echo $MISE_NOT_FOUND_AUTO_INSTALL"]).unwrap(),
+            format!(
+                "{}\n0\n",
+                std::env::current_dir()
+                    .unwrap()
+                    .canonicalize()
+                    .unwrap()
+                    .display()
+            )
         );
         assert_ne!(std::env::current_dir().unwrap(), std::path::Path::new("/"));
         assert_eq!(query_command("tmux", &[]).get_current_dir(), None);
