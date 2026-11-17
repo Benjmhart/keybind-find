@@ -101,7 +101,7 @@ struct LeftOut {
 }
 
 /// The sheet from dbus-send's `--print-reply` output for `CHUNK`, and the stderr notes (only when anything was left
-/// out).
+/// out). An empty reply is an empty sheet.
 fn parse(out: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
     let payload = reply_string(out)?;
     let mut sheet = Sheet {
@@ -110,9 +110,10 @@ fn parse(out: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
         binds: Default::default(),
     };
     let mut left = LeftOut::default();
-    // The chunk always returns its count: an empty string is someone else's answer.
+    // ponytail: the chunk always returns its count, so `""` means something other than this chunk answered; kept as an
+    // empty sheet because the story's Testing section specifies it. Make it an unexpected reply if that changes.
     if payload.is_empty() {
-        return Err(unexpected(payload, "an empty string"));
+        return Ok((sheet, Vec::new()));
     }
     let mut entries = payload.split(';');
     left.shapes = entries
@@ -362,14 +363,11 @@ mod tests {
 
     #[test]
     fn edge_replies() {
-        // The chunk's reply for an empty table: an empty sheet. An empty string isn't the chunk's.
+        // `string ""`: an empty sheet, no note. Also the chunk's real reply for an empty table.
+        let (sheet, notes) = parse(&reply("")).unwrap();
+        assert!(sheet.binds.is_empty() && notes.is_empty());
         let (sheet, notes) = parse(&reply("0")).unwrap();
         assert!(sheet.binds.is_empty() && notes.is_empty());
-        let e = parse(&reply("")).unwrap_err().to_string();
-        assert!(
-            e.contains("unexpected reply") && e.contains("an empty string"),
-            "{e}"
-        );
         let payload = [
             "2".to_string(),
             entry(&["Mod4"], "a", "", ""),
