@@ -14,8 +14,9 @@
 # The plugins' action names (quickcommands-*, sshmanager-*) are made up: those actions are in no collection.
 #
 # One row per action: `action` its action-collection name; `client` what can change it: konsole (konsoleui.rc) and
-# session (sessionui.rc), each also cleared and set by a shortcut scheme; toolbar: cleared and set by a scheme only;
-# pluginmenu: cleared by a scheme only; plugin, keytab and fixed: nothing. `desc` its English text with `&` removed;
+# session (sessionui.rc), each also cleared and set by a shortcut scheme; toolbar: konsolerc [Shortcuts], and set by
+# a scheme; toolbarmenu: the same, and cleared by a scheme; pluginmenu: cleared by a scheme only; plugin and keytab:
+# nothing. `desc` its English text with `&` removed;
 # `keys` its default shortcuts as Qt portable text (none: []); `category`.
 
 [[action]]
@@ -923,7 +924,7 @@ category = "window"
 
 [[action]]
 action = "help_contents"
-client = "fixed"
+client = "konsole"
 desc = "Konsole Handbook"
 keys = []
 category = "window"
@@ -1021,7 +1022,7 @@ category = "window"
 
 [[action]]
 action = "toolbars_submenu_action"
-client = "toolbar"
+client = "toolbarmenu"
 desc = "Toolbars Shown"
 keys = []
 category = "window"

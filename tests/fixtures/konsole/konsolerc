@@ -5,5 +5,10 @@ DefaultProfile=Work.profile
 Ctrl+Alt+1=Work
 Ctrl+Alt+2=Root.profile
 
+[Shortcuts]
+mainToolBar=Ctrl+Alt+V
+sessionToolbar=none
+toolbars_submenu_action=Ctrl+Alt+T
+
 [Shortcut Schemes]
 Current Scheme=Mine

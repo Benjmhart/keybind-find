@@ -613,7 +613,8 @@ too). The file is read as it is: KXMLGUI's merging of an older or hand-written f
 modelled. A file that can't be read is one line, and the defaults
 show. From `~/.config/konsolerc` (or under `$XDG_CONFIG_HOME`): a shortcut scheme other than Default (`[Shortcut
 Schemes]`) starts from no shortcuts and applies `konsole/shortcuts/<scheme>` from the same data directories, as Konsole
-does (without that file, a line says so and the list keeps only what doesn't come from a scheme); your profile
+does (without that file, or if it can't be read, a line says so and the list keeps only what doesn't come from a
+scheme); the toolbar toggles' keys (`[Shortcuts]`, where Konsole saves them); your profile
 shortcuts (`[Profile Shortcuts]`) are listed as `New tab with profile <name>`, which is what they do (one for a
 profile you have since deleted too). Changes to the standard shortcuts made for all KDE apps (`kdeglobals`) aren't
 read, nor a system-wide `konsolerc` in `$XDG_CONFIG_DIRS`. The Quick Commands and SSH Manager plugins' quick-access

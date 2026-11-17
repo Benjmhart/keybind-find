@@ -89,5 +89,6 @@
         <Action name="edit_copy" shortcut="Ctrl+Alt+C"/>
         <Action name="split-view-left-right" shortcut="Ctrl+Alt+L"/>
         <Action name="hamburger_menu" shortcut="Ctrl+Alt+O"/>
+        <Action name="stale-action" shortcut="Ctrl+Alt+2"/>
     </actionproperties>
 </gui>

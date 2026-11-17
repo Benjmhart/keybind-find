@@ -79,6 +79,9 @@
 Ctrl+Alt+B"/>
         <Action name="split-view-auto" shortcut='Ctrl+&amp;'/>
         <Action name="no-such-action" shortcut="Meta+K"/>
+        <Action name="stale-action" shortcut="Ctrl+Alt+1"/>
+        <Action name="load-layout" shortcut="Ctrl+Alt+1" accel="Ctrl+Alt+2"/>
+        <Action name="toggle-two-tabs" shortcut="Ctrl+PgDown, Ctrl+A"/>
         <Action name="help_about_kde" shortcut="Ctrl+Alt+K"/>
         <Action name="focus-view-next" shortcut="Num+5"/>
         <action name="clone-tab" shortcut="Ctrl+Alt+&#x43;"/>

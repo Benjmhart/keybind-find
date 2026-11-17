@@ -136,30 +136,62 @@ fn current_scheme(konsolerc: &str) -> String {
         .map_or_else(|| "Default".into(), |(_, v)| v)
 }
 
-/// What can change a row of `client`: (its own ui file names it, a non-Default scheme clears it, the scheme file
-/// names it). konsole and session: their collections, every way. toolbar: kxmlgui's ToolBarHandler, a client with no
-/// ui file of the user's. pluginmenu: the plugins' toggles, plugged with `plugActionList` (Konsole
-/// `src/MainWindow.cpp:717`), which refreshes them (kxmlguifactory.cpp:532-534) but in no collection a file can name.
-/// plugin, keytab, fixed (`help_contents`, emptied after every file by `correctStandardShortcuts`,
-/// `src/MainWindow.cpp:169, 252-258`) and profile: nothing.
-fn reach(client: &str) -> (bool, bool, bool) {
+/// What a non-Default scheme does to a row of `client`: (clears it, its file can name it). The ui files reach only
+/// their own client (`konsole`, `session`), `konsolerc [Shortcuts]` only `toolbar` and `toolbarmenu`.
+/// konsole and session: their collections, both. toolbar: kxmlgui's ToolBarHandler toggles, a client with no ui file:
+/// a scheme file names them, but only the submenu (`toolbarmenu`), plugged with `plugActionList`, is cleared.
+/// pluginmenu: the plugins' toggles, plugged with `plugActionList` (Konsole `src/MainWindow.cpp:717`), which clears
+/// them (kxmlguifactory.cpp:532-534), in no collection a file can name. plugin, keytab and profile: neither.
+fn reach(client: &str) -> (bool, bool) {
     match client {
-        "konsole" | "session" => (true, true, true),
-        "toolbar" => (false, true, true),
-        "pluginmenu" => (false, true, false),
-        _ => (false, false, false),
+        "konsole" | "session" | "toolbarmenu" => (true, true),
+        "toolbar" => (false, true),
+        "pluginmenu" => (true, false),
+        _ => (false, false),
     }
+}
+
+/// `konsolerc [Shortcuts]`, where `KActionCollection::writeSettings` saves the keys of a collection with no ui file
+/// (the toolbar toggles) and `readSettings` reads them (kxmlgui kactioncollection.cpp:551-575, 700-760): an empty
+/// value keeps the default (none), `none` is no key, a list is separated by "; ".
+fn toolbar_keys(rows: &mut [Action], konsolerc: &str) {
+    for (path, entries) in kde::ini(konsolerc) {
+        if path.len() != 1 || path[0] != "Shortcuts" {
+            continue;
+        }
+        for (name, value) in entries {
+            for r in rows.iter_mut().filter(|r| {
+                r.action == name && (r.client == "toolbar" || r.client == "toolbarmenu")
+            }) {
+                if !value.is_empty() {
+                    r.keys = split_list(&value);
+                }
+            }
+        }
+    }
+}
+
+/// `QKeySequence::listFromString`: split on "; " (qtbase qkeysequence.cpp:1553); an empty part, or one Qt reads as
+/// no key (`none`), is no key.
+fn split_list(value: &str) -> Vec<String> {
+    value
+        .split("; ")
+        .map(str::trim)
+        .filter(|k| !k.is_empty() && !k.eq_ignore_ascii_case("none"))
+        .map(String::from)
+        .collect()
 }
 
 /// The sheet from the pinned defaults with `files` applied as KXMLGUI applies them, and the notes for stderr.
 fn parse(defaults: &[Action], files: &Files) -> (Sheet, Vec<String>) {
     let mut rows = defaults.to_vec();
     let mut notes = Vec::new();
+    toolbar_keys(&mut rows, files.konsolerc);
     let scheme = current_scheme(files.konsolerc);
     if scheme != "Default" {
         // `applyShortcutScheme` (kxmlguifactory.cpp:627-673): every action of each client loses its keys and default,
         // then the scheme file's first `ActionProperties` (exact tag, any `scheme`) applies; none found: still cleared.
-        for r in rows.iter_mut().filter(|r| reach(&r.client).1) {
+        for r in rows.iter_mut().filter(|r| reach(&r.client).0) {
             r.keys.clear();
         }
         match &files.scheme {
@@ -173,7 +205,7 @@ fn parse(defaults: &[Action], files: &Files) -> (Sheet, Vec<String>) {
                         .iter()
                         .position(|(depth, tag, _)| *depth == 1 && tag == "ActionProperties");
                     if let Some(i) = props {
-                        apply(&mut rows, None, &doc[i + 1..]);
+                        apply(&mut rows, defaults.len(), None, &doc[i + 1..]);
                     }
                 }
                 Err(e) => notes.push(format!("{path}: {e}; skipped")),
@@ -191,7 +223,7 @@ fn parse(defaults: &[Action], files: &Files) -> (Sheet, Vec<String>) {
                         && attr(attrs, "scheme").unwrap_or("Default") == scheme
                 });
                 if let Some(i) = props {
-                    apply(&mut rows, Some(client), &doc[i + 1..]);
+                    apply(&mut rows, defaults.len(), Some(client), &doc[i + 1..]);
                 }
             }
             Err(e) => notes.push(format!("{path}: {e}; using the defaults")),
@@ -279,11 +311,12 @@ fn x_names(key: &str) -> String {
 /// non-empty `name` sets the keys of the action of that name `client` has from its `shortcut` or `accel` (any case,
 /// the old name) attribute; with both, which one wins is undefined (Qt keeps attributes in a hash), here the last.
 /// `client` `None` (a scheme file): the action of that name in each client a scheme file reaches. A name the pinned
-/// table has under no client is listed as it is (an action keybind-find doesn't know, or one Konsole no longer has);
-/// a name the table has under another client is skipped, as KXMLGUI skips it.
+/// table (`rows[..pinned]`) has under no client is listed as it is (an action keybind-find doesn't know, or one
+/// Konsole no longer has), once per client that names it; a name the table has under another client is skipped, as
+/// KXMLGUI skips it.
 /// ponytail: KXMLGUI's merging of an older or hand-written ui file with the shipped one (`KXmlGuiVersionHandler`)
 /// isn't modelled: the user's file is read as it is.
-fn apply(rows: &mut Vec<Action>, client: Option<&str>, after: &[Element]) {
+fn apply(rows: &mut Vec<Action>, pinned: usize, client: Option<&str>, after: &[Element]) {
     let children = after.iter().take_while(|(d, _, _)| *d > 1);
     for (_, tag, attrs) in children.filter(|(d, _, _)| *d == 2) {
         if !tag.eq_ignore_ascii_case("action") {
@@ -300,21 +333,16 @@ fn apply(rows: &mut Vec<Action>, client: Option<&str>, after: &[Element]) {
         else {
             continue;
         };
-        // `QKeySequence::listFromString` splits on "; " (qtbase qkeysequence.cpp:1553); an empty part is no key.
-        let keys: Vec<String> = value
-            .split("; ")
-            .map(str::trim)
-            .filter(|k| !k.is_empty())
-            .map(String::from)
-            .collect();
-        let mut known = false;
+        let keys = split_list(value);
+        let known = rows[..pinned].iter().any(|r| r.action == name);
+        let mut applied = false;
         for r in rows.iter_mut().filter(|r| r.action == name) {
-            known = true;
-            if client.map_or(reach(&r.client).2, |c| r.client == c) {
+            if client.map_or(reach(&r.client).1, |c| r.client == c) {
                 r.keys = keys.clone();
+                applied = true;
             }
         }
-        if !known {
+        if !known && !applied {
             rows.push(Action {
                 action: name.into(),
                 client: client.unwrap_or("konsole").into(),
@@ -343,6 +371,9 @@ const WS: [char; 4] = [' ', '\t', '\n', '\r'];
 /// normalized, entities and character references decoded); comments, `<?…?>`, CDATA and `<!DOCTYPE …>` skipped; text
 /// ignored. An error for an unclosed or mismatched tag, a bad name, an unquoted or duplicate attribute, a `<` in a
 /// value, an unknown entity or a reference to no XML character, or no single root.
+/// ponytail: entities declared in the internal subset aren't expanded (an error, as an unknown entity), the input is
+/// taken as UTF-8 whatever its declaration says (KXMLGUI writes UTF-8), and text content isn't checked; a full XML
+/// parser crate would cover these.
 fn xml(text: &str) -> Result<Vec<Element>, String> {
     let mut out = Vec::new();
     let mut open: Vec<&str> = Vec::new();
@@ -357,23 +388,34 @@ fn xml(text: &str) -> Result<Vec<Element>, String> {
             rest = &r[r.find("]]>").ok_or("unclosed CDATA")? + 3..];
         } else if let Some(r) = rest.strip_prefix("<!") {
             // `<!DOCTYPE …>`, an internal subset in `[…]` included; a quoted literal may hold `[`, `]` or `>`.
-            let (mut depth, mut quote) = (0i32, None);
-            let end = r
-                .char_indices()
-                .find(|&(_, c)| {
-                    match (quote, c) {
-                        (Some(q), c) if c == q => quote = None,
-                        (Some(_), _) => {}
-                        (None, '"' | '\'') => quote = Some(c),
-                        (None, '[') => depth += 1,
-                        (None, ']') => depth -= 1,
-                        (None, '>') => return depth == 0,
+            // Comments and `<?…?>` in the subset are skipped whole (a quote in them is text).
+            let mut depth = 0i32;
+            let mut s = r;
+            loop {
+                if let Some(x) = s.strip_prefix("<!--") {
+                    s = &x[x.find("-->").ok_or("unclosed comment")? + 3..];
+                } else if let Some(x) = s.strip_prefix("<?") {
+                    s = &x[x.find("?>").ok_or("unclosed <?")? + 2..];
+                } else {
+                    let mut chars = s.chars();
+                    match chars.next().ok_or("unclosed <!")? {
+                        q @ ('"' | '\'') => {
+                            let x = chars.as_str();
+                            s = &x[x.find(q).ok_or("unclosed <!")? + 1..];
+                            continue;
+                        }
+                        '[' => depth += 1,
+                        ']' => depth -= 1,
+                        '>' if depth == 0 => {
+                            s = chars.as_str();
+                            break;
+                        }
                         _ => {}
                     }
-                    false
-                })
-                .ok_or("unclosed <!")?;
-            rest = &r[end.0 + 1..];
+                    s = chars.as_str();
+                }
+            }
+            rest = s;
         } else if let Some(r) = rest.strip_prefix("</") {
             let end = r.find('>').ok_or("unclosed end tag")?;
             let name = r[..end].trim_end_matches(WS);
@@ -399,6 +441,7 @@ fn xml(text: &str) -> Result<Vec<Element>, String> {
             let mut attrs: Vec<(String, String)> = Vec::new();
             let depth = open.len();
             loop {
+                let spaced = r.starts_with(WS);
                 r = r.trim_start_matches(WS);
                 if let Some(x) = r.strip_prefix("/>") {
                     rest = x;
@@ -408,6 +451,9 @@ fn xml(text: &str) -> Result<Vec<Element>, String> {
                     open.push(name);
                     rest = x;
                     break;
+                }
+                if !spaced {
+                    return Err(format!("no space before an attribute in <{name}>"));
                 }
                 let eq = r
                     .find('=')
@@ -599,10 +645,10 @@ mod tests {
                 "konsole",
                 "session",
                 "toolbar",
+                "toolbarmenu",
                 "pluginmenu",
                 "plugin",
                 "keytab",
-                "fixed"
             ]
             .contains(&a.client.as_str()));
             assert!(!a.desc.contains('&'), "{}", a.desc);
@@ -640,7 +686,11 @@ mod tests {
                 .iter()
                 .map(|b| (b.key.as_str(), b.desc.as_str()))
                 .collect::<Vec<_>>(),
-            [("super+k", "no-such-action")]
+            [
+                ("super+k", "no-such-action"),
+                ("ctrl+alt+1", "stale-action"),
+                ("ctrl+alt+2", "stale-action")
+            ]
         );
         // A keypad key: left out and counted; the defaults it replaced are gone.
         assert!(get(&s, "focus-view-next").is_empty());
@@ -678,10 +728,29 @@ mod tests {
         );
         // A known action with no default gets its description.
         assert_eq!(get(&s, "help_about_kde"), [("ctrl+alt+k", "About KDE")]);
-        // Not in this client: the session's edit_copy and hamburger_menu (sessionui.rc's keys stand), help_contents
-        // (emptied after every file), the plugins' toggle; an empty name: nothing.
+        // help_contents: the user's key holds (re-applied after correctStandardShortcuts empties it).
+        assert_eq!(get(&s, "help_contents"), [("F1", "Konsole Handbook")]);
+        // Not in this client: the session's edit_copy and hamburger_menu (sessionui.rc's keys stand), the plugins'
+        // toggle; an empty name: nothing.
         assert_eq!(get(&s, "hamburger_menu"), [("ctrl+alt+o", "Open Menu")]);
-        assert!(get(&s, "help_contents").is_empty());
+        // A stale name in both files: each file's entry, in its own client.
+        assert_eq!(
+            get(&s, "stale-action"),
+            [
+                ("ctrl+alt+1", "stale-action"),
+                ("ctrl+alt+2", "stale-action")
+            ]
+        );
+        // `shortcut` and `accel` both: the last one in the element.
+        assert_eq!(
+            get(&s, "load-layout"),
+            [("ctrl+alt+2", "Load Tab Layout...")]
+        );
+        // A sequence whose first chord has a page key.
+        assert_eq!(
+            get(&s, "toggle-two-tabs"),
+            [("ctrl+Next ctrl+a", "Toggle Between Two Tabs")]
+        );
         assert_eq!(
             get(&s, "quickcommands-show"),
             [("ctrl+shift+F1", "Show Quick Commands")]
@@ -759,9 +828,19 @@ mod tests {
             ("<gui a='&#xFFFF;'/>", "unknown entity &#xFFFF;"),
             ("<gui\u{a0}a='b'/>", "a bad tag name \"gui\\u{a0}a='b'\""),
             ("<gui><![CDATA[x</gui>", "unclosed CDATA"),
+            (
+                "<gui name=\"a\"shortcut=\"b\"/>",
+                "no space before an attribute in <gui>",
+            ),
+            ("<gui ='x'/>", "a bad attribute in <gui>"),
         ] {
             assert_eq!(xml(bad), Err(why.to_string()), "{bad}");
         }
+        // A comment in the subset (its quote is text); an end tag with a space before `>`.
+        assert_eq!(
+            xml("<!DOCTYPE gui [ <!-- don't --> <?pi ' ?> ]><gui></gui >"),
+            Ok(vec![(0, "gui".into(), vec![])])
+        );
         // A quoted `]>` inside the internal subset doesn't end the DOCTYPE.
         assert_eq!(
             xml("<!DOCTYPE gui [ <!ENTITY x \"]><a/>\"> ]><gui/>"),
@@ -803,13 +882,24 @@ mod tests {
             ui_keys,
             [
                 ("ctrl+Insert", "edit_copy"),
-                ("ctrl+alt+b", "mainToolBar"),
+                ("ctrl+alt+b", "toolbars_submenu_action"),
                 ("ctrl+alt+q", "close-window"),
+                ("ctrl+alt+v", "mainToolBar"),
                 ("ctrl+c", "edit_copy"),
                 ("ctrl+t", "new-tab"),
             ]
         );
         assert_eq!(s.binds["scrolling"].len(), 8);
+        // A lower-case `actionproperties`, or one nested deeper, in a scheme file: not applied.
+        for doc in [
+            "<gui><actionproperties><Action name='new-tab' shortcut='Ctrl+Alt+N'/></actionproperties></gui>",
+            "<gui><Menu><ActionProperties><Action name='new-tab' shortcut='Ctrl+Alt+N'/></ActionProperties></Menu></gui>",
+        ] {
+            let mut f = files(&rc, &[]);
+            f.scheme = Some(("Mine".into(), Some(doc)));
+            let (s, _) = parse(&pinned(), &f);
+            assert!(get(&s, "new-tab").is_empty(), "{doc}");
+        }
         // The plugins' toggles: cleared, and no scheme file names them; their quick-access keys stay.
         assert!(get(&s, "quickcommands-show").is_empty());
         assert_eq!(
@@ -837,6 +927,25 @@ mod tests {
         );
         assert!(get(&s, "new-tab").is_empty() && get(&s, "close-window").is_empty());
         assert_eq!(s.binds["scrolling"].len(), 8);
+    }
+
+    #[test]
+    fn toolbar_toggles_from_konsolerc() {
+        let rc = "[Shortcuts]\nmainToolBar=Ctrl+Alt+B\nsessionToolbar=\ntoolbars_submenu_action=none\nnew-tab=Ctrl+Alt+Z\n";
+        let (s, _) = parse(&pinned(), &files(rc, &[]));
+        assert_eq!(get(&s, "mainToolBar"), [("ctrl+alt+b", "Main Toolbar")]);
+        assert!(
+            get(&s, "sessionToolbar").is_empty() && get(&s, "toolbars_submenu_action").is_empty()
+        );
+        // Only the toolbar toggles are read from there.
+        assert_eq!(get(&s, "new-tab"), [("ctrl+shift+t", "New Tab")]);
+        // Under a scheme whose file doesn't name it: kept.
+        let rc = format!("{rc}[Shortcut Schemes]\nCurrent Scheme=Mine\n");
+        let mut f = files(&rc, &[]);
+        f.scheme = Some(("Mine".into(), Some("<gui><ActionProperties/></gui>")));
+        let (s, _) = parse(&pinned(), &f);
+        assert_eq!(get(&s, "mainToolBar"), [("ctrl+alt+b", "Main Toolbar")]);
+        assert!(get(&s, "new-tab").is_empty());
     }
 
     #[test]
@@ -933,6 +1042,10 @@ mod tests {
         assert_eq!(close_window(&env_of(base())).0, ["ctrl+alt+2"]);
         put(&sys1, ui, &format!("{CLOSE}1'/></ActionProperties></gui>"));
         assert_eq!(close_window(&env_of(base())).0, ["ctrl+alt+1"]);
+        // A directory at the user's path: not a file, so the system one.
+        std::fs::create_dir_all(home.join(".local/share").join(ui)).unwrap();
+        assert_eq!(close_window(&env_of(base())).0, ["ctrl+alt+1"]);
+        std::fs::remove_dir(home.join(".local/share").join(ui)).unwrap();
         // The user's ~/.local/share before them; XDG_DATA_HOME instead of it; empty or relative: unset.
         put(
             &home,
@@ -995,6 +1108,11 @@ mod tests {
             assert_eq!(read_file(&fifo), Ok(None));
         }
         let big = d.join("big");
+        std::fs::write(&big, vec![b' '; MAX_SIZE as usize]).unwrap();
+        assert_eq!(
+            read_file(&big).map(|s| s.map(|s| s.len())),
+            Ok(Some(MAX_SIZE as usize))
+        );
         std::fs::write(&big, vec![b' '; (MAX_SIZE + 1) as usize]).unwrap();
         assert_eq!(read_file(&big), Err("larger than 4 MiB; skipped".into()));
         // A file that exists but can't be read: one note, the defaults kept (skipped as root, who reads anything).
