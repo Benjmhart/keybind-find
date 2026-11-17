@@ -521,10 +521,15 @@ session, a client started with `--config`; and presets the running zellij would 
 place of the built-in one). Mouse binds are never listed. keybind-find reads its own environment and `PATH`, not the
 zellij client's: `ZELLIJ_CONFIG_FILE`, `ZELLIJ_CONFIG_DIR` or `XDG_CONFIG_HOME` set only in your shell, a `zellij` that
 isn't on the `PATH` of whatever starts keybind-find, or a client still running an older zellij after an upgrade, give
-a different list than the running zellij has. nvim in zellij's focused pane is found when zellij has one session with
-one client and names nvim as that pane's command (`zellij action list-clients`; zellij names a pane editing a file
-after its `scrollback_editor` or the server's `$EDITOR`, `vi` when neither is set, so `nvim file` is seen only when that
-is nvim); its keys are read from its config, not the running nvim. Several sessions or clients give one line and only
+a different list than the running zellij has; and zellij's sessions are looked for in the socket directory from
+keybind-find's own `ZELLIJ_SOCKET_DIR`, `XDG_RUNTIME_DIR` or `TMPDIR`.
+
+nvim in zellij's focused pane is found from `zellij action list-clients`, its keys read from its config (not the
+running nvim). zellij names a pane that runs vi, vim or nvim on exactly one file (`FILE` or `+N FILE`) after its
+`scrollback_editor`, else the server's `$EDITOR`, else `$VISUAL`, else `vi` (an empty `$EDITOR`: no renaming). So nvim
+on one file is found only when that editor is nvim, and with nvim as the editor a vim pane on one file is taken for
+nvim and nvim's keys are listed. Several sessions (detached ones count), several clients, no client listed (as while
+the pane's scrollback is open in the editor) or a zellij without `action list-clients` give one line and only
 zellij's keys.
 
 ### kitty

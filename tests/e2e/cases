@@ -29,9 +29,10 @@ if [ "$PHASE" = x11 ]; then
   x tmux           "i3 tmux"    "tmux|ctrl+b X|kill-server"         -- xterm -e tmux
   # Alt as ESC: by default xterm sets the eighth bit instead (Alt+y types `ù`), which zellij doesn't read as Alt.
   x zellij         "i3 zellij"  "zellij|alt+y|NewTab|input_mode=normal" -- xterm -xrm 'XTerm*metaSendsEscape: true' -e zellij
-  # nvim in zellij's one pane, from `zellij action list-clients`. The zellij case's server goes first (with two sessions
-  # zellij asks which), and the server gets EDITOR=nvim: zellij names a pane editing a file after it (vi when unset).
-  wanted zellij-nvim && pkill -x zellij
+  # nvim in zellij's one pane, from `zellij action list-clients`. The zellij case's server goes first, gone before the
+  # case starts (with two sessions zellij asks which), and the server gets EDITOR=nvim: zellij names a pane running nvim
+  # on one file after its editor (vi when unset).
+  wanted zellij-nvim && pkill -x zellij && for _ in $(seq 50); do pgrep -x zellij >/dev/null || break; sleep 0.1; done
   x zellij-nvim    "i3 zellij nvim" "nvim|backslash x|e2e quit"       -- xterm -e env EDITOR=nvim zellij --layout /tmp/home/.config/zellij/nvim.kdl
   pkill -x zellij || true
   x less           "i3 less"    "less|X|quit"                       -- xterm -e less /etc/os-release
