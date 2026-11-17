@@ -23,7 +23,8 @@ The lists are read from the programs' real configuration, your own bindings incl
 | sxhkd (bspwm, or any X11 window manager) | the hotkeys of your running sxhkd, from the config files it loaded, with each one's comment, `{a,b}` sequences expanded and chains as key sequences | none ([below](#sxhkd)) |
 | awesome | its keys from the running awesome over D-Bus (the hotkeys its own popup shows), with each key's description and group | none for the stock config; your `rc.lua` must `require("awful")` ([below](#awesome)) |
 | any other X11 window manager (openbox, qtile, dwm, …) | the focused window, so every app below works; not the window manager's own keys, but sxhkd's when it runs | an EWMH window manager (it sets `_NET_ACTIVE_WINDOW`) |
-| other Wayland compositors (niri) | espanso only: the focused window isn't read, so no app below | untested |
+| niri | its binds from your `config.kdl` (following `include`), each with its `hotkey-overlay-title` or else its action, and the focused window from `niri msg` | none; niri's own binds are listed, not sent ([below](#niri)) |
+| other Wayland compositors (river, labwc, wayfire, …) | espanso only: the focused window isn't read, so no app below | untested |
 | alacritty | its keys: alacritty's defaults merged with your `[[keyboard.bindings]]` | none |
 | Ghostty | its keys from `ghostty +list-keybinds`, as your config sets them | none ([below](#ghostty)) |
 | WezTerm | its keys from `wezterm show-keys`, as WezTerm reads your `wezterm.lua` (defaults, key tables, leader), and the program in its focused pane | none ([below](#wezterm)) |
@@ -428,6 +429,28 @@ out, counted in one line. Caps Lock and Num Lock in a bind's modifiers are ignor
 focused window comes from `hyprctl -j activewindow`, never from X, so a native Wayland window is never mistaken for the
 last XWayland one; if `hyprctl` fails, that is a line for the window and one for the binds, and the list goes
 on without them.
+
+### niri
+
+Under niri, keybind-find reads the config file niri reads: `$NIRI_CONFIG` when set, else
+`$XDG_CONFIG_HOME/niri/config.kdl` (`~/.config/niri/config.kdl`), else `/etc/niri/config.kdl`. niri removes
+`NIRI_CONFIG` from the environment of what it starts, and its `--config` isn't visible, so a config elsewhere is
+followed only when `NIRI_CONFIG` is set in keybind-find's own environment. The file is read as niri 26.04 reads it (KDL
+1, through the `kdl` crate): `include "file"` is read in place (relative to the including file, `~/` from your home;
+`optional=true` with no file is skipped quietly), and a later `binds` block replaces an earlier bind of the same key,
+as niri merges them. A bind shows its `hotkey-overlay-title` (Pango markup removed), or else its action as written
+(`spawn alacritty`, `focus-column-left`); binds are grouped by action. `Mod` is your `input { mod-key }` (Super by
+default); a nested niri (one running as a window) uses `mod-key-nested` instead, which keybind-find doesn't read.
+Mouse, wheel and touchpad binds, Mod3 (`ISO_Level5_Shift`) binds and unknown modifiers are left out, counted in one
+line. A missing include, a file that includes itself or includes more than 10 levels deep is one line and skipped,
+where niri refuses the whole config; a file that isn't valid KDL drops niri's binds, with a line naming it. Nothing in
+the config is run: `spawn` commands are only shown.
+
+The focused window comes from `niri msg --json focused-window`, never from X. An X11 app under xwayland-satellite has
+the satellite's pid, so the program inside an X11 terminal isn't found there. Picking an app's key sends it with
+`wtype`, as under sway. Picking one of niri's own binds is refused with the key to press: wtype's virtual keyboard
+delivers keys to the focused window, never to niri's bind handling, so the key would reach the app, not niri.
+keybind-find doesn't run the bind's action (`niri msg action`) instead: a pick only ever sends keys.
 
 ### screen
 
@@ -844,6 +867,7 @@ keybind-find keys            # grab the keyboard, print each key you press in bi
 | `i3-msg` | i3: its config | `i3-wm` | `i3-wm` |
 | `swaymsg` | sway: the focused window | `sway` | `sway` |
 | `hyprctl` | Hyprland: its binds and the focused window | `hyprland` | `hyprland` |
+| `niri` | niri: the focused window (`niri msg`) | `niri` | `niri` |
 | `xfconf-query` | Xfce: its keyboard shortcuts | `xfconf` | `xfconf` |
 | `gsettings` | GNOME and GNOME Terminal: their shortcuts | `glib2` | `libglib2.0-bin` |
 | `hx` or `helix` | helix: its version (else the newest defaults) | `helix` | `hx` |
@@ -870,7 +894,7 @@ Each app's provider needs that app (`nvim`, `herdr`, `tmux`, `espanso`), and is 
 - **Key search doesn't start.** The list opens in text search instead (type to filter), and the header says why:
   for example no `DISPLAY`, fzf older than 0.66, no `xmodmap`, or another program holding the keyboard.
 - **Wayland.** Key search is X11 only; on Wayland the list opens in fuzzel (or `KEYBIND_FIND_PICKER`), except under
-  GNOME, where it opens in fzf ([GNOME](#gnome)). The focused window is read under sway, Hyprland and KDE (with
+  GNOME, where it opens in fzf ([GNOME](#gnome)). The focused window is read under sway, Hyprland, niri and KDE (with
   `kdotool`); under other compositors no window is read, so no app's keys are listed.
 - **Another compositor set `XDG_CURRENT_DESKTOP` to KDE or GNOME.** On Wayland only a running Plasma or GNOME Shell
   counts as KDE or GNOME, so wayfire, river, labwc and the like no longer have their picks refused (they are sent with

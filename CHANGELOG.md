@@ -12,6 +12,7 @@ All notable changes to keybind-find are listed here. The format follows
 - sxhkd (bspwm, or any X11 window manager): the hotkeys of your running sxhkd, from the config files it loaded, read and expanded as sxhkd 0.6.3 does (`{a,b}` and `{1-9}` sequences, chains as key sequences), each described by the comment above it ([#51](https://github.com/Benjmhart/keybind-find/issues/51)).
 - Konsole: its shortcuts, Konsole 26.08.2's defaults built in with your Configure Keyboard Shortcuts changes (`konsoleui.rc`, `sessionui.rc`), shortcut scheme and profile shortcuts on top, and the default keytab's scrolling keys ([#47](https://github.com/Benjmhart/keybind-find/issues/47)).
 - awesome: its hotkeys from the running awesome over D-Bus (what its hotkeys popup reads), with each key's description and group; nothing to set up for the stock config, an `rc.lua` must load `awful` ([#50](https://github.com/Benjmhart/keybind-find/issues/50)).
+- niri: its binds from the `config.kdl` niri reads (KDL 1 as niri 26.04 reads it, `include`s merged as niri merges them), each with its `hotkey-overlay-title` or else its action, and the focused window from `niri msg --json focused-window`, so the focused app's keys are listed under niri too; niri's own binds are listed but not sent (wtype's keys reach the window, not niri) ([#53](https://github.com/Benjmhart/keybind-find/issues/53)).
 
 ## [1.1.2] - 2026-11-10
 

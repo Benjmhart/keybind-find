@@ -263,6 +263,33 @@ w() {
   sleep 0.5
 }
 
+# n NAME "PROVIDERS" "PROVIDER|KEY|DESC" -- COMMAND...: a case under niri (its phase), the program started through
+# niri (`niri msg action spawn`), its focus read through niri's IPC as keybind-find reads it.
+n() {
+  local name=$1 providers=$2 key=$3
+  shift 4
+  wanted "$name" || return 0
+  command -v "$1" >/dev/null || { record "$name" "skip	$1 is not installed"; FAILED=1; return; }
+  local before; before=$(focused)
+  niri msg action spawn -- "$@" >/dev/null 2>&1
+  local now=""
+  for _ in $(seq 150); do
+    now=$(focused)
+    [ -n "$now" ] && [ "$now" != "$before" ] && break
+    now=""; sleep 0.1
+  done
+  if [ -z "$now" ]; then
+    record "$name" "FAIL	no window	$(tail -c 300 "$OUT/niri.log" | tr '\n\t' '  ')"
+    FAILED=1
+    pkill -x "$1" 2>/dev/null
+  else
+    sleep 1
+    dump_and_check "$name" "$providers" "$key" && demo "$name" "$key"
+    niri msg action close-window >/dev/null 2>&1
+  fi
+  sleep 0.5
+}
+
 # d NAME PROVIDER "PROVIDER|KEY|DESC" -- SETUP...: one provider dumped directly (a desktop that can't run here),
 # after SETUP.
 d() {

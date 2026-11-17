@@ -26,6 +26,7 @@ mod micro;
 mod mpv;
 mod nano;
 mod ncmpcpp;
+mod niri;
 mod nvim;
 mod obsidian;
 mod pinned;
@@ -100,6 +101,7 @@ pub const KNOWN: &[&str] = &[
     "sxhkd",
     "konsole",
     "awesome",
+    "niri",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -145,6 +147,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "sxhkd" => sxhkd::sheet(ctx),
         "konsole" => konsole::sheet(),
         "awesome" => awesome::sheet(ctx),
+        "niri" => niri::sheet(ctx),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",

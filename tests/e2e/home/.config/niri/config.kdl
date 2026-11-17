@@ -1,0 +1,49 @@
+// The e2e niri config: a trimmed copy of niri 26.04's resources/default-config.kdl. Mod is Super on a TTY and when
+// nested (the harness runs niri as a window on Xvfb), and the terminal bind comes from an included file, so the
+// e2e run also proves includes.
+input {
+    keyboard {
+        xkb {
+        }
+    }
+    mod-key "Super"
+    mod-key-nested "Super"
+}
+
+// No overlay over the first case.
+hotkey-overlay {
+    skip-at-startup
+}
+
+screenshot-path null
+
+include "e2e-binds.kdl"
+
+binds {
+    Mod+Shift+Slash { show-hotkey-overlay; }
+    Mod+D hotkey-overlay-title="Run an Application: fuzzel" { spawn "fuzzel"; }
+    Super+Alt+S allow-when-locked=true hotkey-overlay-title=null { spawn-sh "pkill orca || exec orca"; }
+    XF86AudioRaiseVolume allow-when-locked=true { spawn-sh "wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.1+ -l 1.0"; }
+
+    Mod+O repeat=false { toggle-overview; }
+    Mod+Q repeat=false { close-window; }
+
+    Mod+Left  { focus-column-left; }
+    Mod+Right { focus-column-right; }
+    Mod+Ctrl+Left  { move-column-left; }
+    Mod+Ctrl+Right { move-column-right; }
+
+    Mod+1 { focus-workspace 1; }
+    Mod+2 { focus-workspace 2; }
+    Mod+Ctrl+1 { move-column-to-workspace 1; }
+    Mod+Ctrl+2 { move-column-to-workspace 2; }
+
+    Mod+WheelScrollDown cooldown-ms=150 { focus-workspace-down; }
+    Mod+WheelScrollUp   cooldown-ms=150 { focus-workspace-up; }
+
+    Mod+F { maximize-column; }
+    Mod+Shift+F { fullscreen-window; }
+    Print { screenshot; }
+
+    Mod+Shift+E { quit; }
+}

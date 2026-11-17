@@ -277,6 +277,14 @@ fn send_with(
             e.bind.key
         );
     }
+    // niri's virtual keyboard hands a key straight to the focused window (smithay's virtual_keyboard_handle.rs), never
+    // to niri's bind matching (src/input/mod.rs `find_configured_bind` at v26.04): its own binds can't be sent.
+    if !dry_run && wayland && session == Some("niri") && e.provider == "niri" {
+        bail!(
+            "can't send niri's own keys with wtype (they reach the window, not niri): press {} yourself",
+            e.bind.key
+        );
+    }
     check(e, wayland)?;
     let cmds = commands(window, e, wayland);
     if dry_run {
@@ -836,6 +844,60 @@ mod tests {
             .unwrap();
             assert_eq!(*ran.borrow(), 1, "{session}");
         }
+    }
+
+    #[test]
+    fn niri_refuses_its_own_keys_only() {
+        let err = send_with(
+            None,
+            &entry("niri", "super+t"),
+            false,
+            true,
+            Some("niri"),
+            &mut Vec::new(),
+            &never_run,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "can't send niri's own keys with wtype (they reach the window, not niri): press super+t yourself"
+        );
+        // An app's key is sent with wtype, as under sway.
+        let ran = RefCell::new(Vec::new());
+        send_with(
+            None,
+            &entry("foot", "ctrl+shift+c"),
+            false,
+            true,
+            Some("niri"),
+            &mut Vec::new(),
+            &|c| {
+                ran.borrow_mut().extend_from_slice(c);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            *ran.borrow(),
+            commands(None, &entry("foot", "ctrl+shift+c"), true)
+        );
+        assert_eq!(ran.borrow()[0][0], "wtype");
+        // `--print` prints a niri bind.
+        let mut out = Vec::new();
+        send_with(
+            None,
+            &entry("niri", "super+t"),
+            true,
+            true,
+            Some("niri"),
+            &mut out,
+            &never_run,
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "wtype -M logo -k t -m logo\n"
+        );
     }
 
     #[test]

@@ -15,7 +15,8 @@ Please report security problems privately, through GitHub's private vulnerabilit
   or others, and the folder must be yours and not writable by group or others too. It runs with no arguments and no
   shell, under a time limit.
 - **It runs other programs**, always with explicit arguments:
-  - the programs it reads: nvim (headless, with your config), `tmux`, `herdr`, `espanso`, `swaymsg`, `xdotool`,
+  - the programs it reads: nvim (headless, with your config), `tmux`, `herdr`, `espanso`, `swaymsg`, `niri` (`msg
+    --json focused-window` under niri; niri's config is only read, its `spawn` commands shown, never run), `xdotool`,
     `xprop`, `xmodmap`, `wezterm` (`show-keys` runs your `wezterm.lua`, as WezTerm does on every start; `cli
     list-clients`, without your config, asks the running WezTerm for its focused pane), `zellij` (`--version`, and
     `setup --dump-keybinds=<preset>` or `setup --dump-config`, which print zellij's built-in keys and start no session; zellij

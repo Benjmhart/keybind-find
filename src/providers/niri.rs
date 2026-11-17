@@ -1,0 +1,737 @@
+//! niri: its binds from the config file niri reads (KDL v1, through `kdl_v1`), with `include`s read in place and
+//! later `binds` blocks replacing earlier binds of the same key, as niri merges them. Line references are to niri
+//! v26.04 (commit 8ed0da4).
+
+use super::kdl_v1;
+use crate::context::Context;
+use crate::sheet::{chord, Bind, Sheet};
+use anyhow::Context as _;
+use kdl::{KdlNode, KdlValue};
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+
+type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
+
+const SYSTEM: &str = "/etc/niri/config.kdl";
+
+/// niri-config/src/lib.rs:67: an include at this depth is refused (the main file is depth 0).
+const RECURSION_LIMIT: usize = 10;
+
+pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
+    let (sheet, notes) = sheet_from(
+        &|name: &str| std::env::var(name).ok().filter(|v| !v.is_empty()),
+        Path::new(SYSTEM),
+    )?;
+    if !notes.is_empty() {
+        eprintln!("keybind-find: niri: {}", notes.join("; "));
+    }
+    Ok(sheet)
+}
+
+/// The sheet, and the notes for its one stderr line. `system` is niri's system config path (a test seam).
+fn sheet_from(env: Env, system: &Path) -> anyhow::Result<(Sheet, Vec<String>)> {
+    let paths = config_paths(env, system);
+    let path = paths.iter().find(|p| p.is_file()).with_context(|| {
+        let tried: Vec<_> = paths.iter().map(|p| p.display().to_string()).collect();
+        format!("no niri config (looked for {})", tried.join(", "))
+    })?;
+    let mut state = State::default();
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    load(path, &text, env, 0, &mut vec![canonical(path)], &mut state)?;
+    let mod_key = state.mod_key.clone().unwrap_or_else(|| "Super".into());
+    let mut sheet = Sheet {
+        title: "niri".into(),
+        provider: "niri".into(),
+        binds: Default::default(),
+    };
+    let mut left_out = Vec::new();
+    for raw in state.binds {
+        let Some(key) = key(&raw.name, &mod_key) else {
+            left_out.push(raw.name);
+            continue;
+        };
+        sheet
+            .binds
+            .entry(raw.action.clone())
+            .or_default()
+            .push(Bind {
+                key,
+                desc: raw.desc,
+                action: raw.action,
+                when: Default::default(),
+                run: Vec::new(),
+            });
+    }
+    if !left_out.is_empty() {
+        state.notes.push(format!(
+            "left out {} bind(s) keybind-find can't send (mouse, wheel or touchpad, Mod3, or an unknown modifier): {}",
+            left_out.len(),
+            left_out.join(", ")
+        ));
+    }
+    Ok((sheet, state.notes))
+}
+
+/// The file niri reads (src/main.rs:327-360): `NIRI_CONFIG` when set (empty counts as unset), else the user's
+/// (`ProjectDirs` config dir: `$XDG_CONFIG_HOME` when absolute, else `~/.config`), else the system one. niri's
+/// `--config` isn't visible to keybind-find, and niri removes `NIRI_CONFIG` from its children's environment
+/// (src/main.rs:150), so only a `NIRI_CONFIG` in keybind-find's own environment is followed.
+fn config_paths(env: Env, system: &Path) -> Vec<PathBuf> {
+    if let Some(explicit) = env("NIRI_CONFIG").filter(|v| !v.is_empty()) {
+        return vec![PathBuf::from(explicit)];
+    }
+    let xdg = env("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| env("HOME").map(|h| PathBuf::from(h).join(".config")));
+    let mut paths: Vec<_> = xdg.map(|x| x.join("niri/config.kdl")).into_iter().collect();
+    paths.push(system.to_path_buf());
+    paths
+}
+
+#[derive(Default)]
+struct State {
+    binds: Vec<RawBind>,
+    mod_key: Option<String>,
+    notes: Vec<String>,
+}
+
+/// A bind as written; its key is translated once the last `mod-key` is known.
+struct RawBind {
+    name: String,
+    /// What niri compares binds by: the trigger (case-insensitive) and the modifier set as written.
+    same: (String, BTreeSet<String>),
+    desc: String,
+    action: String,
+}
+
+fn canonical(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Reads `path`'s `text` into `state`: its binds (merged), `input { mod-key }`, and its includes in place. A file
+/// that doesn't parse, included or not, is an error: niri doesn't load that config, and the provider is dropped.
+fn load(
+    path: &Path,
+    text: &str,
+    env: Env,
+    depth: usize,
+    stack: &mut Vec<PathBuf>,
+    state: &mut State,
+) -> anyhow::Result<()> {
+    let doc = kdl_v1::parse(text).with_context(|| path.display().to_string())?;
+    let label = |node: &KdlNode| format!("{}:{}", path.display(), kdl_v1::line(text, node));
+    let mut saw_binds = false;
+    for node in doc.nodes() {
+        match node.name().value() {
+            "binds" => {
+                // A second `binds` node in one file is an error in niri ("duplicate node"); merged here.
+                if saw_binds {
+                    state
+                        .notes
+                        .push(format!("{}: a second binds block (merged)", label(node)));
+                }
+                saw_binds = true;
+                let part = binds(node, &label, &mut state.notes);
+                // niri-config/src/lib.rs:219-230: a later block's bind replaces any earlier one with the same key.
+                state
+                    .binds
+                    .retain(|b| !part.iter().any(|n| n.same == b.same));
+                state.binds.extend(part);
+            }
+            "input" => {
+                let children = node.children().map(|c| c.nodes()).unwrap_or_default();
+                for m in children.iter().filter(|n| n.name().value() == "mod-key") {
+                    if let Some(v) = first_string(m) {
+                        state.mod_key = Some(v.to_string());
+                    }
+                }
+            }
+            "include" => include(node, path, env, depth, stack, state, &label(node))?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// One `include "path" [optional=true]` (niri-config/src/lib.rs:297-445): `~` is the home directory, anything else
+/// is relative to the including file's folder. A missing optional file is skipped silently; a missing file, a file
+/// already being read (a loop), or one `RECURSION_LIMIT` deep is a note and skipped, where niri fails the config.
+fn include(
+    node: &KdlNode,
+    path: &Path,
+    env: Env,
+    depth: usize,
+    stack: &mut Vec<PathBuf>,
+    state: &mut State,
+    label: &str,
+) -> anyhow::Result<()> {
+    let Some(target) = first_string(node) else {
+        state
+            .notes
+            .push(format!("{label}: an include with no path"));
+        return Ok(());
+    };
+    let optional = node.entries().iter().any(|e| {
+        e.name().is_some_and(|n| n.value() == "optional") && *e.value() == KdlValue::Bool(true)
+    });
+    // `Path::strip_prefix` matches whole components, as niri's does: `~/x` and `~`, not `~x`.
+    let file = match Path::new(target).strip_prefix("~") {
+        Ok(rest) => match env("HOME") {
+            Some(home) => PathBuf::from(home).join(rest),
+            None => {
+                state
+                    .notes
+                    .push(format!("{label}: include {target}: HOME is not set"));
+                return Ok(());
+            }
+        },
+        Err(_) => path.parent().unwrap_or(Path::new(".")).join(target),
+    };
+    if depth + 1 >= RECURSION_LIMIT {
+        state.notes.push(format!(
+            "{label}: include {target} skipped: includes can't be {RECURSION_LIMIT} levels deep"
+        ));
+        return Ok(());
+    }
+    let key = canonical(&file);
+    if stack.contains(&key) {
+        state.notes.push(format!(
+            "{label}: include {target} skipped: it includes itself"
+        ));
+        return Ok(());
+    }
+    let text = match std::fs::read_to_string(&file) {
+        Ok(text) => text,
+        Err(e) if optional && e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => {
+            state.notes.push(format!(
+                "{label}: include {target} skipped: reading {}: {e}",
+                file.display()
+            ));
+            return Ok(());
+        }
+    };
+    stack.push(key);
+    let read = load(&file, &text, env, depth + 1, stack, state);
+    stack.pop();
+    read
+}
+
+/// The binds of one `binds { }` block (niri-config/src/binds.rs:767-800, 816-870): each child's name is its key,
+/// its first child the action; `hotkey-overlay-title` a string (else the action as written). A key repeated in the
+/// block is an error in niri: the first is kept and the repeat noted.
+fn binds(
+    node: &KdlNode,
+    label: &dyn Fn(&KdlNode) -> String,
+    notes: &mut Vec<String>,
+) -> Vec<RawBind> {
+    let mut out: Vec<RawBind> = Vec::new();
+    for b in node.children().map(|c| c.nodes()).unwrap_or_default() {
+        let name = b.name().value();
+        let Some(action) = b.children().and_then(|c| c.nodes().first()) else {
+            notes.push(format!("{}: {name} has no action", label(b)));
+            continue;
+        };
+        let same = same_key(name);
+        if out.iter().any(|o| o.same == same) {
+            notes.push(format!(
+                "{}: {name} is bound twice in one block (first kept)",
+                label(b)
+            ));
+            continue;
+        }
+        let title = b
+            .entries()
+            .iter()
+            .find(|e| {
+                e.name()
+                    .is_some_and(|n| n.value() == "hotkey-overlay-title")
+            })
+            .and_then(|e| e.value().as_string());
+        out.push(RawBind {
+            name: name.to_string(),
+            same,
+            desc: title.map_or_else(|| written(action), plain),
+            action: action.name().value().to_string(),
+        });
+    }
+    out
+}
+
+/// The action as written: its name, then its arguments and properties (`spawn alacritty`, `screenshot
+/// show-pointer=false`).
+fn written(action: &KdlNode) -> String {
+    let mut parts = vec![action.name().value().to_string()];
+    for e in action.entries() {
+        let v = match e.value() {
+            KdlValue::String(s) => s.clone(),
+            KdlValue::Integer(i) => i.to_string(),
+            KdlValue::Float(f) => f.to_string(),
+            KdlValue::Bool(b) => b.to_string(),
+            KdlValue::Null => "null".into(),
+        };
+        parts.push(match e.name() {
+            Some(n) => format!("{}={v}", n.value()),
+            None => v,
+        });
+    }
+    parts.join(" ")
+}
+
+/// Pango markup as text: tags dropped, then the five XML entities decoded (`&amp;` last, so `&amp;lt;` stays `&lt;`).
+fn plain(markup: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for c in markup.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
+fn first_string(node: &KdlNode) -> Option<&str> {
+    node.entries()
+        .iter()
+        .find(|e| e.name().is_none())
+        .and_then(|e| e.value().as_string())
+}
+
+/// niri's `Key` equality (niri-config/src/binds.rs:943-975): the trigger, matched ignoring case, and the modifier
+/// set, each spelling folded to its bit, `Mod` apart from `Super`.
+fn same_key(name: &str) -> (String, BTreeSet<String>) {
+    let mut parts: Vec<&str> = name.split('+').collect();
+    let trigger = parts.pop().unwrap_or_default().to_ascii_lowercase();
+    let mods = parts
+        .iter()
+        .map(|p| {
+            let p = p.trim().to_ascii_lowercase();
+            match p.as_str() {
+                "mod" => p,
+                _ => modifier(&p).map_or(p.clone(), str::to_string),
+            }
+        })
+        .collect();
+    (trigger, mods)
+}
+
+/// A modifier as niri spells it (ignoring case) in keybind-find's notation; `None` for Mod3/ISO_Level5_Shift
+/// (wtype has no mod3) and anything niri doesn't know. niri-config/src/binds.rs:952-975, input.rs:439-450.
+fn modifier(m: &str) -> Option<&'static str> {
+    match m.trim().to_ascii_lowercase().as_str() {
+        "ctrl" | "control" => Some("ctrl"),
+        "shift" => Some("shift"),
+        "alt" => Some("alt"),
+        "super" | "win" => Some("super"),
+        "iso_level3_shift" | "mod5" => Some("mod5"),
+        _ => None,
+    }
+}
+
+/// niri-config/src/binds.rs:977-1003: these triggers are mouse buttons, wheel and touchpad scrolls, not keys.
+const TRIGGERS: &[&str] = &[
+    "MouseLeft",
+    "MouseRight",
+    "MouseMiddle",
+    "MouseBack",
+    "MouseForward",
+    "WheelScrollDown",
+    "WheelScrollUp",
+    "WheelScrollLeft",
+    "WheelScrollRight",
+    "TouchpadScrollDown",
+    "TouchpadScrollUp",
+    "TouchpadScrollLeft",
+    "TouchpadScrollRight",
+];
+
+/// A bind's name (`Mod+Shift+Slash`) in keybind-find's notation (`super+shift+Slash`), `Mod` being `mod_key`; `None`
+/// for one keybind-find can't send. niri resolves the key name ignoring case (`keysym_from_name(…,
+/// KEYSYM_CASE_INSENSITIVE)`, binds.rs:1004); like sway's provider, a single letter is lower-cased and any other name
+/// kept.
+fn key(name: &str, mod_key: &str) -> Option<String> {
+    let mut parts: Vec<&str> = name.split('+').collect();
+    let keysym = parts.pop()?;
+    if keysym.is_empty() || TRIGGERS.iter().any(|t| t.eq_ignore_ascii_case(keysym)) {
+        return None;
+    }
+    let mods = parts
+        .iter()
+        .map(|p| match p.trim().eq_ignore_ascii_case("mod") {
+            true => modifier(mod_key),
+            false => modifier(p),
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let lower = keysym.to_ascii_lowercase();
+    let keysym = if keysym.len() == 1 && keysym.chars().all(|c| c.is_ascii_alphabetic()) {
+        lower.as_str()
+    } else {
+        keysym
+    };
+    Some(chord(&mods, keysym))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A temp directory, removed on drop.
+    struct Dir(PathBuf);
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn dir(name: &str) -> Dir {
+        let d = std::env::temp_dir().join(format!("kbf-niri-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        Dir(d)
+    }
+
+    fn write(d: &Path, name: &str, text: &str) -> PathBuf {
+        let p = d.join(name);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, text).unwrap();
+        p
+    }
+
+    /// The sheet of the config at `path` (as `NIRI_CONFIG`), with `HOME` set to `home`.
+    fn read(path: &Path, home: &Path) -> anyhow::Result<(Sheet, Vec<String>)> {
+        let (path, home) = (path.display().to_string(), home.display().to_string());
+        sheet_from(
+            &|n: &str| match n {
+                "NIRI_CONFIG" => Some(path.clone()),
+                "HOME" => Some(home.clone()),
+                _ => None,
+            },
+            Path::new("/nonexistent/niri/config.kdl"),
+        )
+    }
+
+    fn text(name: &str, kdl: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
+        let d = dir(name);
+        read(&write(&d.0, "config.kdl", kdl), &d.0)
+    }
+
+    /// (category, key, desc), in sheet order.
+    fn rows(sheet: &Sheet) -> Vec<(String, String, String)> {
+        sheet
+            .binds
+            .iter()
+            .flat_map(|(c, bs)| {
+                bs.iter()
+                    .map(move |b| (c.clone(), b.key.clone(), b.desc.clone()))
+            })
+            .collect()
+    }
+
+    fn desc<'a>(sheet: &'a Sheet, key: &str) -> Vec<&'a str> {
+        let all = sheet.binds.values().flatten();
+        all.filter(|b| b.key == key)
+            .map(|b| b.desc.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn the_default_config() {
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/niri/default-config.kdl");
+        let (sheet, notes) = read(&fixture, Path::new("/nonexistent")).unwrap();
+        assert_eq!(
+            (sheet.title.as_str(), sheet.provider.as_str()),
+            ("niri", "niri")
+        );
+        let rows = rows(&sheet);
+        let has = |c: &str, k: &str, d: &str| rows.contains(&(c.into(), k.into(), d.into()));
+        assert!(
+            has("spawn", "super+t", "Open a Terminal: alacritty"),
+            "{rows:?}"
+        );
+        assert!(has(
+            "spawn-sh",
+            "super+alt+s",
+            "spawn-sh pkill orca || exec orca"
+        ));
+        assert!(has(
+            "show-hotkey-overlay",
+            "super+shift+Slash",
+            "show-hotkey-overlay"
+        ));
+        assert!(has("focus-column-left", "super+Left", "focus-column-left"));
+        assert!(has(
+            "move-column-to-workspace",
+            "super+ctrl+1",
+            "move-column-to-workspace 1"
+        ));
+        assert!(rows
+            .iter()
+            .any(|(c, k, _)| c == "spawn-sh" && k == "XF86AudioRaiseVolume"));
+        // The 12 wheel binds are left out and counted in the one note; nothing else is noted.
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].starts_with("left out 12 bind(s)"), "{notes:?}");
+        assert!(notes[0].contains("Mod+WheelScrollDown"));
+        assert!(!rows.iter().any(|(_, k, _)| k.contains("Wheel")));
+    }
+
+    #[test]
+    fn kdl_through_the_crate() {
+        let (sheet, notes) = text(
+            "kdl",
+            r##"
+/-binds { Mod+X { spawn "ghost"; }; }
+binds {
+    /-Mod+A { spawn "gone"; }
+    Mod+B { /-spawn "gone"; spawn "kept"; }
+    Mod+C hotkey-overlay-title=null { spawn "c"; }
+    Mod+D hotkey-overlay-title=r#"a "raw" title"# { spawn "d"; }
+    Mod+E hotkey-overlay-title="<b>Toggle</b> <span foreground='red'>x</span> &amp; &lt;go&gt; &quot;q&quot; &apos;a&apos; &amp;lt;" { spawn "e"; }
+    Mod+F repeat=false cooldown-ms=150 allow-when-locked=true allow-inhibiting=false { spawn "f" "--flag"; }
+    Mod+G \
+        hotkey-overlay-title="continued" { spawn "g"; }
+    Mod+H { screenshot show-pointer=false; }
+    Mod+I /-{ close-window; }
+}
+"##,
+        )
+        .unwrap();
+        let rows = rows(&sheet);
+        assert_eq!(
+            rows,
+            [
+                ("screenshot", "super+h", "screenshot show-pointer=false"),
+                ("spawn", "super+b", "spawn kept"),
+                ("spawn", "super+c", "spawn c"),
+                ("spawn", "super+d", r#"a "raw" title"#),
+                ("spawn", "super+e", r#"Toggle x & <go> "q" 'a' &lt;"#),
+                ("spawn", "super+f", "spawn f --flag"),
+                ("spawn", "super+g", "continued"),
+            ]
+            .map(|(c, k, d)| (c.to_string(), k.to_string(), d.to_string()))
+        );
+        assert_eq!(sheet.binds["spawn"][0].action, "spawn");
+        // A bind whose action is slashdashed has none: noted, not listed.
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].ends_with("Mod+I has no action"), "{notes:?}");
+        // A commented-out binds block: an empty sheet.
+        let (sheet, notes) = text("kdl-empty", "/-binds { Mod+T { spawn \"a\"; }; }\n").unwrap();
+        assert!(sheet.binds.is_empty() && notes.is_empty());
+        // An unterminated string: one error naming the file and the line.
+        let d = dir("kdl-bad");
+        let path = write(&d.0, "config.kdl", "binds {\n    Mod+T { spawn \"a; }\n}\n");
+        let err = format!("{:#}", read(&path, &d.0).unwrap_err());
+        assert!(
+            err.starts_with(&format!("{}: line ", path.display())),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn keys() {
+        let k = |name: &str| key(name, "Super");
+        assert_eq!(k("CTRL+X").as_deref(), Some("ctrl+x"));
+        assert_eq!(k("Control+Shift+x").as_deref(), Some("ctrl+shift+x"));
+        assert_eq!(k("win+T").as_deref(), Some("super+t"));
+        assert_eq!(k("ALT+t").as_deref(), Some("alt+t"));
+        assert_eq!(k("ISO_Level3_Shift+a").as_deref(), Some("mod5+a"));
+        assert_eq!(k("Mod5+a").as_deref(), Some("mod5+a"));
+        assert_eq!(k("Mod+Shift+Slash").as_deref(), Some("super+shift+Slash"));
+        assert_eq!(k("Mod+Page_Down").as_deref(), Some("super+Page_Down"));
+        assert_eq!(
+            k("XF86AudioRaiseVolume").as_deref(),
+            Some("XF86AudioRaiseVolume")
+        );
+        assert_eq!(k("Mod+Super+T").as_deref(), Some("super+t"));
+        assert_eq!(key("Mod+T", "Alt").as_deref(), Some("alt+t"));
+        assert_eq!(key("Mod+T", "ctrl").as_deref(), Some("ctrl+t"));
+        assert_eq!(key("Mod+T", "Hyper"), None);
+        for out in [
+            "Mod3+X",
+            "ISO_Level5_Shift+X",
+            "Mod+MouseLeft",
+            "Mod+mouseback",
+            "Mod+TouchpadScrollUp",
+            "WheelScrollDown",
+            "Hyper+X",
+            "Mod+",
+        ] {
+            assert_eq!(k(out), None, "{out}");
+        }
+        // `Mod` follows the last `mod-key`; the left-out binds are counted in one note.
+        let (sheet, notes) = text(
+            "keys",
+            r#"
+input { mod-key "Ctrl"; }
+binds {
+    Mod+T { spawn "t"; }
+    Mod3+X { spawn "x"; }
+    Mod+MouseLeft { spawn "m"; }
+    Mod+TouchpadScrollUp { spawn "s"; }
+    Hyper+X { spawn "h"; }
+}
+input { mod-key "Alt"; }
+"#,
+        )
+        .unwrap();
+        assert_eq!(desc(&sheet, "alt+t"), ["spawn t"]);
+        assert_eq!(rows(&sheet).len(), 1);
+        assert_eq!(
+            notes,
+            ["left out 4 bind(s) keybind-find can't send (mouse, wheel or touchpad, Mod3, or an unknown \
+              modifier): Mod3+X, Mod+MouseLeft, Mod+TouchpadScrollUp, Hyper+X"]
+        );
+    }
+
+    #[test]
+    fn includes() {
+        let d = dir("inc");
+        let root = &d.0;
+        // The wiki's example: an included file's bind overridden by the including file's own.
+        write(
+            root,
+            "binds.kdl",
+            r#"binds { Mod+T { spawn "alacritty"; }; Mod+Q { close-window; }; Super+T { spawn "super"; }; }
+input { mod-key "Super"; }"#,
+        );
+        write(root, "home.kdl", r#"binds { Mod+H { spawn "home"; }; }"#);
+        write(
+            root,
+            "self.kdl",
+            r#"include "self.kdl"
+binds { Mod+S { spawn "self"; }; }"#,
+        );
+        let config = write(
+            root,
+            "niri/config.kdl",
+            r#"
+include "../binds.kdl"
+include "~/home.kdl"
+include optional=true "gone.kdl"
+include "missing.kdl"
+include "../self.kdl"
+binds { Mod+T { spawn "foot"; }; }
+"#,
+        );
+        let (sheet, notes) = read(&config, root).unwrap();
+        // `Mod+T` is replaced; `Super+T` is another key in niri, kept.
+        assert_eq!(desc(&sheet, "super+t"), ["spawn super", "spawn foot"]);
+        assert_eq!(desc(&sheet, "super+q"), ["close-window"]);
+        assert_eq!(desc(&sheet, "super+h"), ["spawn home"]);
+        assert_eq!(desc(&sheet, "super+s"), ["spawn self"]);
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert!(
+            notes[0].contains("include missing.kdl skipped: reading"),
+            "{notes:?}"
+        );
+        assert!(
+            notes[1].ends_with("include self.kdl skipped: it includes itself"),
+            "{notes:?}"
+        );
+        // A chain 11 files deep: the 11th is skipped with one note, the other ten listed.
+        let d = dir("deep");
+        for i in 0..11 {
+            write(
+                &d.0,
+                &format!("{i}.kdl"),
+                &format!(
+                    "include \"{}.kdl\"\nbinds {{ Mod+F{i} {{ spawn \"{i}\"; }}; }}\n",
+                    i + 1
+                ),
+            );
+        }
+        let (sheet, notes) = read(&d.0.join("0.kdl"), &d.0).unwrap();
+        assert_eq!(rows(&sheet).len(), 10);
+        assert!(desc(&sheet, "super+F10").is_empty());
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].ends_with("include 10.kdl skipped: includes can't be 10 levels deep"),
+            "{notes:?}"
+        );
+        // A duplicate key in one block keeps the first; a second binds block in one file merges.
+        let (sheet, notes) = text(
+            "dup",
+            "binds { Mod+A { spawn \"1\"; }; mod+a { spawn \"2\"; }; }\nbinds { Mod+B { spawn \"b\"; }; }\n",
+        )
+        .unwrap();
+        assert_eq!(desc(&sheet, "super+a"), ["spawn 1"]);
+        assert_eq!(desc(&sheet, "super+b"), ["spawn b"]);
+        assert!(
+            notes[0].ends_with("mod+a is bound twice in one block (first kept)"),
+            "{notes:?}"
+        );
+        assert!(
+            notes[1].ends_with("a second binds block (merged)"),
+            "{notes:?}"
+        );
+        // An included file that doesn't parse: niri loads nothing, so the provider is dropped.
+        let d = dir("inc-bad");
+        write(&d.0, "bad.kdl", "binds {\n");
+        let config = write(&d.0, "config.kdl", "include \"bad.kdl\"\n");
+        let err = format!("{:#}", read(&config, &d.0).unwrap_err());
+        assert!(err.contains("bad.kdl: line "), "{err}");
+    }
+
+    #[test]
+    fn config_path() {
+        let paths = |vars: &[(&str, &str)]| {
+            let vars: Vec<(String, String)> = vars
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            config_paths(
+                &|n: &str| vars.iter().find(|(k, _)| k == n).map(|(_, v)| v.clone()),
+                Path::new("/etc/niri/config.kdl"),
+            )
+        };
+        let p = |s: &[&str]| s.iter().map(PathBuf::from).collect::<Vec<_>>();
+        assert_eq!(
+            paths(&[("NIRI_CONFIG", "/x/n.kdl"), ("HOME", "/h")]),
+            p(&["/x/n.kdl"])
+        );
+        assert_eq!(
+            paths(&[("NIRI_CONFIG", ""), ("HOME", "/h")]),
+            p(&["/h/.config/niri/config.kdl", "/etc/niri/config.kdl"])
+        );
+        assert_eq!(
+            paths(&[("XDG_CONFIG_HOME", "/xdg"), ("HOME", "/h")]),
+            p(&["/xdg/niri/config.kdl", "/etc/niri/config.kdl"])
+        );
+        // A relative XDG_CONFIG_HOME doesn't count.
+        assert_eq!(
+            paths(&[("XDG_CONFIG_HOME", "rel"), ("HOME", "/h")]),
+            p(&["/h/.config/niri/config.kdl", "/etc/niri/config.kdl"])
+        );
+        // Only the system file: it is read.
+        let d = dir("path");
+        let system = write(
+            &d.0,
+            "etc/config.kdl",
+            "binds { Mod+T { spawn \"etc\"; }; }",
+        );
+        let home = d.0.join("home").display().to_string();
+        let env = |n: &str| (n == "HOME").then(|| home.clone());
+        let (sheet, _) = sheet_from(&env, &system).unwrap();
+        assert_eq!(desc(&sheet, "super+t"), ["spawn etc"]);
+        // None: one error naming every path tried.
+        let err = sheet_from(&env, &d.0.join("none.kdl"))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            err,
+            format!(
+                "no niri config (looked for {home}/.config/niri/config.kdl, {})",
+                d.0.join("none.kdl").display()
+            )
+        );
+    }
+}

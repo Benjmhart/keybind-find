@@ -52,7 +52,8 @@ Key search needs fzf 0.66 or newer and
 without them the list opens in text search and its header says why.
 On Wayland it opens in
 .BR fuzzel (1).
-Wayland support is sway's: under another compositor only XWayland windows are read.
+The focused window is read under sway, Hyprland, niri and KDE; under another compositor no window is read.
+Under niri, its own binds are listed but a pick of one is refused: the keys would reach the window, not niri.
 On X11
 without fzf or alacritty it opens in
 .BR dmenu (1).
@@ -85,6 +86,7 @@ that provider's sheet: one of
 .BR sxhkd ,
 .BR konsole ,
 .BR awesome ,
+.BR niri ,
 .BR vimium .
 .TP
 .B keybind\-find keys
@@ -178,6 +180,12 @@ Set and non-empty together with
 .BR WAYLAND_DISPLAY :
 sway, read with
 .BR swaymsg (1).
+.TP
+.B NIRI_CONFIG
+niri's config file when set and non-empty, as niri reads it (else
+.IR $XDG_CONFIG_HOME/niri/config.kdl ,
+then
+.IR /etc/niri/config.kdl ).
 .TP
 .B HERDR_CONFIG_PATH
 herdr's
