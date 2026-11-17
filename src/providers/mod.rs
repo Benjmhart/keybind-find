@@ -16,6 +16,7 @@ mod herdr;
 mod hyprland;
 mod i3;
 mod kde;
+mod kdl_v1;
 pub(crate) mod kitty;
 mod less;
 mod mc;
@@ -45,6 +46,7 @@ mod xmonad;
 mod yazi;
 mod zathura;
 mod zed;
+mod zellij;
 
 pub(crate) use sheets::is_browser;
 pub(crate) use vscode::is_vscode;
@@ -90,6 +92,7 @@ pub const KNOWN: &[&str] = &[
     "xfce4_terminal",
     "helix",
     "wezterm",
+    "zellij",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -131,6 +134,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "xfce4_terminal" => xfce4_terminal::sheet(),
         "helix" => helix::sheet(),
         "wezterm" => wezterm::sheet(ctx),
+        "zellij" => zellij::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",

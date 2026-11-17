@@ -692,6 +692,8 @@ fn providers_for(
             Some("herdr") => providers.push("herdr"),
             // tmux renames its process: the client's comm is `tmux: client`.
             Some("tmux" | "tmux: client") => providers.push("tmux"),
+            // zellij's client never renames itself: its comm is `zellij`.
+            Some("zellij") => providers.push("zellij"),
             // An idle shell is the foreground program; a login shell's comm is still `bash`, not `-bash`.
             Some("bash") => providers.push("bash"),
             Some("zsh") => providers.push("zsh"),
@@ -2019,6 +2021,7 @@ mod tests {
                 (Some("nvim"), vec!["nvim"]),
                 (Some("herdr"), vec!["herdr"]),
                 (Some("tmux: client"), vec!["tmux"]),
+                (Some("zellij"), vec!["zellij"]),
                 (Some("zsh"), vec!["zsh"]),
                 (Some("bash"), vec!["bash"]),
                 (Some("fish"), vec!["fish"]),
