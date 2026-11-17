@@ -1,0 +1,7 @@
+<!DOCTYPE gui>
+<gui version="1" name="konsole">
+  <ActionProperties>
+    <Action shortcut="Ctrl+T" name="new-tab"/>
+    <Action shortcut="Ctrl+C; Ctrl+Ins" name="edit_copy"/>
+  </ActionProperties>
+</gui>

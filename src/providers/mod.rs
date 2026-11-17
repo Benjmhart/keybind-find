@@ -18,6 +18,7 @@ mod i3;
 mod kde;
 mod kdl_v1;
 pub(crate) mod kitty;
+mod konsole;
 mod less;
 mod mc;
 mod micro;
@@ -96,6 +97,7 @@ pub const KNOWN: &[&str] = &[
     "wezterm",
     "zellij",
     "sxhkd",
+    "konsole",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -139,6 +141,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "wezterm" => wezterm::sheet(ctx),
         "zellij" => zellij::sheet(),
         "sxhkd" => sxhkd::sheet(ctx),
+        "konsole" => konsole::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",

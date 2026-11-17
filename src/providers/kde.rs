@@ -60,12 +60,12 @@ fn absolute(env: Env, k: &str) -> Option<PathBuf> {
     env(k).map(PathBuf::from).filter(|p| p.is_absolute())
 }
 
-fn config_dir(env: Env) -> Option<PathBuf> {
+pub(crate) fn config_dir(env: Env) -> Option<PathBuf> {
     absolute(env, "XDG_CONFIG_HOME").or_else(|| absolute(env, "HOME").map(|h| h.join(".config")))
 }
 
 /// `$XDG_DATA_HOME` (else `~/.local/share`), then each `$XDG_DATA_DIRS` entry (else `/usr/local/share:/usr/share`).
-fn data_dirs(env: Env) -> Vec<PathBuf> {
+pub(crate) fn data_dirs(env: Env) -> Vec<PathBuf> {
     let home = absolute(env, "XDG_DATA_HOME")
         .or_else(|| absolute(env, "HOME").map(|h| h.join(".local/share")));
     let dirs = env("XDG_DATA_DIRS")
@@ -261,7 +261,7 @@ type Group = (Vec<String>, Vec<(String, String)>);
 /// KConfig's INI: each group (`[a][b]` is the path `a`, `b`; a last `[$i]`, the immutable marker, dropped) with its
 /// entries in file order, a repeated group merged and a repeated key's last value kept. Names and values have the file
 /// escapes undone, keys their `[$e]`-style options cut off. Lines before the first group and comments are skipped.
-fn ini(text: &str) -> Vec<Group> {
+pub(crate) fn ini(text: &str) -> Vec<Group> {
     let mut groups: Vec<Group> = Vec::new();
     let mut current: Option<usize> = None;
     for line in text.trim_start_matches('\u{feff}').lines().map(str::trim) {
@@ -353,7 +353,7 @@ fn list(s: &str) -> Vec<String> {
 
 /// A Qt PortableText key sequence (`Meta+K, Meta+L`) in the notation, or the kind of key it can't give. Names are
 /// matched ignoring case, as `QKeySequence::fromString` does for a hand-written `X-KDE-Shortcuts`.
-fn notation(seq: &str) -> Result<String, &'static str> {
+pub(crate) fn notation(seq: &str) -> Result<String, &'static str> {
     let chords = seq
         .split(", ")
         .map(chord_of)

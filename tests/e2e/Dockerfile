@@ -16,7 +16,7 @@ RUN echo "Server = https://archive.archlinux.org/repos/${SNAPSHOT}/\$repo/os/\$a
       rust gcc python util-linux \
       xorg-server-xvfb xorg-xprop xdotool i3-wm sxhkd sway niri dbus mesa vulkan-swrast ttf-dejavu \
       ffmpeg grim fzf wtype xorg-xmodmap \
-      xterm alacritty kitty ghostty foot xfce4-terminal gnome-terminal rxvt-unicode terminator wezterm \
+      xterm alacritty kitty ghostty foot xfce4-terminal gnome-terminal rxvt-unicode terminator wezterm konsole \
       zsh bash fish tmux screen less \
       helix vim neovim nano micro mc ranger ncmpcpp yazi emacs-nox \
       zathura mpv code obsidian zed xfconf glib2 \

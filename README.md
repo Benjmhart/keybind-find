@@ -29,6 +29,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | kitty | its default shortcuts for its version (0.49.2 built in) with your `kitty.conf` maps on top | none; the program in a tab needs remote control ([below](#kitty)) |
 | foot | its default key, search and URL bindings for its version (1.28.0 built in) with your `foot.ini` on top, and its text bindings | none ([below](#foot)) |
 | Xfce Terminal | its menu and scrolling shortcuts: xfce4-terminal's defaults for its version (1.2.0 built in) with your `accels.scm` on top | none ([below](#xfce-terminal)) |
+| Konsole | its shortcuts: Konsole's defaults (26.08.2's built in) with your Configure Keyboard Shortcuts changes, shortcut scheme and profile shortcuts on top | none ([below](#konsole)) |
 | GNOME Terminal | its keyboard shortcuts as its preferences set them, from `gsettings` (not on GNOME under Wayland, where the window isn't read) | `gsettings` ([below](#gnome-terminal)) |
 | zellij | its keys in every mode, each tagged with its mode (`input_mode`): the installed zellij's keybinding preset (from 0.46) or default keys (before), with your `config.kdl` on top | none ([below](#zellij)) |
 | nvim | your maps from a headless nvim with your config, with each map's `desc` | none |
@@ -62,13 +63,13 @@ nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mc
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
 sway `app_id`, Hyprland `class`); nvim also inside a herdr, tmux or zellij pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
-GNOME Terminal, Xfce Terminal, WezTerm, Ghostty and Terminator), keybind-find finds the focused one on X11 when the
+GNOME Terminal, Konsole, Xfce Terminal, WezTerm, Ghostty and Terminator), keybind-find finds the focused one on X11 when the
 terminal puts the window's id in each shell's environment (`WINDOWID`: Xfce Terminal, kitty, urxvt, alacritty), every
 window of that process runs one shell, and each of those windows still exists (`xdotool search --pid`: a tab dragged
 to another window keeps its old id; after tabs are swapped between two windows whose other tabs then close, each
 window still names the other's program, and a tab held open after its command exits has no shell to count, so its
 window gets its other tab's program); otherwise (tabs anywhere in that process, or a Wayland window) it prints a one-line warning and shows the list without
-the program inside (the terminal's own keys, alacritty's, Ghostty's, WezTerm's, kitty's, foot's, GNOME Terminal's or Xfce Terminal's, are still listed).
+the program inside (the terminal's own keys, alacritty's, Ghostty's, WezTerm's, kitty's, foot's, GNOME Terminal's, Konsole's or Xfce Terminal's, are still listed).
 kitty can say which tab has focus when its remote control is on ([below](#kitty)), and WezTerm can for its local panes ([below](#wezterm)). espanso's `word: true` matches (they
 wait for a space or punctuation after the trigger) and regex matches (no literal trigger) can't be typed, picks do nothing while the espanso service is stopped, and matches limited by `filter_exec` aren't
 listed.
@@ -597,6 +598,29 @@ nearest is used with a note for another version, and the newest when it isn't in
 it. Shortcuts keybind-find can't send (`<Hyper>`, `<Meta>`) are left out with a count. xfce4-terminal runs one process
 for all its windows: on X11 the program in the focused window is found by `WINDOWID` when no window of that process
 has tabs; otherwise, or under Wayland, only Xfce Terminal's own shortcuts are listed.
+
+### Konsole
+
+In a Konsole window (X11 class `konsole`, Wayland app id `org.kde.konsole`), keybind-find lists Konsole's own
+shortcuts (tabs, splits, copy and paste, find, fonts, monitoring, …). Konsole has no way to print them, so its
+defaults are built in: Konsole 26.08.2's, with the KDE Frameworks 6.31 standard shortcuts it keeps and the window's
+own (Find Action, What's This, Open Menu); one version, not checked against the installed Konsole. On top go the
+changes you make in Settings → Configure Keyboard Shortcuts, which Konsole saves in
+`~/.local/share/kxmlgui5/konsole/konsoleui.rc` and `sessionui.rc` (the first of each found under `$XDG_DATA_HOME` or
+`~/.local/share`, then each `$XDG_DATA_DIRS` entry): a changed shortcut replaces the default, an empty one removes it,
+and an action keybind-find doesn't know is listed by its name. A file that can't be read is one line, and the defaults
+show. From `~/.config/konsolerc` (or under `$XDG_CONFIG_HOME`): a shortcut scheme other than Default (`[Shortcut
+Schemes]`) starts from no shortcuts and applies `konsole/shortcuts/<scheme>` from the same data directories, as Konsole
+does (without that file, a line says so and the list keeps only what doesn't come from a scheme); your profile
+shortcuts (`[Profile Shortcuts]`) are listed as `New tab with profile <name>`, which is what they do. Changes to the
+standard shortcuts made for all KDE apps (`kdeglobals`) aren't read. Of the keyboard layout (`.keytab`), only the
+default layout's scrolling keys are listed (`shift+Prior`, `shift+Up`, …; they don't work while a full-screen program
+such as vim runs); a profile using another layout isn't followed, and the rest of a layout is what keys send to the
+program, not Konsole shortcuts. Keys keybind-find can't send (keypad keys) are left out, counted in one line.
+
+Konsole runs every window and tab of one launch in one process. With a single shell the program inside is found as in
+any terminal; with tabs (they share one `WINDOWID`) you get the one-line warning and Konsole's own shortcuts, without
+the program inside.
 
 ### gnome-terminal
 

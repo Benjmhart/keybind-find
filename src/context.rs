@@ -767,6 +767,9 @@ const TERMINAL_KEYS: &[(&str, &str)] = &[
     ("Xfce4-terminal", "xfce4_terminal"),
     // WezTerm's X11 class and Wayland app id alike.
     ("org.wezfurlong.wezterm", "wezterm"),
+    // Konsole's X11 class and its Wayland app id.
+    ("konsole", "konsole"),
+    ("org.kde.konsole", "konsole"),
 ];
 
 /// `child` is the terminal's foreground program (its group's leader), `group` every program in that group.
@@ -1707,10 +1710,19 @@ mod tests {
             providers_for(Some("sway"), Some("Alacritty"), Some("bash"), &[]),
             ["sway", "espanso", "alacritty", "bash", "sheets"]
         );
-        assert_eq!(
-            providers_for(Some("kde"), Some("org.kde.konsole"), Some("zsh"), &[]),
-            ["kde", "espanso", "zsh", "sheets"]
-        );
+        // Konsole's own keys (its X11 class and Wayland app id, in any case), then the program inside it.
+        for class in ["konsole", "Konsole", "org.kde.konsole", "ORG.KDE.KONSOLE"] {
+            for wm in ["xmonad", "kde", "sway"] {
+                assert_eq!(
+                    providers_for(Some(wm), Some(class), Some("zsh"), &[]),
+                    [wm, "espanso", "konsole", "zsh", "sheets"]
+                );
+            }
+            assert_eq!(
+                providers_for(Some("kde"), Some(class), Some("nvim"), &[]),
+                ["kde", "espanso", "konsole", "nvim", "sheets"]
+            );
+        }
         // micro in a terminal, before `sheets`.
         assert_eq!(
             x(Some("Alacritty"), Some("micro")),

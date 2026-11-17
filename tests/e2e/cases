@@ -53,6 +53,7 @@ if [ "$PHASE" = x11 ]; then
   x urxvt          "i3 zsh"                 "zsh|ctrl+x k|kill-whole-line"         -- urxvt -e zsh
   x terminator     "i3 zsh"                 "zsh|ctrl+x k|kill-whole-line"         -- terminator -x zsh
   x wezterm        "i3 wezterm zsh"         "wezterm|ctrl+shift+x|CloseCurrentTab" -- wezterm start --always-new-process -- zsh
+  x konsole        "i3 konsole zsh"         "konsole|ctrl+shift+x|Close Window"    -- konsole -e zsh
   # A second pane, focused on creation: the program in it comes from `wezterm cli list-clients`.
   x wezterm-split  "i3 wezterm helix"       "helix|ctrl+s|Write changes"           -- wezterm start --always-new-process -- zsh -c 'wezterm cli split-pane -- helix /tmp/e2e.rs; exec zsh'
   # Apps by window class.
