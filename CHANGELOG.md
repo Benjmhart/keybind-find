@@ -10,6 +10,7 @@ All notable changes to keybind-find are listed here. The format follows
 - WezTerm: its keys from `wezterm show-keys`, as WezTerm reads your `wezterm.lua` (defaults, `keys`, key tables tagged `key_table`, leader binds as sequences), and the program in its focused pane, asked of `wezterm cli list-clients` with nothing to configure ([#48](https://github.com/Benjmhart/keybind-find/issues/48)).
 - zellij: its keys in every mode, tagged `input_mode`, from the installed zellij's keybinding preset (`zellij setup --dump-keybinds`, from 0.46, leader keys included) or default keys (before), with your `config.kdl` applied as zellij applies it, and nvim in its focused pane ([#57](https://github.com/Benjmhart/keybind-find/issues/57)).
 - sxhkd (bspwm, or any X11 window manager): the hotkeys of your running sxhkd, from the config files it loaded, read and expanded as sxhkd 0.6.3 does (`{a,b}` and `{1-9}` sequences, chains as key sequences), each described by the comment above it ([#51](https://github.com/Benjmhart/keybind-find/issues/51)).
+- Konsole: its shortcuts, Konsole 26.08.2's defaults built in with your Configure Keyboard Shortcuts changes (`konsoleui.rc`, `sessionui.rc`), shortcut scheme and profile shortcuts on top, and the default keytab's scrolling keys ([#47](https://github.com/Benjmhart/keybind-find/issues/47)).
 
 ## [1.1.2] - 2026-11-10
 

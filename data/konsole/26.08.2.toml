@@ -1,0 +1,1084 @@
+# Konsole's default shortcuts on Linux, read by keybind-find's konsole provider.
+# Generated from Konsole tag v26.08.2 (commit c21993d0b73b6fe5d4c52da50b25370b40389e4e), GPL-2.0-or-later: the actions created in
+# src/MainWindow.cpp, src/ViewManager.cpp, src/session/SessionController.cpp (setupCommonActions,
+# setupExtraActions), src/BookmarkMenu.cpp and the SSHManager and QuickCommands plugins, with their
+# setDefaultShortcut(s) keys outside Q_OS_MACOS branches (Konsole::ACCEL = Ctrl+Shift, src/Shortcut_p.h), and the
+# scroll commands of data/keyboard-layouts/default.keytab. KStandardAction names and texts from kconfigwidgets tag
+# v6.31.0 (commit 02b7a0bd5f9eaff65900dd85029a7edefdfb14bd) src/kstandardaction_p.h; their default keys, where Konsole sets
+# none, from kconfig tag v6.31.0 (commit a25acdfb1f51c9d8af3426f03380a9de5c88817a) src/gui/kstandardshortcut.cpp; the window's own
+# actions (open_kcommand_bar, the help menu's: src/kxmlguiwindow.cpp:176-204, 400-418, src/khelpmenu.cpp:129-157;
+# options_configure_toolbars: :343; the toolbar toggles: src/ktoolbarhandler.cpp:94, 114) from
+# kxmlgui tag v6.31.0 (commit e47ccaf51aa34a538117161cac1f0b8039e66526), with texts from kconfig src/gui/kstandardactions_p.h; the bookmark
+# menu's names (src/widgets/kbookmarkmenu.cpp:315, 336, 355, 386; Konsole src/BookmarkMenu.cpp:28) from kbookmarks
+# tag v6.31.0 (commit 4942bef169183eda666f470cf8a18ce4e16ec75e). The KDE Frameworks are LGPL-2.0-or-later.
+# The plugins' action names (quickcommands-*, sshmanager-*) are made up: those actions are in no collection.
+#
+# One row per action: `action` its action-collection name; `client` what can change it: konsole (konsoleui.rc) and
+# session (sessionui.rc), each also cleared and set by a shortcut scheme; toolbar: konsolerc [Shortcuts], and set by
+# a scheme; toolbarmenu: the same, and cleared by a scheme; pluginmenu: cleared by a scheme only; plugin and keytab:
+# nothing. `desc` its English text with `&` removed;
+# `keys` its default shortcuts as Qt portable text (none: []); `category`.
+
+[[action]]
+action = "new-tab"
+client = "konsole"
+desc = "New Tab"
+keys = ["Ctrl+Shift+T"]
+category = "window"
+
+[[action]]
+action = "clone-tab"
+client = "konsole"
+desc = "Clone Tab"
+keys = []
+category = "window"
+
+[[action]]
+action = "new-window"
+client = "konsole"
+desc = "New Window"
+keys = ["Ctrl+Shift+N"]
+category = "window"
+
+[[action]]
+action = "close-window"
+client = "konsole"
+desc = "Close Window"
+keys = ["Ctrl+Shift+Q"]
+category = "window"
+
+[[action]]
+action = "bookmark"
+client = "konsole"
+desc = "Bookmarks"
+keys = []
+category = "window"
+
+[[action]]
+action = "options_show_menubar"
+client = "konsole"
+desc = "Show Menubar"
+keys = ["Ctrl+Shift+M"]
+category = "window"
+
+[[action]]
+action = "window-colorscheme-menu"
+client = "konsole"
+desc = "Window Color Scheme"
+keys = []
+category = "window"
+
+[[action]]
+action = "fullscreen"
+client = "konsole"
+desc = "Full Screen Mode"
+keys = ["F11"]
+category = "window"
+
+[[action]]
+action = "options_configure_notifications"
+client = "konsole"
+desc = "Configure Notifications…"
+keys = []
+category = "window"
+
+[[action]]
+action = "options_configure_keybinding"
+client = "konsole"
+desc = "Configure Keyboard Shortcuts…"
+keys = ["Ctrl+Alt+,"]
+category = "window"
+
+[[action]]
+action = "options_configure"
+client = "konsole"
+desc = "Configure Konsole…"
+keys = ["Ctrl+Shift+,"]
+category = "window"
+
+[[action]]
+action = "manage-profiles"
+client = "konsole"
+desc = "Manage Profiles..."
+keys = []
+category = "window"
+
+[[action]]
+action = "activate-menu"
+client = "konsole"
+desc = "Activate Menu"
+keys = ["Ctrl+Shift+F10"]
+category = "window"
+
+[[action]]
+action = "save-layout"
+client = "konsole"
+desc = "Save Tab Layout..."
+keys = []
+category = "window"
+
+[[action]]
+action = "load-layout"
+client = "konsole"
+desc = "Load Tab Layout..."
+keys = []
+category = "window"
+
+[[action]]
+action = "split-view"
+client = "konsole"
+desc = "Split View"
+keys = []
+category = "views"
+
+[[action]]
+action = "split-view-left-right"
+client = "konsole"
+desc = "Split View Left/Right"
+keys = ["Ctrl+("]
+category = "views"
+
+[[action]]
+action = "split-view-top-bottom"
+client = "konsole"
+desc = "Split View Top/Bottom"
+keys = ["Ctrl+)"]
+category = "views"
+
+[[action]]
+action = "split-view-auto"
+client = "konsole"
+desc = "Split View Automatically"
+keys = ["Ctrl+*"]
+category = "views"
+
+[[action]]
+action = "split-view-left-right-next-tab"
+client = "konsole"
+desc = "Split View Left/Right from next tab"
+keys = []
+category = "views"
+
+[[action]]
+action = "split-view-top-bottom-next-tab"
+client = "konsole"
+desc = "Split View Top/Bottom from next tab"
+keys = []
+category = "views"
+
+[[action]]
+action = "split-view-auto-next-tab"
+client = "konsole"
+desc = "Split View Automatically from next tab"
+keys = []
+category = "views"
+
+[[action]]
+action = "load-terminals-layout-2x2"
+client = "konsole"
+desc = "Load a new tab with layout 2x2 terminals"
+keys = []
+category = "views"
+
+[[action]]
+action = "load-terminals-layout-2x1"
+client = "konsole"
+desc = "Load a new tab with layout 2x1 terminals"
+keys = []
+category = "views"
+
+[[action]]
+action = "load-terminals-layout-1x2"
+client = "konsole"
+desc = "Load a new tab with layout 1x2 terminals"
+keys = []
+category = "views"
+
+[[action]]
+action = "expand-active-view"
+client = "konsole"
+desc = "Expand View"
+keys = ["Ctrl+Shift+]"]
+category = "views"
+
+[[action]]
+action = "shrink-active-view"
+client = "konsole"
+desc = "Shrink View"
+keys = ["Ctrl+Shift+["]
+category = "views"
+
+[[action]]
+action = "detach-view"
+client = "konsole"
+desc = "Detach Current View"
+keys = ["Ctrl+Shift+H"]
+category = "views"
+
+[[action]]
+action = "detach-tab"
+client = "konsole"
+desc = "Detach Current Tab"
+keys = []
+category = "views"
+
+[[action]]
+action = "next-tab"
+client = "konsole"
+desc = "Next Tab"
+keys = ["Shift+Right", "Ctrl+PgDown"]
+category = "views"
+
+[[action]]
+action = "previous-tab"
+client = "konsole"
+desc = "Previous Tab"
+keys = ["Shift+Left", "Ctrl+PgUp"]
+category = "views"
+
+[[action]]
+action = "focus-view-above"
+client = "konsole"
+desc = "Focus Above Terminal"
+keys = ["Ctrl+Shift+Up"]
+category = "views"
+
+[[action]]
+action = "focus-view-below"
+client = "konsole"
+desc = "Focus Below Terminal"
+keys = ["Ctrl+Shift+Down"]
+category = "views"
+
+[[action]]
+action = "focus-view-left"
+client = "konsole"
+desc = "Focus Left Terminal"
+keys = ["Ctrl+Shift+Left"]
+category = "views"
+
+[[action]]
+action = "focus-view-right"
+client = "konsole"
+desc = "Focus Right Terminal"
+keys = ["Ctrl+Shift+Right"]
+category = "views"
+
+[[action]]
+action = "focus-view-next"
+client = "konsole"
+desc = "Focus Next Terminal"
+keys = ["Ctrl+F11"]
+category = "views"
+
+[[action]]
+action = "focus-view-prev"
+client = "konsole"
+desc = "Focus Previous Terminal"
+keys = ["Ctrl+Shift+F11"]
+category = "views"
+
+[[action]]
+action = "last-tab"
+client = "konsole"
+desc = "Switch to Last Tab"
+keys = []
+category = "views"
+
+[[action]]
+action = "last-used-tab"
+client = "konsole"
+desc = "Last Used Tabs"
+keys = ["Ctrl+Tab"]
+category = "views"
+
+[[action]]
+action = "toggle-two-tabs"
+client = "konsole"
+desc = "Toggle Between Two Tabs"
+keys = []
+category = "views"
+
+[[action]]
+action = "last-used-tab-reverse"
+client = "konsole"
+desc = "Last Used Tabs (Reverse)"
+keys = ["Ctrl+Shift+Tab"]
+category = "views"
+
+[[action]]
+action = "toggle-maximize-current-view"
+client = "konsole"
+desc = "Toggle maximize current view"
+keys = ["Ctrl+Shift+E"]
+category = "views"
+
+[[action]]
+action = "toggle-zoom-current-view"
+client = "konsole"
+desc = "Toggle zoom-maximize current view"
+keys = ["Ctrl+Shift+Z"]
+category = "views"
+
+[[action]]
+action = "move-tab-to-right"
+client = "konsole"
+desc = "Move tab to the right"
+keys = ["Ctrl+Alt+Right"]
+category = "views"
+
+[[action]]
+action = "move-tab-to-left"
+client = "konsole"
+desc = "Move tab to the left"
+keys = ["Ctrl+Alt+Left"]
+category = "views"
+
+[[action]]
+action = "semantic-setup-bash"
+client = "konsole"
+desc = "Setup semantic integration (bash)"
+keys = ["Ctrl+Alt+]"]
+category = "views"
+
+[[action]]
+action = "toggle-semantic-hints"
+client = "konsole"
+desc = "Toggle semantic hints display"
+keys = ["Ctrl+Alt+["]
+category = "views"
+
+[[action]]
+action = "toggle-line-numbers"
+client = "konsole"
+desc = "Toggle line numbers display"
+keys = ["Ctrl+Alt+\\"]
+category = "views"
+
+[[action]]
+action = "equal-size-view"
+client = "konsole"
+desc = "Equal size to all views"
+keys = ["Ctrl+Shift+\\"]
+category = "views"
+
+[[action]]
+action = "switch-to-tab-0"
+client = "konsole"
+desc = "Switch to Tab 1"
+keys = ["Alt+1"]
+category = "views"
+
+[[action]]
+action = "switch-to-tab-1"
+client = "konsole"
+desc = "Switch to Tab 2"
+keys = ["Alt+2"]
+category = "views"
+
+[[action]]
+action = "switch-to-tab-2"
+client = "konsole"
+desc = "Switch to Tab 3"
+keys = ["Alt+3"]
+category = "views"
+
+[[action]]
+action = "switch-to-tab-3"
+client = "konsole"
+desc = "Switch to Tab 4"
+keys = ["Alt+4"]
+category = "views"
+
+[[action]]
+action = "switch-to-tab-4"
+client = "konsole"
+desc = "Switch to Tab 5"
+keys = ["Alt+5"]
+category = "views"
+
+[[action]]
+action = "switch-to-tab-5"
+client = "konsole"
+desc = "Switch to Tab 6"
+keys = ["Alt+6"]
+category = "views"
+
+[[action]]
+action = "switch-to-tab-6"
+client = "konsole"
+desc = "Switch to Tab 7"
+keys = ["Alt+7"]
+category = "views"
+
+[[action]]
+action = "switch-to-tab-7"
+client = "konsole"
+desc = "Switch to Tab 8"
+keys = ["Alt+8"]
+category = "views"
+
+[[action]]
+action = "switch-to-tab-8"
+client = "konsole"
+desc = "Switch to Tab 9"
+keys = ["Alt+9"]
+category = "views"
+
+[[action]]
+action = "switch-to-tab-9"
+client = "konsole"
+desc = "Switch to Tab 10"
+keys = ["Alt+0"]
+category = "views"
+
+[[action]]
+action = "switch-to-tab-10"
+client = "konsole"
+desc = "Switch to Tab 11"
+keys = []
+category = "views"
+
+[[action]]
+action = "switch-to-tab-11"
+client = "konsole"
+desc = "Switch to Tab 12"
+keys = []
+category = "views"
+
+[[action]]
+action = "switch-to-tab-12"
+client = "konsole"
+desc = "Switch to Tab 13"
+keys = []
+category = "views"
+
+[[action]]
+action = "switch-to-tab-13"
+client = "konsole"
+desc = "Switch to Tab 14"
+keys = []
+category = "views"
+
+[[action]]
+action = "switch-to-tab-14"
+client = "konsole"
+desc = "Switch to Tab 15"
+keys = []
+category = "views"
+
+[[action]]
+action = "switch-to-tab-15"
+client = "konsole"
+desc = "Switch to Tab 16"
+keys = []
+category = "views"
+
+[[action]]
+action = "switch-to-tab-16"
+client = "konsole"
+desc = "Switch to Tab 17"
+keys = []
+category = "views"
+
+[[action]]
+action = "switch-to-tab-17"
+client = "konsole"
+desc = "Switch to Tab 18"
+keys = []
+category = "views"
+
+[[action]]
+action = "switch-to-tab-18"
+client = "konsole"
+desc = "Switch to Tab 19"
+keys = []
+category = "views"
+
+[[action]]
+action = "close-session"
+client = "session"
+desc = "Close Session"
+keys = ["Ctrl+Shift+W"]
+category = "session"
+
+[[action]]
+action = "open-browser"
+client = "session"
+desc = "Open File Manager"
+keys = []
+category = "session"
+
+[[action]]
+action = "edit_copy"
+client = "session"
+desc = "Copy"
+keys = ["Ctrl+Shift+C", "Ctrl+Ins"]
+category = "session"
+
+[[action]]
+action = "edit_copy_contextmenu"
+client = "session"
+desc = "Copy"
+keys = []
+category = "session"
+
+[[action]]
+action = "split-view-left-right"
+client = "session"
+desc = "Split View Left-Right"
+keys = []
+category = "session"
+
+[[action]]
+action = "split-view-top-bottom"
+client = "session"
+desc = "Split View Top-Bottom"
+keys = []
+category = "session"
+
+[[action]]
+action = "edit_copy_contextmenu_in_out"
+client = "session"
+desc = "Copy except prompts"
+keys = []
+category = "session"
+
+[[action]]
+action = "edit_copy_contextmenu_in"
+client = "session"
+desc = "Copy user input"
+keys = []
+category = "session"
+
+[[action]]
+action = "edit_copy_contextmenu_out"
+client = "session"
+desc = "Copy command output"
+keys = []
+category = "session"
+
+[[action]]
+action = "edit_paste"
+client = "session"
+desc = "Paste"
+keys = ["Ctrl+Shift+V", "Shift+Ins"]
+category = "session"
+
+[[action]]
+action = "paste-selection"
+client = "session"
+desc = "Paste Selection"
+keys = ["Ctrl+Shift+Ins"]
+category = "session"
+
+[[action]]
+action = "web-search"
+client = "session"
+desc = "Web Search"
+keys = []
+category = "session"
+
+[[action]]
+action = "select-all"
+client = "session"
+desc = "Select All"
+keys = []
+category = "session"
+
+[[action]]
+action = "select-mode"
+client = "session"
+desc = "Select Mode"
+keys = ["Ctrl+Shift+D"]
+category = "session"
+
+[[action]]
+action = "select-line"
+client = "session"
+desc = "Select Line"
+keys = []
+category = "session"
+
+[[action]]
+action = "file_save_as"
+client = "session"
+desc = "Save Output As..."
+keys = ["Ctrl+Shift+S"]
+category = "session"
+
+[[action]]
+action = "file-autosave"
+client = "session"
+desc = "Auto Save Output As..."
+keys = []
+category = "session"
+
+[[action]]
+action = "stop-autosave"
+client = "session"
+desc = "Stop Auto Save"
+keys = []
+category = "session"
+
+[[action]]
+action = "file_print"
+client = "session"
+desc = "Print Screen..."
+keys = ["Ctrl+Shift+P"]
+category = "session"
+
+[[action]]
+action = "adjust-history"
+client = "session"
+desc = "Adjust Scrollback..."
+keys = []
+category = "session"
+
+[[action]]
+action = "clear-history"
+client = "session"
+desc = "Clear Scrollback"
+keys = []
+category = "session"
+
+[[action]]
+action = "clear-history-and-reset"
+client = "session"
+desc = "Clear Scrollback and Reset"
+keys = ["Ctrl+Shift+K"]
+category = "session"
+
+[[action]]
+action = "edit-current-profile"
+client = "session"
+desc = "Edit Current Profile..."
+keys = []
+category = "session"
+
+[[action]]
+action = "next-profile"
+client = "session"
+desc = "Next Profile"
+keys = ["Ctrl+Alt+N"]
+category = "session"
+
+[[action]]
+action = "prev-profile"
+client = "session"
+desc = "Previous Profile"
+keys = ["Ctrl+Alt+M"]
+category = "session"
+
+[[action]]
+action = "switch-profile"
+client = "session"
+desc = "Switch Profile"
+keys = []
+category = "session"
+
+[[action]]
+action = "edit_find"
+client = "session"
+desc = "Find…"
+keys = ["Ctrl+Shift+F"]
+category = "session"
+
+[[action]]
+action = "edit_find_next"
+client = "session"
+desc = "Find Next"
+keys = ["F3"]
+category = "session"
+
+[[action]]
+action = "edit_find_prev"
+client = "session"
+desc = "Find Previous"
+keys = ["Shift+F3"]
+category = "session"
+
+[[action]]
+action = "set-encoding"
+client = "session"
+desc = "Set Encoding"
+keys = []
+category = "session"
+
+[[action]]
+action = "allow-mouse-tracking"
+client = "session"
+desc = "Allow Mouse Tracking"
+keys = []
+category = "session"
+
+[[action]]
+action = "view-readonly"
+client = "session"
+desc = "Read-Only"
+keys = []
+category = "session"
+
+[[action]]
+action = "rename-session"
+client = "session"
+desc = "Configure or Rename Tab..."
+keys = ["Ctrl+Alt+S"]
+category = "session"
+
+[[action]]
+action = "copy-input-to-all-tabs"
+client = "session"
+desc = "All Tabs in Current Window"
+keys = []
+category = "session"
+
+[[action]]
+action = "copy-input-to-selected-tabs"
+client = "session"
+desc = "Select Tabs..."
+keys = ["Ctrl+Shift+."]
+category = "session"
+
+[[action]]
+action = "copy-input-to-none"
+client = "session"
+desc = "None"
+keys = ["Ctrl+Shift+/"]
+category = "session"
+
+[[action]]
+action = "copy-input-to"
+client = "session"
+desc = "Copy Input To"
+keys = []
+category = "session"
+
+[[action]]
+action = "zmodem-upload"
+client = "session"
+desc = "ZModem Upload..."
+keys = ["Ctrl+Alt+U"]
+category = "session"
+
+[[action]]
+action = "monitor-once"
+client = "session"
+desc = "One-Shot Monitors"
+keys = []
+category = "session"
+
+[[action]]
+action = "monitor-prompt"
+client = "session"
+desc = "Monitor for Prompt"
+keys = ["Ctrl+Shift+R"]
+category = "session"
+
+[[action]]
+action = "monitor-activity"
+client = "session"
+desc = "Monitor for Activity"
+keys = ["Ctrl+Shift+A"]
+category = "session"
+
+[[action]]
+action = "monitor-silence"
+client = "session"
+desc = "Monitor for Silence"
+keys = ["Ctrl+Shift+I"]
+category = "session"
+
+[[action]]
+action = "monitor-process-finish"
+client = "session"
+desc = "Monitor for Process Finishing"
+keys = []
+category = "session"
+
+[[action]]
+action = "enlarge-font"
+client = "session"
+desc = "Enlarge Font"
+keys = ["Ctrl++", "Ctrl+="]
+category = "session"
+
+[[action]]
+action = "shrink-font"
+client = "session"
+desc = "Shrink Font"
+keys = ["Ctrl+-"]
+category = "session"
+
+[[action]]
+action = "reset-font-size"
+client = "session"
+desc = "Reset Font Size"
+keys = ["Ctrl+Alt+0"]
+category = "session"
+
+[[action]]
+action = "send-signal"
+client = "session"
+desc = "Send Signal"
+keys = []
+category = "session"
+
+[[action]]
+action = "sigstop-signal"
+client = "session"
+desc = "Suspend Task (STOP)"
+keys = []
+category = "session"
+
+[[action]]
+action = "sigcont-signal"
+client = "session"
+desc = "Continue Task (CONT)"
+keys = []
+category = "session"
+
+[[action]]
+action = "sighup-signal"
+client = "session"
+desc = "Hangup (HUP)"
+keys = []
+category = "session"
+
+[[action]]
+action = "sigint-signal"
+client = "session"
+desc = "Interrupt Task (INT)"
+keys = []
+category = "session"
+
+[[action]]
+action = "sigterm-signal"
+client = "session"
+desc = "Terminate Task (TERM)"
+keys = []
+category = "session"
+
+[[action]]
+action = "sigkill-signal"
+client = "session"
+desc = "Kill Task (KILL)"
+keys = []
+category = "session"
+
+[[action]]
+action = "sigusr1-signal"
+client = "session"
+desc = "User Signal 1 (USR1)"
+keys = []
+category = "session"
+
+[[action]]
+action = "sigusr2-signal"
+client = "session"
+desc = "User Signal 2 (USR2)"
+keys = []
+category = "session"
+
+[[action]]
+action = "add_bookmark"
+client = "konsole"
+desc = "Add Bookmark"
+keys = ["Ctrl+Shift+B"]
+category = "window"
+
+[[action]]
+action = "quickcommands-show"
+client = "pluginmenu"
+desc = "Show Quick Commands"
+keys = ["Ctrl+Shift+F1"]
+category = "window"
+
+[[action]]
+action = "quickcommands-quick-access"
+client = "plugin"
+desc = "Show Quick Access"
+keys = ["Ctrl+Alt+G"]
+category = "session"
+
+[[action]]
+action = "sshmanager-show"
+client = "pluginmenu"
+desc = "Show SSH Manager"
+keys = ["Ctrl+Shift+F2"]
+category = "window"
+
+[[action]]
+action = "sshmanager-quick-access"
+client = "plugin"
+desc = "Show Quick Access for SSH Actions"
+keys = ["Ctrl+Alt+H"]
+category = "session"
+
+[[action]]
+action = "open_kcommand_bar"
+client = "konsole"
+desc = "Find Action…"
+keys = ["Ctrl+Alt+I"]
+category = "window"
+
+[[action]]
+action = "help_contents"
+client = "konsole"
+desc = "Konsole Handbook"
+keys = []
+category = "window"
+
+[[action]]
+action = "help_whats_this"
+client = "konsole"
+desc = "What's This?"
+keys = ["Shift+F1"]
+category = "window"
+
+[[action]]
+action = "hamburger_menu"
+client = "session"
+desc = "Open Menu"
+keys = ["Shift+F10"]
+category = "window"
+
+[[action]]
+action = "help_report_bug"
+client = "konsole"
+desc = "Report Bug…"
+keys = []
+category = "window"
+
+[[action]]
+action = "switch_application_language"
+client = "konsole"
+desc = "Configure Language…"
+keys = []
+category = "window"
+
+[[action]]
+action = "help_about_app"
+client = "konsole"
+desc = "About Konsole"
+keys = []
+category = "window"
+
+[[action]]
+action = "help_about_kde"
+client = "konsole"
+desc = "About KDE"
+keys = []
+category = "window"
+
+[[action]]
+action = "help_donate"
+client = "konsole"
+desc = "Donate"
+keys = []
+category = "window"
+
+[[action]]
+action = "options_configure_toolbars"
+client = "konsole"
+desc = "Configure Toolbars…"
+keys = []
+category = "window"
+
+[[action]]
+action = "edit_bookmarks"
+client = "konsole"
+desc = "Edit Bookmarks…"
+keys = []
+category = "window"
+
+[[action]]
+action = "add_bookmarks_list"
+client = "konsole"
+desc = "Bookmark Tabs as Folder…"
+keys = []
+category = "window"
+
+[[action]]
+action = "new_bookmark_folder"
+client = "konsole"
+desc = "New Bookmark Folder…"
+keys = []
+category = "window"
+
+[[action]]
+action = "mainToolBar"
+client = "toolbar"
+desc = "Main Toolbar"
+keys = []
+category = "window"
+
+[[action]]
+action = "sessionToolbar"
+client = "toolbar"
+desc = "Session Toolbar"
+keys = []
+category = "window"
+
+[[action]]
+action = "toolbars_submenu_action"
+client = "toolbarmenu"
+desc = "Toolbars Shown"
+keys = []
+category = "window"
+
+[[action]]
+action = "scrollLineUp"
+client = "keytab"
+desc = "Scroll up one line (not in full-screen programs)"
+keys = ["Shift+Up"]
+category = "scrolling"
+
+[[action]]
+action = "scrollPageUp"
+client = "keytab"
+desc = "Scroll up one page (not in full-screen programs)"
+keys = ["Shift+PgUp"]
+category = "scrolling"
+
+[[action]]
+action = "scrollPromptUp"
+client = "keytab"
+desc = "Scroll up to the previous prompt (not in full-screen programs)"
+keys = ["Ctrl+Shift+PgUp"]
+category = "scrolling"
+
+[[action]]
+action = "scrollUpToTop"
+client = "keytab"
+desc = "Scroll to the top of the scrollback (not in full-screen programs)"
+keys = ["Shift+Home"]
+category = "scrolling"
+
+[[action]]
+action = "scrollLineDown"
+client = "keytab"
+desc = "Scroll down one line (not in full-screen programs)"
+keys = ["Shift+Down"]
+category = "scrolling"
+
+[[action]]
+action = "scrollPageDown"
+client = "keytab"
+desc = "Scroll down one page (not in full-screen programs)"
+keys = ["Shift+PgDown"]
+category = "scrolling"
+
+[[action]]
+action = "scrollPromptDown"
+client = "keytab"
+desc = "Scroll down to the next prompt (not in full-screen programs)"
+keys = ["Ctrl+Shift+PgDown"]
+category = "scrolling"
+
+[[action]]
+action = "scrollDownToBottom"
+client = "keytab"
+desc = "Scroll to the bottom (not in full-screen programs)"
+keys = ["Shift+End"]
+category = "scrolling"
