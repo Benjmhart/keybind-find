@@ -882,6 +882,25 @@ mod tests {
             commands(None, &entry("foot", "ctrl+shift+c"), true)
         );
         assert_eq!(ran.borrow()[0][0], "wtype");
+        // A niri bind is refused only under niri on Wayland: under sway (a leftover sheet) it is sent with wtype, and an
+        // X11 niri session (not one niri runs) sends it as any X11 key.
+        for (session, wayland) in [("sway", true), ("niri", false)] {
+            let ran = RefCell::new(0);
+            send_with(
+                Some("9"),
+                &entry("niri", "super+t"),
+                false,
+                wayland,
+                Some(session),
+                &mut Vec::new(),
+                &|_| {
+                    *ran.borrow_mut() += 1;
+                    Ok(())
+                },
+            )
+            .unwrap();
+            assert_eq!(*ran.borrow(), 1, "{session}");
+        }
         // `--print` prints a niri bind.
         let mut out = Vec::new();
         send_with(

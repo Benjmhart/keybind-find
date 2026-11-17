@@ -17,6 +17,11 @@ const SYSTEM: &str = "/etc/niri/config.kdl";
 /// niri-config/src/lib.rs:67: an include at this depth is refused (the main file is depth 0).
 const RECURSION_LIMIT: usize = 10;
 
+/// keybind-find's own bounds (niri has none): the largest file read, and the most includes followed in one run, so a
+/// huge file or a wide include tree can't hold up the picker. A real config is a few KiB in a handful of files.
+const MAX_FILE: u64 = 4 << 20;
+const MAX_INCLUDES: usize = 256;
+
 pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
     let (sheet, notes) = sheet_from(
         &|name: &str| std::env::var(name).ok().filter(|v| !v.is_empty()),
@@ -36,8 +41,7 @@ fn sheet_from(env: Env, system: &Path) -> anyhow::Result<(Sheet, Vec<String>)> {
         format!("no niri config (looked for {})", tried.join(", "))
     })?;
     let mut state = State::default();
-    let text =
-        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let text = read_file(path).with_context(|| format!("reading {}", path.display()))?;
     load(path, &text, env, 0, &mut vec![canonical(path)], &mut state)?;
     let mod_key = state.mod_key.clone().unwrap_or_else(|| "Super".into());
     let mut sheet = Sheet {
@@ -46,11 +50,18 @@ fn sheet_from(env: Env, system: &Path) -> anyhow::Result<(Sheet, Vec<String>)> {
         binds: Default::default(),
     };
     let mut left_out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut shadowed = 0;
     for raw in state.binds {
         let Some(key) = key(&raw.name, &mod_key) else {
             left_out.push(raw.name);
             continue;
         };
+        // Two different niri keys can be one chord here (`Mod+T` and `Super+T` with mod-key Super). niri's
+        // `find_configured_bind` (src/input/mod.rs:4443-4472) runs the first in its list: both are listed, and noted.
+        if !seen.insert(key.clone()) {
+            shadowed += 1;
+        }
         sheet
             .binds
             .entry(raw.action.clone())
@@ -62,6 +73,11 @@ fn sheet_from(env: Env, system: &Path) -> anyhow::Result<(Sheet, Vec<String>)> {
                 when: Default::default(),
                 run: Vec::new(),
             });
+    }
+    if shadowed > 0 {
+        state.notes.push(format!(
+            "{shadowed} bind(s) share a key with an earlier one; niri runs only the first"
+        ));
     }
     if !left_out.is_empty() {
         state.notes.push(format!(
@@ -95,6 +111,24 @@ struct State {
     binds: Vec<RawBind>,
     mod_key: Option<String>,
     notes: Vec<String>,
+    /// Includes followed so far (`MAX_INCLUDES`).
+    includes: usize,
+}
+
+/// A regular file's text (a FIFO or a device would block or never end), up to `MAX_FILE`.
+fn read_file(path: &Path) -> anyhow::Result<String> {
+    use std::io::Read as _;
+    anyhow::ensure!(std::fs::metadata(path)?.is_file(), "not a regular file");
+    let mut text = String::new();
+    std::fs::File::open(path)?
+        .take(MAX_FILE + 1)
+        .read_to_string(&mut text)?;
+    anyhow::ensure!(
+        text.len() as u64 <= MAX_FILE,
+        "bigger than {} MiB",
+        MAX_FILE >> 20
+    );
+    Ok(text)
 }
 
 /// A bind as written; its key is translated once the last `mod-key` is known.
@@ -125,6 +159,8 @@ fn load(
     let mut saw_binds = false;
     for node in doc.nodes() {
         match node.name().value() {
+            // ponytail: `recent-windows { binds { … } }` (Alt+Tab and its built-in defaults) isn't read: AC #2 lists
+            // the top-level `binds` only. Read it if someone misses Alt+Tab in the list.
             "binds" => {
                 // A second `binds` node in one file is an error in niri ("duplicate node"); merged here.
                 if saw_binds {
@@ -202,12 +238,25 @@ fn include(
         ));
         return Ok(());
     }
-    let text = match std::fs::read_to_string(&file) {
+    if state.includes >= MAX_INCLUDES {
+        if state.includes == MAX_INCLUDES {
+            state.notes.push(format!(
+                "{label}: more than {MAX_INCLUDES} includes; the rest are skipped"
+            ));
+            state.includes += 1;
+        }
+        return Ok(());
+    }
+    if optional && std::fs::metadata(&file).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+    {
+        return Ok(());
+    }
+    state.includes += 1;
+    let text = match read_file(&file) {
         Ok(text) => text,
-        Err(e) if optional && e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => {
             state.notes.push(format!(
-                "{label}: include {target} skipped: reading {}: {e}",
+                "{label}: include {target} skipped: reading {}: {e:#}",
                 file.display()
             ));
             return Ok(());
@@ -253,7 +302,11 @@ fn binds(
         out.push(RawBind {
             name: name.to_string(),
             same,
-            desc: title.map_or_else(|| written(action), plain),
+            // A title that is empty once its markup is gone says nothing: the action instead.
+            desc: title
+                .map(plain)
+                .filter(|t| !t.trim().is_empty())
+                .unwrap_or_else(|| written(action)),
             action: action.name().value().to_string(),
         });
     }
@@ -280,23 +333,57 @@ fn written(action: &KdlNode) -> String {
     parts.join(" ")
 }
 
-/// Pango markup as text: tags dropped, then the five XML entities decoded (`&amp;` last, so `&amp;lt;` stays `&lt;`).
+/// Pango markup as text: tags (`<b>`, `<span …>`) dropped, a `<` with no `>` after it kept as text, and entities
+/// decoded in one pass (the five XML ones, `&#N;`, `&#xN;`), so `&amp;lt;` stays `&lt;`; an unknown one is kept.
 fn plain(markup: &str) -> String {
-    let mut out = String::new();
-    let mut in_tag = false;
-    for c in markup.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' if in_tag => in_tag = false,
-            _ if !in_tag => out.push(c),
-            _ => {}
+    let mut stripped = String::new();
+    let mut rest = markup;
+    while let Some(at) = rest.find('<') {
+        stripped.push_str(&rest[..at]);
+        match rest[at..].find('>') {
+            Some(end) => rest = &rest[at + end + 1..],
+            None => {
+                rest = &rest[at..];
+                break;
+            }
         }
     }
-    out.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&amp;", "&")
+    stripped.push_str(rest);
+    let mut out = String::new();
+    let mut rest = stripped.as_str();
+    while let Some(at) = rest.find('&') {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let decoded = rest.find(';').and_then(|end| {
+            let c = match &rest[1..end] {
+                "lt" => '<',
+                "gt" => '>',
+                "quot" => '"',
+                "apos" => '\'',
+                "amp" => '&',
+                e => {
+                    let n = match e.strip_prefix("#x").or_else(|| e.strip_prefix("#X")) {
+                        Some(hex) => u32::from_str_radix(hex, 16).ok(),
+                        None => e.strip_prefix('#').and_then(|d| d.parse().ok()),
+                    };
+                    char::from_u32(n?)?
+                }
+            };
+            Some((c, end))
+        });
+        match decoded {
+            Some((c, end)) => {
+                out.push(c);
+                rest = &rest[end + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn first_string(node: &KdlNode) -> Option<&str> {
@@ -307,7 +394,9 @@ fn first_string(node: &KdlNode) -> Option<&str> {
 }
 
 /// niri's `Key` equality (niri-config/src/binds.rs:943-975): the trigger, matched ignoring case, and the modifier
-/// set, each spelling folded to its bit, `Mod` apart from `Super`.
+/// set, each spelling folded to its bit, `Mod` apart from `Super`. ponytail: the trigger is compared by name, not by
+/// keysym, so aliases of one keysym (`Prior`, `Page_Up`) aren't merged, and lower-casing merges `XF86Screensaver`
+/// with `XF86ScreenSaver`, which niri keeps apart (binds.rs:1005-1030); fold through a keysym table if that matters.
 fn same_key(name: &str) -> (String, BTreeSet<String>) {
     let mut parts: Vec<&str> = name.split('+').collect();
     let trigger = parts.pop().unwrap_or_default().to_ascii_lowercase();
@@ -317,6 +406,8 @@ fn same_key(name: &str) -> (String, BTreeSet<String>) {
             let p = p.trim().to_ascii_lowercase();
             match p.as_str() {
                 "mod" => p,
+                // Mod3 has no notation (keybind-find leaves it out), but niri's bit is one for both spellings.
+                "iso_level5_shift" => "mod3".into(),
                 _ => modifier(&p).map_or(p.clone(), str::to_string),
             }
         })
@@ -628,7 +719,7 @@ binds { Mod+T { spawn "foot"; }; }
         assert_eq!(desc(&sheet, "super+q"), ["close-window"]);
         assert_eq!(desc(&sheet, "super+h"), ["spawn home"]);
         assert_eq!(desc(&sheet, "super+s"), ["spawn self"]);
-        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert_eq!(notes.len(), 3, "{notes:?}");
         assert!(
             notes[0].contains("include missing.kdl skipped: reading"),
             "{notes:?}"
@@ -636,6 +727,11 @@ binds { Mod+T { spawn "foot"; }; }
         assert!(
             notes[1].ends_with("include self.kdl skipped: it includes itself"),
             "{notes:?}"
+        );
+        // Both are listed, but niri only ever runs the first.
+        assert_eq!(
+            notes[2],
+            "1 bind(s) share a key with an earlier one; niri runs only the first"
         );
         // A chain 11 files deep: the 11th is skipped with one note, the other ten listed.
         let d = dir("deep");
@@ -679,6 +775,114 @@ binds { Mod+T { spawn "foot"; }; }
         let config = write(&d.0, "config.kdl", "include \"bad.kdl\"\n");
         let err = format!("{:#}", read(&config, &d.0).unwrap_err());
         assert!(err.contains("bad.kdl: line "), "{err}");
+    }
+
+    #[test]
+    fn merges_by_niri_key() {
+        // Spelling and case don't make another key: the later bind replaces the earlier, one row each.
+        let d = dir("merge");
+        write(&d.0, "a.kdl", "binds { Ctrl+Shift+T { spawn \"a\"; }; Win+X { spawn \"w\"; }; Mod3+Q { spawn \"3\"; }; }");
+        let config = write(
+            &d.0,
+            "config.kdl",
+            "include \"a.kdl\"\nbinds { control+SHIFT+t { spawn \"b\"; }; Super+X { spawn \"s\"; }; ISO_Level5_Shift+Q { spawn \"5\"; }; }\n",
+        );
+        let (sheet, notes) = read(&config, &d.0).unwrap();
+        assert_eq!(desc(&sheet, "ctrl+shift+t"), ["spawn b"]);
+        assert_eq!(desc(&sheet, "super+x"), ["spawn s"]);
+        // The Mod3 bind is left out once: the two spellings are one key in niri.
+        assert_eq!(
+            notes,
+            ["left out 1 bind(s) keybind-find can't send (mouse, wheel or touchpad, Mod3, or an unknown \
+              modifier): ISO_Level5_Shift+Q"]
+        );
+    }
+
+    #[test]
+    fn titles_as_text() {
+        assert_eq!(
+            plain("a &#65;&#x42;&#X43; &#0x; &nope; & b"),
+            "a ABC &#0x; &nope; & b"
+        );
+        assert_eq!(plain("&#xD800;"), "&#xD800;");
+        assert_eq!(plain("<b>x</b> 1 < 2"), "x 1 < 2");
+        assert_eq!(plain("&amp;lt;"), "&lt;");
+        let (sheet, _) = text(
+            "titles",
+            "binds {\n    Mod+A hotkey-overlay-title=\"<b> </b>\" { spawn \"a\"; }\n    Mod+B hotkey-overlay-title=\"\" { spawn \"b\"; }\n    Mod+C { set-column-width 0.5 null; }\n}\n",
+        )
+        .unwrap();
+        // Blank once its markup is gone: the action instead.
+        assert_eq!(desc(&sheet, "super+a"), ["spawn a"]);
+        assert_eq!(desc(&sheet, "super+b"), ["spawn b"]);
+        assert_eq!(desc(&sheet, "super+c"), ["set-column-width 0.5 null"]);
+    }
+
+    #[test]
+    fn include_edges() {
+        let d = dir("edges");
+        std::fs::create_dir_all(d.0.join("adir")).unwrap();
+        write(&d.0, "late.kdl", "input { mod-key \"Ctrl\"; }\n");
+        let config = write(
+            &d.0,
+            "config.kdl",
+            "include \"config.kdl\"\ninclude optional=true \"adir\"\ninclude\ninclude \"late.kdl\"\ninput { mod-key \"Alt\"; }\nbinds { Mod+T { spawn \"t\"; }; }\n",
+        );
+        let (sheet, notes) = read(&config, &d.0).unwrap();
+        // The last mod-key read wins, an included one included.
+        assert_eq!(desc(&sheet, "alt+t"), ["spawn t"]);
+        assert_eq!(notes.len(), 3, "{notes:?}");
+        assert!(
+            notes[0].ends_with("include config.kdl skipped: it includes itself"),
+            "{notes:?}"
+        );
+        assert!(notes[1].ends_with("not a regular file"), "{notes:?}");
+        assert!(notes[2].ends_with("an include with no path"), "{notes:?}");
+        // The included mod-key wins when it comes last.
+        let config = write(
+            &d.0,
+            "c2.kdl",
+            "input { mod-key \"Alt\"; }\ninclude \"late.kdl\"\nbinds { Mod+T { spawn \"t\"; }; }\n",
+        );
+        let (sheet, _) = read(&config, &d.0).unwrap();
+        assert_eq!(desc(&sheet, "ctrl+t"), ["spawn t"]);
+        // `~/` with no HOME: a note, the rest listed.
+        let path = write(
+            &d.0,
+            "c3.kdl",
+            "include \"~/x.kdl\"\nbinds { Mod+T { spawn \"t\"; }; }\n",
+        )
+        .display()
+        .to_string();
+        let (sheet, notes) = sheet_from(
+            &|n: &str| (n == "NIRI_CONFIG").then(|| path.clone()),
+            Path::new("/nonexistent"),
+        )
+        .unwrap();
+        assert_eq!(desc(&sheet, "super+t"), ["spawn t"]);
+        assert!(
+            notes[0].ends_with("include ~/x.kdl: HOME is not set"),
+            "{notes:?}"
+        );
+        // A file over the limit is skipped with a note.
+        let big = d.0.join("big.kdl");
+        std::fs::write(&big, vec![b' '; MAX_FILE as usize + 1]).unwrap();
+        let config = write(&d.0, "c4.kdl", "include \"big.kdl\"\n");
+        let (_, notes) = read(&config, &d.0).unwrap();
+        assert!(notes[0].ends_with("bigger than 4 MiB"), "{notes:?}");
+        // Wide trees stop at MAX_INCLUDES, with one note.
+        write(&d.0, "leaf.kdl", "\n");
+        let config = write(
+            &d.0,
+            "c5.kdl",
+            &"include \"leaf.kdl\"\n".repeat(MAX_INCLUDES + 3),
+        );
+        let (_, notes) = read(&config, &d.0).unwrap();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].ends_with("more than 256 includes; the rest are skipped"),
+            "{notes:?}"
+        );
     }
 
     #[test]

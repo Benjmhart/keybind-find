@@ -2911,6 +2911,21 @@ mod tests {
         );
         settle(&mut ctx, Some("niri"), focus);
         assert_eq!(ctx.providers, ["niri", "espanso", "foot", "sheets"]);
+        // pid 0 or negative is no pid, as null is.
+        for pid in ["0", "-1"] {
+            let mut ctx = empty_context();
+            let focus = read_niri_focus(&mut ctx, &niri_window("foot", pid));
+            assert_eq!(
+                format!("{:#}", focus.unwrap_err()),
+                "foot window has no pid from niri",
+                "{pid}"
+            );
+        }
+        // Empty strings are no class or title; no id is no window id.
+        let mut ctx = empty_context();
+        let focus = read_niri_focus(&mut ctx, r#"{"title":"","app_id":"","pid":null}"#);
+        assert!(matches!(focus, Ok(None)));
+        assert_eq!((ctx.window_id, ctx.class, ctx.title), (None, None, None));
         // Bad JSON: one warning (from `settle`), and the list without the window.
         let mut ctx = empty_context();
         let focus = read_niri_focus(&mut ctx, "not json");

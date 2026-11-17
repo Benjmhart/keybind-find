@@ -442,9 +442,12 @@ as niri merges them. A bind shows its `hotkey-overlay-title` (Pango markup remov
 (`spawn alacritty`, `focus-column-left`); binds are grouped by action. `Mod` is your `input { mod-key }` (Super by
 default); a nested niri (one running as a window) uses `mod-key-nested` instead, which keybind-find doesn't read.
 Mouse, wheel and touchpad binds, Mod3 (`ISO_Level5_Shift`) binds and unknown modifiers are left out, counted in one
-line. A missing include, a file that includes itself or includes more than 10 levels deep is one line and skipped,
-where niri refuses the whole config; a file that isn't valid KDL drops niri's binds, with a line naming it. Nothing in
-the config is run: `spawn` commands are only shown.
+line. Two binds that come out as the same keys (`Mod+T` and `Super+T` when `mod-key` is Super) are both listed, with
+a line saying so: niri runs only the first. Where niri refuses the whole config, keybind-find says so in one line and
+lists the rest: a missing include, a file that includes itself, includes more than 10 levels deep, a key bound twice
+in one `binds` block (the first is kept), a second `binds` block in one file (merged), a bind with several actions
+(the first is shown). A file that isn't valid KDL drops niri's binds, with a line naming it. The Alt+Tab binds of
+niri's `recent-windows` section are not listed. Nothing in the config is run: `spawn` commands are only shown.
 
 The focused window comes from `niri msg --json focused-window`, never from X. An X11 app under xwayland-satellite has
 the satellite's pid, so the program inside an X11 terminal isn't found there. Picking an app's key sends it with
