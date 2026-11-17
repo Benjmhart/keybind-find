@@ -20,16 +20,17 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 /// then `;MODS,KEY,DESCRIPTION,GROUP` per entry, each field hex-encoded (the modifiers joined by NUL first), so the
 /// reply is `[0-9a-f,;]` only: dbus-send prints a string as it is between quotes (`tools/dbus-print-message.c:324-333`
 /// at dbus 1.16.2), and a description with `"` or a newline would be ambiguous. `data.mod`, else awesome-git's
-/// `data.modifiers`.
+/// `data.modifiers`. A key given as a number is its text, as awesome reads it (`lua_tolstring`, `objects/key.c:337`).
 const CHUNK: &str = r#"local function h(s) return (s:gsub(".", function(c) return ("%02x"):format(c:byte()) end)) end
 local function t(v) return type(v) == "string" and v or "" end
 local o, n = {}, 0
 for _, d in pairs(require("awful.key").hotkeys) do
-  local m = type(d) == "table" and (d.mod or d.modifiers)
-  local ok = type(m) == "table" and type(d.key) == "string"
+  local m, k = type(d) == "table" and (d.mod or d.modifiers), type(d) == "table" and d.key
+  if type(k) == "number" then k = tostring(k) end
+  local ok = type(m) == "table" and type(k) == "string"
   for _, x in ipairs(ok and m or {}) do ok = ok and type(x) == "string" end
   if ok then
-    o[#o + 1] = h(table.concat(m, "\0")) .. "," .. h(d.key) .. "," .. h(t(d.description)) .. "," .. h(t(d.group))
+    o[#o + 1] = h(table.concat(m, "\0")) .. "," .. h(k) .. "," .. h(t(d.description)) .. "," .. h(t(d.group))
   else
     n = n + 1
   end
@@ -80,10 +81,10 @@ fn explain(e: anyhow::Error) -> anyhow::Error {
     } else if text.contains("org.freedesktop.DBus.Error.ServiceUnknown")
         || text.contains("org.freedesktop.DBus.Error.NameHasNoOwner")
     {
-        anyhow!("awesome doesn't answer on D-Bus (no one owns org.awesomewm.awful): its rc.lua must load awful (`require(\"awful\")`), and awesome must be built with D-Bus")
+        anyhow!("awesome doesn't answer on D-Bus (no one owns org.awesomewm.awful): its rc.lua must load awful (`require(\"awful\")`), and awesome must be built with D-Bus; or this isn't awesome's session bus (DBUS_SESSION_BUS_ADDRESS)")
     } else if text.contains("org.freedesktop.DBus.Error.NoReply") || text.contains("did not answer")
     {
-        anyhow!("awesome did not answer within 2 s over D-Bus")
+        anyhow!("awesome did not answer within 2 s over D-Bus: it is busy or hung, or rc.lua starts keybind-find synchronously (os.execute, io.popen), which blocks awesome until it exits; start it with awful.spawn")
     } else {
         e.context("asking awesome over D-Bus")
     }
@@ -94,12 +95,13 @@ struct LeftOut {
     /// Entries that aren't one key (awesome-git key groups, odd modifiers), counted by the chunk.
     shapes: usize,
     mods: usize,
+    unknown_mods: usize,
     keycodes: usize,
     names: usize,
 }
 
 /// The sheet from dbus-send's `--print-reply` output for `CHUNK`, and the stderr notes (only when anything was left
-/// out). An empty reply is an empty sheet.
+/// out).
 fn parse(out: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
     let payload = reply_string(out)?;
     let mut sheet = Sheet {
@@ -108,8 +110,9 @@ fn parse(out: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
         binds: Default::default(),
     };
     let mut left = LeftOut::default();
+    // The chunk always returns its count: an empty string is someone else's answer.
     if payload.is_empty() {
-        return Ok((sheet, Vec::new()));
+        return Err(unexpected(payload, "an empty string"));
     }
     let mut entries = payload.split(';');
     left.shapes = entries
@@ -131,6 +134,7 @@ fn parse(out: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
             Err(why) => {
                 *match why {
                     Why::Modifier => &mut left.mods,
+                    Why::UnknownModifier => &mut left.unknown_mods,
                     Why::Keycode => &mut left.keycodes,
                     Why::Name => &mut left.names,
                 } += 1;
@@ -143,7 +147,7 @@ fn parse(out: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
         } else {
             desc
         };
-        // Duplicates are kept: awesome runs both.
+        // Duplicates are kept: `awful.key.hotkeys` holds every key made with `awful.key`, as the popup lists it.
         sheet.binds.entry(category.into()).or_default().push(Bind {
             key,
             desc: desc.into(),
@@ -159,6 +163,10 @@ impl LeftOut {
     fn notes(&self) -> Vec<String> {
         let parts: Vec<String> = [
             (self.mods, "with a Mod2, Mod3, Mod5, Lock or Any modifier"),
+            (
+                self.unknown_mods,
+                "with an unknown modifier name (awesome ignores it)",
+            ),
             (self.keycodes, "a keycode other than the number row's"),
             (self.names, "a key name keybind-find can't send"),
             (
@@ -188,21 +196,21 @@ fn reply_string(out: &str) -> anyhow::Result<&str> {
     let Some(payload) = body else {
         return Err(unexpected(out, "not one string"));
     };
-    if payload.starts_with("Error during execution:") {
-        bail!("awesome's Lua failed: {}", one_line(payload));
-    }
-    // Anything else outside the chunk's alphabet: a load error (`lib/awful/remote.lua:22-25`) or another handler.
-    if !payload
-        .bytes()
-        .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f' | b',' | b';'))
-    {
-        return Err(unexpected(payload, "not the chunk's result"));
+    // A run error, or a load error (`[string "…"]:1: …`, `lib/awful/remote.lua:22-25`).
+    if payload.starts_with("Error during execution:") || payload.starts_with("[string \"") {
+        bail!(
+            "awesome's Lua failed: {} (keybind-find's query expects awesome 4.3 or awesome-git; please report it)",
+            one_line(payload)
+        );
     }
     Ok(payload)
 }
 
 fn unexpected(out: &str, why: &str) -> anyhow::Error {
-    anyhow!("unexpected reply from awesome ({why}): {}", one_line(out))
+    anyhow!(
+        "unexpected reply from awesome ({why}): {} (keybind-find's query expects awesome 4.3 or awesome-git; please report it)",
+        one_line(out)
+    )
 }
 
 /// `text` on one line, cut to 200 characters.
@@ -236,6 +244,7 @@ fn unhex(s: &str) -> Option<String> {
 #[derive(Debug, PartialEq)]
 enum Why {
     Modifier,
+    UnknownModifier,
     Keycode,
     Name,
 }
@@ -253,14 +262,19 @@ fn translate(mods: &[&str], key: &str) -> Result<String, Why> {
             "Mod1" => "alt",
             "Control" | "Ctrl" => "ctrl",
             "Shift" => "shift",
-            // Mod2 (num lock), Mod3, Mod5, Lock (caps lock), Any, or a name awesome doesn't know.
-            _ => return Err(Why::Modifier),
+            // Mod2 (num lock), Mod3, Mod5, Lock (caps lock), Any.
+            "Mod2" | "Mod3" | "Mod5" | "Lock" | "Any" => return Err(Why::Modifier),
+            // `xutil_key_mask_fromstr` gives 0: the key fires without it, so the listed chord would be wrong.
+            _ => return Err(Why::UnknownModifier),
         });
     }
     let mut chars = key.chars();
     let sym = match (chars.next(), chars.next()) {
         (Some(c), None) => {
             let s = super::nvim::single(c).ok_or(Why::Name)?;
+            // ponytail: awesome 4.3 matches a keysym in column 0 of the keymap only (event.c:769-770), so an upper-case
+            // letter (or a shifted symbol, `#`) never fires; listed as `shift+<letter>` all the same, as the story
+            // asks. Leave such keys out (or count them) if that changes.
             if c.is_ascii_uppercase() {
                 out.push("shift");
                 s.to_ascii_lowercase()
@@ -348,10 +362,14 @@ mod tests {
 
     #[test]
     fn edge_replies() {
-        let (sheet, notes) = parse(&reply("")).unwrap();
-        assert!(sheet.binds.is_empty() && notes.is_empty());
+        // The chunk's reply for an empty table: an empty sheet. An empty string isn't the chunk's.
         let (sheet, notes) = parse(&reply("0")).unwrap();
         assert!(sheet.binds.is_empty() && notes.is_empty());
+        let e = parse(&reply("")).unwrap_err().to_string();
+        assert!(
+            e.contains("unexpected reply") && e.contains("an empty string"),
+            "{e}"
+        );
         let payload = [
             "2".to_string(),
             entry(&["Mod4"], "a", "", ""),
@@ -359,6 +377,8 @@ mod tests {
             entry(&["Mod4"], "#94", "keycode", "g"),
             entry(&["Mod4"], "é", "accent", "g"),
             entry(&["Mod4"], "a", "again", "g"),
+            entry(&[], "XF86AudioMute", "mute", "media"),
+            entry(&["Super"], "c", "unknown", "g"),
         ]
         .join(";");
         let (sheet, notes) = parse(&reply(&payload)).unwrap();
@@ -370,13 +390,21 @@ mod tests {
         );
         // Duplicates are kept.
         assert_eq!(sheet.binds["g"][0].desc, "again");
-        assert_eq!(sheet.binds.values().flatten().count(), 2);
+        assert_eq!(sheet.binds.values().flatten().count(), 3);
+        // No modifiers.
+        assert_eq!(one(&sheet, "XF86AudioMute"), ("media", "mute"));
         assert_eq!(
             notes,
-            ["leaving out hotkeys: 1 with a Mod2, Mod3, Mod5, Lock or Any modifier, 1 a keycode other than the number row's, 1 a key name keybind-find can't send, 2 not one key (awesome-git's key groups, or modifiers that aren't strings)"]
+            ["leaving out hotkeys: 1 with a Mod2, Mod3, Mod5, Lock or Any modifier, 1 with an unknown modifier name (awesome ignores it), 1 a keycode other than the number row's, 1 a key name keybind-find can't send, 2 not one key (awesome-git's key groups, or modifiers that aren't strings)"]
         );
         // A field that isn't hex, a short entry, a missing count.
-        for bad in ["0;4d6f6434,6g,,", "0;4d6f6434,61,", "x;", ";4d,61,,"] {
+        for bad in [
+            "0;4d6f6434,6g,,",
+            "0;4d6f6434,61,",
+            "x;",
+            ";4d,61,,",
+            "0;4D,61,,",
+        ] {
             let e = parse(&reply(bad)).unwrap_err().to_string();
             assert!(e.contains("unexpected reply"), "{bad}: {e}");
         }
@@ -392,7 +420,20 @@ mod tests {
         .to_string();
         assert_eq!(
             e,
-            "awesome's Lua failed: Error during execution: [string \"...\"]:3: attempt to index a nil value stack"
+            "awesome's Lua failed: Error during execution: [string \"...\"]:3: attempt to index a nil value stack (keybind-find's query expects awesome 4.3 or awesome-git; please report it)"
+        );
+        // A load error (the chunk didn't compile), and a long error cut to 200 characters.
+        let e = parse(&reply(
+            "[string \"local function h(s)...\"]:1: unexpected symbol",
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(e.starts_with("awesome's Lua failed: [string"), "{e}");
+        let long = format!("Error during execution: {}", "x".repeat(500));
+        let e = parse(&reply(&long)).unwrap_err().to_string();
+        assert!(
+            e.contains(&format!("{}…", "x".repeat(176))) && !e.contains(&"x".repeat(177)),
+            "{e}"
         );
         // Not dbus-send's reply form.
         for out in [
@@ -423,13 +464,15 @@ mod tests {
             (&["Mod4"], "/", Ok("super+slash")),
             (&["Mod4"], " ", Ok("super+space")),
             (&["Mod4"], "1", Ok("super+1")),
+            (&["Mod4"], "Page_Up", Ok("super+Page_Up")),
+            (&["Super"], "a", Err(Why::UnknownModifier)),
+            (&["mod4"], "a", Err(Why::UnknownModifier)),
             (&["Mod4"], "#", Ok("super+numbersign")),
             (&["Mod2"], "a", Err(Why::Modifier)),
             (&["Mod3"], "a", Err(Why::Modifier)),
             (&["Mod5"], "a", Err(Why::Modifier)),
             (&["Lock"], "a", Err(Why::Modifier)),
             (&["Any"], "a", Err(Why::Modifier)),
-            (&["Super"], "a", Err(Why::Modifier)),
             (&["Mod4"], "#9", Err(Why::Keycode)),
             (&["Mod4"], "#20", Err(Why::Keycode)),
             (&["Mod4"], "#94", Err(Why::Keycode)),
@@ -473,9 +516,28 @@ mod tests {
             e
         };
         let e = fail("Error org.freedesktop.DBus.Error.ServiceUnknown: The name org.awesomewm.awful was not provided by any .service files");
+        assert!(
+            e.contains("rc.lua must load awful") && e.contains("DBUS_SESSION_BUS_ADDRESS"),
+            "{e}"
+        );
+        let e = fail("Error org.freedesktop.DBus.Error.NameHasNoOwner: Could not get owner of name 'org.awesomewm.awful': no such name");
         assert!(e.contains("rc.lua must load awful"), "{e}");
         let e = fail("Error org.freedesktop.DBus.Error.NoReply: Did not receive a reply.");
+        assert!(
+            e.contains("did not answer within 2 s") && e.contains("awful.spawn"),
+            "{e}"
+        );
+        // run_for's own limit: a dbus-send that never returns.
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", "sleep 5"]);
+        let start = std::time::Instant::now();
+        let e = format!("{:#}", read(cmd).unwrap_err());
         assert!(e.contains("did not answer within 2 s"), "{e}");
+        assert!(
+            start.elapsed() < Duration::from_secs(4),
+            "{:?}",
+            start.elapsed()
+        );
         let e = fail("Failed to open connection to \"session\" message bus: Unable to autolaunch a dbus-daemon without a $DISPLAY for X11");
         assert!(e.contains("no D-Bus session bus"), "{e}");
         let e = fail("Error org.freedesktop.DBus.Error.AccessDenied: no");
@@ -563,12 +625,27 @@ mod tests {
             eprintln!("skipping: no session bus or X display came up");
             return;
         }
-        let dir = std::env::temp_dir().join(format!("kbf-awesome-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        struct RemoveOnDrop(std::path::PathBuf);
+        impl Drop for RemoveOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let dir =
+            RemoveOnDrop(std::env::temp_dir().join(format!("kbf-awesome-{}", std::process::id())));
+        let dir = &dir.0;
+        std::fs::create_dir_all(dir).unwrap();
         let rc = dir.join("rc.lua");
+        // One key, a numeric key, and two hand-made entries: awesome-git's shape, and a key group (left out).
         std::fs::write(
             &rc,
-            "local awful = require(\"awful\")\nroot.keys(awful.key({ \"Mod4\", \"Shift\" }, \"x\", function() end, { description = \"real test\", group = \"test\" }))\n",
+            r#"local awful = require("awful")
+root.keys(awful.key({ "Mod4", "Shift" }, "x", function() end, { description = "real test", group = "test" }))
+awful.key({ "Mod4" }, 7, function() end, { description = "numeric", group = "test" })
+local hotkeys = require("awful.key").hotkeys
+table.insert(hotkeys, { modifiers = { "Mod4" }, key = "y", description = "git" })
+table.insert(hotkeys, { mod = { "Mod4" }, key = { "a", "b" } })
+"#,
         )
         .unwrap();
         let mut wm = KillOnDrop(
@@ -577,7 +654,7 @@ mod tests {
                 .arg(&rc)
                 .env("DISPLAY", &display)
                 .env("DBUS_SESSION_BUS_ADDRESS", &address)
-                .env("HOME", &dir)
+                .env("HOME", dir)
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
@@ -596,8 +673,13 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(100));
         };
-        let (sheet, _) = got.unwrap();
+        let (sheet, notes) = got.unwrap();
         assert_eq!(one(&sheet, "super+shift+x"), ("test", "real test"));
-        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(one(&sheet, "super+7"), ("test", "numeric"));
+        assert_eq!(one(&sheet, "super+y"), ("awesome", "git"));
+        assert_eq!(
+            notes,
+            ["leaving out hotkeys: 1 not one key (awesome-git's key groups, or modifiers that aren't strings)"]
+        );
     }
 }

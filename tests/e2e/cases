@@ -83,7 +83,7 @@ local o, seen = {}, {}
 for _, k in ipairs(root.keys()) do
   local m = {}
   for _, x in ipairs(k.modifiers) do if x ~= "Lock" and x ~= "Mod2" then m[#m + 1] = x end end
-  local e = h(table.concat(m, "\0")) .. "," .. h(k.key or "?")
+  local e = h(table.concat(m, "\0")) .. "," .. h(k.key or "")
   if not seen[e] then seen[e], o[#o + 1] = true, e end
 end
 return table.concat(o, ";")'

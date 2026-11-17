@@ -273,7 +273,8 @@ def bare_args(s):
 # (X's names, objects/key.c:228-244 and common/xutil.c:56-76 at v4.3) and `key` (a keysym name, or `#N` for a keycode,
 # objects/key.c:303-321). Translated as awesome.rs's AC says, in the oracle's own tables: Mod4 super, Mod1 alt,
 # Control ctrl, Shift shift, any other modifier kept by its X name; `#10`…`#19` the number row (`1`…`0`), any other
-# keycode kept as `#N`; a one-character key by KITTY_CHARS, upper case as shift; a name outside the notation `?name`.
+# keycode kept as `#N`; an upper-case letter as shift; a name outside the notation `?name`; a key object with no key
+# name (the chunk sends it empty) `!nokey`, never known. root.keys() gives keysym names, never punctuation characters.
 # ponytail: a key bound with Mod2 or Lock shows here without it (the chunk drops awful.key's variants), so it differs
 # unexplained; e2e's rc.lua binds none.
 AWESOME_MODS = {"Mod4": "super", "Mod1": "alt", "Control": "ctrl", "Shift": "shift"}
@@ -291,8 +292,6 @@ def awesome_key(mods, key):
         sym = key.lower()
         if key.isupper():
             mods.append("shift")
-    elif len(key) == 1:
-        sym = KITTY_CHARS.get(key, "?" + key)
     elif re.fullmatch(r"[A-Za-z0-9_]+", key):
         sym = key
     else:
@@ -312,8 +311,9 @@ def awesome_report(text):
         if len(fields) != 2:
             keys.add("!line:" + entry)
             continue
-        mods, key = (bytes.fromhex(f).decode() for f in fields)
-        keys.add(awesome_key([x for x in mods.split("\0") if x], key))
+        mods, key = (bytes.fromhex(f).decode(errors="replace") for f in fields)
+        mods = [x for x in mods.split("\0") if x]
+        keys.add(awesome_key(mods, key) if key else "!nokey:" + "+".join(mods))
     return keys
 
 
@@ -338,13 +338,13 @@ KNOWN = {
         ("input_mode=normal\talt+y", "config.kdl's `bind \"Alt y\" { NewTab; }` in normal: the preset can't show it",
          "dump"),
     ],
-    # The stock rc.lua's clientkeys (awesomerc.lua:347-392 at v4.3) are set on each client by its rules, not in
-    # root.keys(): the `o` case opens no window, so awesome's report can't show them.
+    # The stock rc.lua's clientkeys (awesomerc.lua:347-392 at v4.3) are set on each client by its rules and live in
+    # each client's keys, never in root.keys(), which is all awesome's report reads.
     "awesome": [(k, "a stock client key (clientkeys): on each client, not in root.keys()", "dump") for k in (
         "super+f", "super+shift+c", "super+ctrl+space", "super+ctrl+Return", "super+o", "super+t", "super+n",
         "super+m", "super+ctrl+m", "super+shift+m")] + [
-        ("*+Mod3+*", "awesome.rs leaves out a Mod3 modifier: xdotool can't press it"),
-        ("*+Mod5+*", "awesome.rs leaves out a Mod5 modifier: xdotool can't press it"),
+        ("*+Mod3+*", "awesome.rs leaves out a Mod3 modifier: keybind-find's notation has no name for it"),
+        ("*+Mod5+*", "awesome.rs leaves out a Mod5 modifier: keybind-find's notation has no name for it"),
         ("Any+*", "awesome.rs leaves out the Any modifier: no one chord to send"),
         ("*#[0-9]*", "awesome.rs leaves out a keycode other than the number row's: it has no key name"),
         # awesome turns the character into its keysym (objects/key.c:110-160); awesome.rs reads the character, which
@@ -539,12 +539,17 @@ def self_test():
     assert awesome_key(["Mod4", "Control", "Shift"], "#18") == "super+ctrl+shift+9"
     assert awesome_key(["Mod4"], "#94") == "super+#94" and awesome_key(["Mod4"], "J") == "super+shift+j"
     assert awesome_key(["Mod4", "Mod3"], "x") == "super+Mod3+x" and awesome_key(["Any"], "F13") == "Any+F13"
-    assert awesome_key([], "/") == "slash" and awesome_key(["Mod4"], "é") == "super+?é"
+    assert awesome_key(["Mod4"], "é") == "super+?é" and awesome_key([], "slash") == "slash"
     hexed = lambda mods, key: ",".join(s.encode().hex() for s in ("\0".join(mods), key))
     out = ("method return time=1.0 sender=:1.3 -> destination=:1.9 serial=4 reply_serial=2\n   string \""
            + ";".join([hexed(["Mod4"], "s"), hexed(["Mod4", "Control"], "#10"), hexed([], "XF86AudioMute")]) + "\"\n")
     assert awesome_report(out) == {"super+s", "super+ctrl+1", "XF86AudioMute"}, awesome_report(out)
     assert awesome_report("Error org.x: y\n") == {"!line:Error org.x: y"}
+    head = "method return time=1.0 sender=:1.3 -> destination=:1.9 serial=4 reply_serial=2\n   string \""
+    # Three fields is no entry; a key object with no key name is never known; stray bytes don't crash.
+    assert awesome_report(head + "4d6f6434,73,73\"\n") == {"!line:4d6f6434,73,73"}
+    assert awesome_report(head + hexed(["Mod4"], "") + "\"\n") == {"!nokey:Mod4"}
+    assert awesome_report(head + "ff,73\"\n") == {"\ufffd+s"}
     ak = KNOWN["awesome"]
     examples = {"*+Mod3+*": "super+Mod3+x", "*+Mod5+*": "super+Mod5+x", "Any+*": "Any+F13", "*#[0-9]*": "super+#94",
                 "super+eacute": "super+eacute"}

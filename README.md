@@ -671,19 +671,27 @@ no i3 answering, that is one line and the list goes on without i3's keys.
 ### awesome
 
 Under awesome, keybind-find asks the running awesome for its hotkeys over D-Bus, the way `awesome-client` does
-(`dbus-send` to `org.awesomewm.awful`, with a fixed Lua snippet that only reads). It lists the keys awesome's own
-hotkeys popup (`Super+s`) reads: every key made with `awful.key`, global and client keys alike, each with its
-`description` under its `group` (else `awesome`); the popup hides a key with no description, keybind-find shows it as
-`no description`. Your `rc.lua` is never read or run by keybind-find:
-awesome has already run it. Modifiers show as `super` (Mod4), `alt` (Mod1), `ctrl` and `shift`; an upper-case letter
-key is `shift+` its letter; the number-row keycodes the stock config binds tags to (`#10` to `#19`) show as `1` to
-`0`, as the popup labels them. Those keycodes are sent as the keys `1` to `0`, so on a layout whose number row types
-other characters (AZERTY) the sent key may not be that key. Keys with a `Mod2`, `Mod3`, `Mod5`, `Lock` or `Any`
-modifier, any other keycode (`#94`), a key name keybind-find can't send (a non-ASCII character), and entries that
-aren't one key (awesome-git's key groups) are left out, counted in one line. A key listed twice is shown twice: awesome
-runs both. awesome answers only when your `rc.lua` loads `awful` (`require("awful")`, as the stock config does) and
-awesome was built with D-Bus; without that, with no session bus, without `dbus-send`, or when awesome doesn't answer
-in 2 s, that is one line naming the cause and the list goes on without awesome's keys.
+(`dbus-send` to `org.awesomewm.awful`, with a fixed Lua snippet that only reads). It lists what awesome's own hotkeys
+popup (`Super+s`) reads: every key created with `awful.key`, global and client keys alike, each with its `description`
+under its `group` (else `awesome`); the popup hides a key with no description, keybind-find shows it as
+`no description`. Like the popup, that is every key ever created with `awful.key`, not only the ones installed now: a
+key made again (per client in a `manage` handler, or when keys are rebuilt) is listed again, and a key created but never
+installed is listed too. Your `rc.lua` is never read or run by keybind-find: awesome has already run it.
+
+Modifiers show as `super` (Mod4), `alt` (Mod1), `ctrl` and `shift`; the number-row keycodes the stock config binds
+tags to (`#10` to `#19`) show as `1` to `0`, as the popup labels them. Those keycodes are sent as the keys `1` to `0`,
+so on a layout whose number row types other characters (AZERTY) the sent key may not be that key. An upper-case
+letter key (`"J"`) is listed as `shift+j`, but awesome 4.3 matches keys by their unshifted symbol, so such a key, like
+a shifted symbol (`"#"`), never fires there. Keys with a `Mod2`, `Mod3`, `Mod5`, `Lock` or `Any` modifier, or a
+modifier name awesome doesn't know (`"Super"`, `"mod4"`: awesome ignores it, so the key fires without it), any other
+keycode (`#94`), a key name keybind-find can't send (a non-ASCII character), and entries that aren't one key
+(awesome-git's key groups) are left out, counted in one line.
+
+awesome answers only when your `rc.lua` loads `awful` (`require("awful")`, as the stock config does), awesome was
+built with D-Bus, and keybind-find runs on awesome's session bus. Bind keybind-find with `awful.spawn("keybind-find")`,
+not `os.execute` or `io.popen`: awesome runs one thing at a time, so while it waits for keybind-find it can't answer
+it. Without any of that, without `dbus-send`, or when awesome doesn't answer in 2 s, that is one line naming the cause
+and the list goes on without awesome's keys.
 
 ### sxhkd
 
