@@ -28,8 +28,11 @@ fn read(proc: &Path, uid: Option<u32>, env: Env) -> anyhow::Result<(Sheet, Vec<S
     let mut notes = Vec::new();
     let mut files = uid.map_or_else(Vec::new, |uid| config_files(proc, uid, env));
     if files.is_empty() {
-        files = configs(&[], env);
-        if let Some(path) = files.first() {
+        files = configs(&[], env)
+            .into_iter()
+            .map(|p| (p.clone(), p))
+            .collect();
+        if let Some((path, _)) = files.first() {
             notes.push(format!("no sxhkd running; reading {}", path.display()));
         }
     }
@@ -39,7 +42,9 @@ fn read(proc: &Path, uid: Option<u32>, env: Env) -> anyhow::Result<(Sheet, Vec<S
         binds: Default::default(),
     };
     let (mut read_any, mut left_out) = (false, 0);
-    for path in &files {
+    // ponytail: a hotkey in two files (or two sxhkd) is listed twice, though only the first grab fires; drop later
+    // repeats of a key if that confuses.
+    for (path, shown) in &files {
         match std::fs::read(path) {
             Ok(text) => {
                 read_any = true;
@@ -49,7 +54,7 @@ fn read(proc: &Path, uid: Option<u32>, env: Env) -> anyhow::Result<(Sheet, Vec<S
                     sheet.binds.entry(category).or_default().push(bind);
                 }
             }
-            Err(e) => notes.push(format!("can't read {}: {e}", path.display())),
+            Err(e) => notes.push(format!("can't read {}: {e}", shown.display())),
         }
     }
     if !read_any {
@@ -65,7 +70,10 @@ fn read(proc: &Path, uid: Option<u32>, env: Env) -> anyhow::Result<(Sheet, Vec<S
 }
 
 /// `uid`'s live `sxhkd` processes in `proc`, each with its `cmdline`. A zombie's (or an exiting one's) `cmdline` is
-/// empty: skipped. So is a pid whose `comm` is no longer `sxhkd` once `cmdline` is read (the pid was reused).
+/// empty: skipped. So is a pid whose `comm` is no longer `sxhkd` once `cmdline` is read (the pid was reused), and a
+/// script named `sxhkd` run by a shell: the program (`exe`'s file name, else argv[0]'s) must be `sxhkd` too.
+/// ponytail: the second `comm` read narrows pid reuse without closing it, and the uid isn't read again; compare the
+/// process's start time (`stat` field 22) before and after if that bites.
 pub(crate) fn running(proc: &Path, uid: u32) -> Vec<(u32, Vec<u8>)> {
     user_pids(proc, uid, "sxhkd")
         .into_iter()
@@ -74,17 +82,31 @@ pub(crate) fn running(proc: &Path, uid: u32) -> Vec<(u32, Vec<u8>)> {
             let cmdline = std::fs::read(dir.join("cmdline"))
                 .ok()
                 .filter(|c| !c.is_empty())?;
+            // A binary replaced by an upgrade reads as `/usr/bin/sxhkd (deleted)`.
+            let program = match std::fs::read_link(dir.join("exe")) {
+                Ok(exe) => exe.as_os_str().as_bytes().to_vec(),
+                Err(_) => cmdline
+                    .split(|b| *b == 0)
+                    .next()
+                    .unwrap_or_default()
+                    .to_vec(),
+            };
+            let program = program.strip_suffix(b" (deleted)").unwrap_or(&program);
+            let named = program.rsplit(|b| *b == b'/').next() == Some(b"sxhkd".as_slice());
             let comm = std::fs::read_to_string(dir.join("comm")).ok()?;
-            (comm.trim_end_matches('\n') == "sxhkd").then_some((pid, cmdline))
+            (named && comm.trim_end_matches('\n') == "sxhkd").then_some((pid, cmdline))
         })
         .collect()
 }
 
-/// The config files of `uid`'s `sxhkd` processes in `proc`, each in the order its process loads them; a file an
-/// earlier process (or the same one) already has is read once. The process's own environment and cwd decide its
-/// paths: a process whose `environ` can't be read gets `env`.
-fn config_files(proc: &Path, uid: u32, env: Env) -> Vec<PathBuf> {
-    let mut files: Vec<PathBuf> = Vec::new();
+/// The config files of `uid`'s `sxhkd` processes in `proc`, each in the order its process loads them, as (the path to
+/// open, the path to show); a file an earlier process (or the same one) already has, by device and inode, is read
+/// once. The process's own environment and cwd decide its paths: a process whose `environ` can't be read gets `env`.
+fn config_files(proc: &Path, uid: u32, env: Env) -> Vec<(PathBuf, PathBuf)> {
+    use std::os::unix::fs::MetadataExt;
+    let mut files = Vec::new();
+    // `(dev, ino)`, or the path when it can't be read (its error is noted when read).
+    let mut seen: Vec<Result<(u64, u64), PathBuf>> = Vec::new();
     for (pid, cmdline) in running(proc, uid) {
         let dir = proc.join(pid.to_string());
         let environ = std::fs::read(dir.join("environ")).ok();
@@ -95,8 +117,10 @@ fn config_files(proc: &Path, uid: u32, env: Env) -> Vec<PathBuf> {
                 .map(|v| OsStr::from_bytes(v).to_os_string()),
             None => env(k),
         };
-        // Through the link itself, not its target: a deleted cwd or another mount namespace still resolves.
+        // Opened through the link itself, not its target: a deleted cwd or another mount namespace still resolves.
+        // Shown through its target when it reads.
         let cwd = dir.join("cwd");
+        let shown_cwd = std::fs::read_link(&cwd).unwrap_or_else(|_| cwd.clone());
         // argv[0] is the program; a trailing NUL ends the last argument.
         let args: Vec<&[u8]> = cmdline
             .strip_suffix(&[0u8])
@@ -104,9 +128,14 @@ fn config_files(proc: &Path, uid: u32, env: Env) -> Vec<PathBuf> {
             .split(|b| *b == 0)
             .skip(1)
             .collect();
-        for path in configs(&args, &own).into_iter().map(|p| cwd.join(p)) {
-            if !files.contains(&path) {
-                files.push(path);
+        for rel in configs(&args, &own) {
+            let path = cwd.join(&rel);
+            let id = std::fs::metadata(&path)
+                .map(|m| (m.dev(), m.ino()))
+                .map_err(|_| path.clone());
+            if !seen.contains(&id) {
+                seen.push(id);
+                files.push((path, shown_cwd.join(rel)));
             }
         }
     }
@@ -506,6 +535,8 @@ fn key(hotkey: &[u8]) -> Option<String> {
                 // `src/parse.c:2714-2724`: an unknown one drops the hotkey, 2688-2691), and a keysym in the notation;
                 // the last wins, as `parse_keysym` overwrites it. The notation refuses an upper-case letter, so it
                 // is left out.
+                // ponytail: a keysym on no key of the current layout is listed, though sxhkd drops it (`make_chord`,
+                // `src/types.c:141-177`); matching that needs the X keymap.
                 // ponytail: sxhkd binds `A` as shift + the key holding it (`make_chord`, `src/types.c:135-175`); list
                 // it as `shift+a` if that's wanted (the layout decides which key that is).
                 _ => {
@@ -2747,6 +2778,13 @@ mod tests {
         assert_eq!(rows("a\n\tx\n\ty\n").0, [row("sxhkd", "a", "x", "x")]);
         // An empty hotkey (`{}` renders nothing) is left out, counted.
         assert_eq!(rows("{}\n\tx\n"), (vec![], 1));
+        // `\v` is `isspace`: a command line.
+        assert_eq!(rows("a\n\x0bcmd\n").0, [row("sxhkd", "a", "cmd", "cmd")]);
+        // A comment between a hotkey and its command, then a blank line: no title.
+        assert_eq!(
+            rows("a\n# c\n\tx\n\nb\n\ty\n").0,
+            [row("sxhkd", "a", "x", "x"), row("sxhkd", "b", "y", "y")]
+        );
         // A NUL ends a line (`strlen`): `a` alone is under 2 bytes, skipped, so the command has no hotkey.
         assert_eq!(rows("a\0junk\n\tcmd\n"), (vec![], 0));
         // One trailing `:` is removed, not two.
@@ -2897,8 +2935,9 @@ mod tests {
         }
     }
 
-    fn paths(files: Vec<PathBuf>) -> Vec<String> {
-        files.into_iter().map(|p| p.display().to_string()).collect()
+    /// The paths shown.
+    fn paths(files: &[(PathBuf, PathBuf)]) -> Vec<String> {
+        files.iter().map(|(_, p)| p.display().to_string()).collect()
     }
 
     #[test]
@@ -2936,14 +2975,26 @@ mod tests {
                 // A file another sxhkd loads too is read once.
                 (21, &["-c", "/s/a", "/s/b"], Some(&[]), "/w"),
                 (22, &["-c", "/s/b", "/s/c"], Some(&[]), "/w"),
+                // A shell running a script named sxhkd (argv[0] set below); one whose exe is a shell; one whose
+                // binary was replaced since it started.
+                (23, &["-c", "/script"], Some(&[]), "/w"),
+                (24, &["-c", "/shell"], Some(&[]), "/w"),
+                (25, &["-c", "/s/d"], Some(&[]), "/w"),
+                // Another variable starting with `HOME`.
+                (26, &[], Some(&["HOMEBREW_PREFIX=/x", "HOME=/h3"]), "/w"),
             ],
         );
         std::fs::write(dir.join("20/cmdline"), "").unwrap();
-        let files = paths(config_files(&dir, uid(&dir), &own_env));
+        std::fs::write(dir.join("23/cmdline"), "/bin/sh\0/x/sxhkd\0-c\0/script\0").unwrap();
+        std::os::unix::fs::symlink("/bin/sh", dir.join("24/exe")).unwrap();
+        std::os::unix::fs::symlink("/usr/bin/sxhkd (deleted)", dir.join("25/exe")).unwrap();
+        let all = config_files(&dir, uid(&dir), &own_env);
+        let files = paths(&all);
         let running = running(&dir, uid(&dir));
         let theirs = config_files(&dir, uid(&dir).wrapping_add(1), &own_env);
-        // Relative paths through each process's own `cwd` link.
-        let cwd = |pid: u32, p: &str| format!("{}/{pid}/cwd/{p}", dir.display());
+        // A relative path is opened through the process's own `cwd` link, and shown through its target.
+        let opened = all[3].0.display().to_string();
+        let cwd = |_: u32, p: &str| format!("/w/{p}");
         let want = [
             "/xdg/sxhkd/sxhkdrc".into(),
             "/sxhkd/sxhkdrc".into(),
@@ -2962,12 +3013,42 @@ mod tests {
             "/s/a".into(),
             "/s/b".into(),
             "/s/c".into(),
+            "/s/d".into(),
+            "/h3/.config/sxhkd/sxhkdrc".into(),
         ];
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(files, want);
+        assert_eq!(opened, format!("{}/13/cwd/rel/path", dir.display()));
         assert!(!running.iter().any(|(pid, _)| *pid == 20));
         // Another user's sxhkd is ignored.
         assert!(theirs.is_empty());
+    }
+
+    #[test]
+    fn one_file_read_once_however_named() {
+        let root = crate::test_tmp().join(format!("kbf-sxhkd-conf-{}", std::process::id()));
+        let conf = root.join("conf");
+        std::fs::create_dir_all(&conf).unwrap();
+        std::fs::write(conf.join("rc"), "a\n\tx\n").unwrap();
+        std::os::unix::fs::symlink(&conf, root.join("link")).unwrap();
+        let (c, r) = (conf.display().to_string(), root.display().to_string());
+        let abs = format!("{c}/rc");
+        // The same `-c rc` from the same directory twice, an absolute spelling, and one through a symlinked dir.
+        let dir = fake_proc(
+            "same",
+            &[
+                (30, &["-c", "rc"], Some(&[]), &c),
+                (31, &["-c", "rc"], Some(&[]), &c),
+                (32, &["-c", &abs], Some(&[]), "/w"),
+                (33, &["-c", "link/rc"], Some(&[]), &r),
+            ],
+        );
+        let files = paths(&config_files(&dir, uid(&dir), &own_env));
+        let (sheet, _) = read(&dir, Some(uid(&dir)), &own_env).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(files, [abs]);
+        assert_eq!(sheet.binds["sxhkd"].len(), 1);
     }
 
     #[test]
@@ -2988,7 +3069,7 @@ mod tests {
             .collect();
         assert_eq!(keys, ["super+a", "super+b"]);
         assert_eq!(notes.len(), 2, "{notes:?}");
-        let missing = format!("can't read {}/20/cwd/missing", dir.display());
+        let missing = format!("can't read {cwd}/missing");
         assert!(notes[0].starts_with(&missing), "{notes:?}");
         assert!(notes[1].starts_with("leaving out 1 hotkey(s)"), "{notes:?}");
         // No sxhkd of this user: the default path from keybind-find's own environment, said so.

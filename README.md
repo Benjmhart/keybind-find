@@ -652,7 +652,8 @@ under it (so is a commented-out hotkey followed by a blank line); with neither, 
 (`node`, `desktop`) or `sxhkd`. Commands are shown, never run; a pick presses the key, which sxhkd then acts on.
 Hotkeys with `hyper`, `meta`, `mode_switch`, `lock`, `mod2`, `mod3`, `mod5` or `any`, pointer buttons, an upper-case
 letter, or a key name sxhkd doesn't know (names are case-sensitive: `Return`, not `return`; sxhkd drops those
-hotkeys too) are left out, counted in one line. A file that can't be read is one line, and the others still
+hotkeys too) are left out, counted in one line. A hotkey bound in two files, or by two sxhkd, is listed twice, though only the
+first grab fires. A file that can't be read is one line, and the others still
 count. With no sxhkd running, `keybind-find dump sxhkd` reads the default path and says so. sxhkd prints no list of
 its hotkeys, so there is nothing to check the list against but its files. Under Wayland sxhkd isn't listed.
 
