@@ -94,7 +94,7 @@ fn focus(
 }
 
 /// sxhkd's hotkeys on X11, whatever the session (sxhkd runs under any X11 window manager): right after the
-/// window-manager provider (first without one) when one of `uid`'s processes in `proc` is `sxhkd`. Under Wayland an
+/// window-manager provider (first without one) when one of `uid`'s processes in `proc` is a live `sxhkd`. Under Wayland an
 /// sxhkd on XWayland sees X clients only: not added.
 fn add_sxhkd(
     providers: &mut Vec<&'static str>,
@@ -102,7 +102,7 @@ fn add_sxhkd(
     proc: &std::path::Path,
     uid: Option<u32>,
 ) {
-    if wayland || uid.is_none_or(|uid| user_pids(proc, uid, "sxhkd").is_empty()) {
+    if wayland || uid.is_none_or(|uid| crate::providers::sxhkd_running(proc, uid).is_empty()) {
         return;
     }
     let after_wm = providers
@@ -3345,10 +3345,15 @@ mod tests {
         for (pid, comm) in [("5", "sxhkd"), ("7", "sxhkd-helper"), ("9", "sxhkd")] {
             std::fs::create_dir_all(dir.join(pid)).unwrap();
             std::fs::write(dir.join(pid).join("comm"), format!("{comm}\n")).unwrap();
+            std::fs::write(dir.join(pid).join("cmdline"), format!("{comm}\0")).unwrap();
         }
         let none = crate::test_tmp().join(format!("kbf-sxhkd-none-{}", std::process::id()));
         std::fs::create_dir_all(none.join("7")).unwrap();
         std::fs::write(none.join("7").join("comm"), "sxhkd-helper\n").unwrap();
+        // A zombie sxhkd: its comm stays, its cmdline is empty.
+        std::fs::create_dir_all(none.join("8")).unwrap();
+        std::fs::write(none.join("8").join("comm"), "sxhkd\n").unwrap();
+        std::fs::write(none.join("8").join("cmdline"), "").unwrap();
         let uid = std::fs::metadata(&dir).unwrap().uid();
         let with = |session, wayland, proc: &std::path::Path, uid| {
             let mut p = providers_for(wm_provider(session), Some("XTerm"), Some("zsh"), &[]);

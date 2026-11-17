@@ -12,6 +12,9 @@ use std::path::{Path, PathBuf};
 
 type Env<'a> = &'a dyn Fn(&str) -> Option<OsString>;
 
+/// sxhkd's key names (`nks_dict`), sorted.
+const KEY_NAMES: &[&str] = include!("sxhkd_keysyms.rs");
+
 pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
     let env = |k: &str| std::env::var_os(k);
     let (sheet, notes) = read(Path::new("/proc"), own_uid(), &env)?;
@@ -26,13 +29,12 @@ pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
 /// the notes for stderr. An error only when no file at all could be read.
 fn read(proc: &Path, uid: Option<u32>, env: Env) -> anyhow::Result<(Sheet, Vec<String>)> {
     let mut notes = Vec::new();
-    let mut lists = uid.map_or_else(Vec::new, |uid| config_lists(proc, uid, env));
-    if lists.is_empty() {
-        let main = configs(&[], env);
-        if let Some(path) = main.first() {
+    let mut files = uid.map_or_else(Vec::new, |uid| config_files(proc, uid, env));
+    if files.is_empty() {
+        files = configs(&[], env);
+        if let Some(path) = files.first() {
             notes.push(format!("no sxhkd running; reading {}", path.display()));
         }
-        lists.push(main);
     }
     let mut sheet = Sheet {
         title: "sxhkd".into(),
@@ -40,7 +42,7 @@ fn read(proc: &Path, uid: Option<u32>, env: Env) -> anyhow::Result<(Sheet, Vec<S
         binds: Default::default(),
     };
     let (mut read_any, mut left_out) = (false, 0);
-    for path in lists.iter().flatten() {
+    for path in &files {
         match std::fs::read(path) {
             Ok(text) => {
                 read_any = true;
@@ -58,24 +60,36 @@ fn read(proc: &Path, uid: Option<u32>, env: Env) -> anyhow::Result<(Sheet, Vec<S
     }
     if left_out > 0 {
         notes.push(format!(
-            "leaving out {left_out} hotkey(s) keybind-find can't send (hyper, meta, mode_switch, lock, mod2, mod3, \
-             mod5 or any; a pointer button; an upper-case letter; or a name not in the \
-             key notation)"
+            "leaving out {left_out} hotkey(s): hyper, meta, mode_switch, lock, mod2, mod3, mod5 or any; a pointer \
+             button; an upper-case letter; or a key name sxhkd doesn't know"
         ));
     }
     Ok((sheet, notes))
 }
 
-/// The config files of each of `uid`'s `sxhkd` processes in `proc`, in the order it loads them; a list another
-/// process already has is dropped. The process's own environment and cwd decide its paths: a process whose
-/// `environ` can't be read gets `env`. Processes that vanish mid-read are skipped.
-fn config_lists(proc: &Path, uid: u32, env: Env) -> Vec<Vec<PathBuf>> {
-    let mut lists: Vec<Vec<PathBuf>> = Vec::new();
-    for pid in user_pids(proc, uid, "sxhkd") {
+/// `uid`'s live `sxhkd` processes in `proc`, each with its `cmdline`. A zombie's (or an exiting one's) `cmdline` is
+/// empty: skipped. So is a pid whose `comm` is no longer `sxhkd` once `cmdline` is read (the pid was reused).
+pub(crate) fn running(proc: &Path, uid: u32) -> Vec<(u32, Vec<u8>)> {
+    user_pids(proc, uid, "sxhkd")
+        .into_iter()
+        .filter_map(|pid| {
+            let dir = proc.join(pid.to_string());
+            let cmdline = std::fs::read(dir.join("cmdline"))
+                .ok()
+                .filter(|c| !c.is_empty())?;
+            let comm = std::fs::read_to_string(dir.join("comm")).ok()?;
+            (comm.trim_end_matches('\n') == "sxhkd").then_some((pid, cmdline))
+        })
+        .collect()
+}
+
+/// The config files of `uid`'s `sxhkd` processes in `proc`, each in the order its process loads them; a file an
+/// earlier process (or the same one) already has is read once. The process's own environment and cwd decide its
+/// paths: a process whose `environ` can't be read gets `env`.
+fn config_files(proc: &Path, uid: u32, env: Env) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = Vec::new();
+    for (pid, cmdline) in running(proc, uid) {
         let dir = proc.join(pid.to_string());
-        let Ok(cmdline) = std::fs::read(dir.join("cmdline")) else {
-            continue;
-        };
         let environ = std::fs::read(dir.join("environ")).ok();
         let own = |k: &str| match &environ {
             Some(e) => e
@@ -84,8 +98,8 @@ fn config_lists(proc: &Path, uid: u32, env: Env) -> Vec<Vec<PathBuf>> {
                 .map(|v| OsStr::from_bytes(v).to_os_string()),
             None => env(k),
         };
-        // The link's target; through the link itself when it can't be read.
-        let cwd = std::fs::read_link(dir.join("cwd")).unwrap_or_else(|_| dir.join("cwd"));
+        // Through the link itself, not its target: a deleted cwd or another mount namespace still resolves.
+        let cwd = dir.join("cwd");
         // argv[0] is the program; a trailing NUL ends the last argument.
         let args: Vec<&[u8]> = cmdline
             .strip_suffix(&[0u8])
@@ -93,15 +107,13 @@ fn config_lists(proc: &Path, uid: u32, env: Env) -> Vec<Vec<PathBuf>> {
             .split(|b| *b == 0)
             .skip(1)
             .collect();
-        let list: Vec<PathBuf> = configs(&args, &own)
-            .into_iter()
-            .map(|p| cwd.join(p))
-            .collect();
-        if !lists.contains(&list) {
-            lists.push(list);
+        for path in configs(&args, &own).into_iter().map(|p| cwd.join(p)) {
+            if !files.contains(&path) {
+                files.push(path);
+            }
         }
     }
-    lists
+    files
 }
 
 /// The files sxhkd loads for the arguments `args` (argv without argv[0]): the main config, then each extra
@@ -180,9 +192,8 @@ fn parse(text: &[u8]) -> (Vec<(String, Bind)>, usize) {
             block.push(comment(&line[1..]));
             continue;
         }
-        // `strlen(buf) < 2` needs no rule of its own: such a line is a lone newline (blank) or a last line with no
-        // newline, a hotkey with no command after it.
-        let Some((start, end)) = span else {
+        // `strlen(buf) < 2`: skipped by sxhkd (a lone newline, or a line cut short by a NUL), blank here.
+        let Some((start, end)) = span.filter(|_| line.len() >= 2) else {
             // A blank line: the comment block above it is a section title.
             let t = join(&block);
             if !t.is_empty() {
@@ -460,7 +471,7 @@ fn extract_chunks(s: &[u8]) -> Vec<Chunk> {
 /// One expanded hotkey in the key notation, as `parse_chain` (`src/parse.c:2662-2712`) splits it: chords on `;` or
 /// `:` (`LNK_SEP`; a `:` link locks the chain, still the same sequence), names on `+` and space (`SYM_SEP`), a
 /// leading `~` (replay) then `@` (release) stripped. `None`: left out (a modifier xdotool can't press, a pointer
-/// button, an upper-case letter, a name the notation refuses).
+/// button, an upper-case letter, a key name sxhkd doesn't know).
 fn key(hotkey: &[u8]) -> Option<String> {
     let mut chords = Vec::new();
     let mut rest = hotkey;
@@ -494,12 +505,15 @@ fn key(hotkey: &[u8]) -> Option<String> {
                 {
                     return None
                 }
-                // Each name must be a keysym in the notation (sxhkd drops a hotkey with an unknown name); the last
-                // wins, as `parse_keysym` overwrites it. The notation refuses an upper-case letter, so it is left out.
+                // Each name must be one of sxhkd's key names, matched case-sensitively (`parse_keysym`,
+                // `src/parse.c:2714-2724`: an unknown one drops the hotkey, 2688-2691), and a keysym in the notation;
+                // the last wins, as `parse_keysym` overwrites it. The notation refuses an upper-case letter, so it
+                // is left out.
                 // ponytail: sxhkd binds `A` as shift + the key holding it (`make_chord`, `src/types.c:135-175`); list
                 // it as `shift+a` if that's wanted (the layout decides which key that is).
                 _ => {
                     let name = std::str::from_utf8(name).ok()?;
+                    KEY_NAMES.binary_search(&name).ok()?;
                     name.parse::<keybind_find_sheet::Keysym>().ok()?;
                     keysym = Some(name.to_string());
                 }
@@ -658,6 +672,15 @@ mod tests {
         assert_eq!(rows("a\n\tx\n\ty\n").0, [row("sxhkd", "a", "x", "x")]);
         // An empty hotkey (`{}` renders nothing) is left out, counted.
         assert_eq!(rows("{}\n\tx\n"), (vec![], 1));
+        // A NUL ends a line (`strlen`): `a` alone is under 2 bytes, skipped, so the command has no hotkey.
+        assert_eq!(rows("a\0junk\n\tcmd\n"), (vec![], 0));
+        // One trailing `:` is removed, not two.
+        assert_eq!(rows("# a::\nk\n\tx\n").0, [row("sxhkd", "k", "a:", "x")]);
+        // "Several" counts every expansion, left-out ones too: the one listed shows its command.
+        assert_eq!(
+            rows("# d\nsuper + {A,b}\n\tx\n"),
+            (vec![row("sxhkd", "super+b", "d: x", "x")], 1)
+        );
     }
 
     #[test]
@@ -677,6 +700,13 @@ mod tests {
             Some("super+alt+Return")
         );
         assert_eq!(k("control + ~@space").as_deref(), Some("ctrl+space"));
+        // The last keysym named wins.
+        assert_eq!(k("a + b").as_deref(), Some("b"));
+        // sxhkd's key names are case-sensitive: `return` is none (sxhkd drops the hotkey).
+        assert_eq!(k("super + Return").as_deref(), Some("super+Return"));
+        assert_eq!(k("super + return"), None);
+        assert_eq!(k("esc"), None);
+        assert_eq!(k("Retrun"), None);
         // `lock` and `any` aren't the notation's modifiers: without the rule they would read as keysyms.
         for left_out in [
             "~button1",
@@ -748,6 +778,13 @@ mod tests {
 
     const BSPWM_BINDS: usize = 85;
 
+    #[test]
+    fn key_names_are_sorted() {
+        // `binary_search` needs them sorted, each once: 2072 names in the groups `locales.h` enables.
+        assert!(KEY_NAMES.windows(2).all(|w| w[0] < w[1]));
+        assert_eq!(KEY_NAMES.len(), 2072);
+    }
+
     /// A fake process: pid, cmdline arguments, environ (`None`: unreadable), cwd.
     type Proc<'a> = (u32, &'a [&'a str], Option<&'a [&'a str]>, &'a str);
 
@@ -785,11 +822,8 @@ mod tests {
         }
     }
 
-    fn paths(lists: Vec<Vec<PathBuf>>) -> Vec<Vec<String>> {
-        lists
-            .into_iter()
-            .map(|l| l.into_iter().map(|p| p.display().to_string()).collect())
-            .collect()
+    fn paths(files: Vec<PathBuf>) -> Vec<String> {
+        files.into_iter().map(|p| p.display().to_string()).collect()
     }
 
     #[test]
@@ -815,24 +849,48 @@ mod tests {
                 (17, &[], None, "/w"),
                 // glibc's getopt permutes: an extra before the options; `--` ends them.
                 (18, &["e", "-tc", "-c", "y", "--", "-c"], Some(&[]), "/w"),
+                // `-r -s -a` take an argument; a lone `-` is no option; a `-c` with none is ignored.
+                (
+                    19,
+                    &["-r", "x", "-s", "y", "-a", "z", "-", "-c"],
+                    Some(&["HOME=/h2"]),
+                    "/w",
+                ),
+                // A zombie: comm still sxhkd, its cmdline (set below) empty.
+                (20, &[], Some(&["HOME=/zombie"]), "/w"),
+                // A file another sxhkd loads too is read once.
+                (21, &["-c", "/s/a", "/s/b"], Some(&[]), "/w"),
+                (22, &["-c", "/s/b", "/s/c"], Some(&[]), "/w"),
             ],
         );
-        let lists = paths(config_lists(&dir, uid(&dir), &own_env));
-        let theirs = config_lists(&dir, uid(&dir).wrapping_add(1), &own_env);
+        std::fs::write(dir.join("20/cmdline"), "").unwrap();
+        let files = paths(config_files(&dir, uid(&dir), &own_env));
+        let running = running(&dir, uid(&dir));
+        let theirs = config_files(&dir, uid(&dir).wrapping_add(1), &own_env);
+        // Relative paths through each process's own `cwd` link.
+        let cwd = |pid: u32, p: &str| format!("{}/{pid}/cwd/{p}", dir.display());
+        let want = [
+            "/xdg/sxhkd/sxhkdrc".into(),
+            "/sxhkd/sxhkdrc".into(),
+            "/h/.config/sxhkd/sxhkdrc".into(),
+            cwd(13, "rel/path"),
+            cwd(14, "file"),
+            cwd(15, "x"),
+            cwd(15, "extra1"),
+            cwd(15, "extra2"),
+            "/own/.config/sxhkd/sxhkdrc".into(),
+            cwd(18, "y"),
+            cwd(18, "e"),
+            cwd(18, "-c"),
+            "/h2/.config/sxhkd/sxhkdrc".into(),
+            cwd(19, "-"),
+            "/s/a".into(),
+            "/s/b".into(),
+            "/s/c".into(),
+        ];
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(
-            lists,
-            [
-                vec!["/xdg/sxhkd/sxhkdrc"],
-                vec!["/sxhkd/sxhkdrc"],
-                vec!["/h/.config/sxhkd/sxhkdrc"],
-                vec!["/w/rel/path"],
-                vec!["/w/file"],
-                vec!["/w/x", "/w/extra1", "/w/extra2"],
-                vec!["/own/.config/sxhkd/sxhkdrc"],
-                vec!["/w/y", "/w/e", "/w/-c"],
-            ]
-        );
+        assert_eq!(files, want);
+        assert!(!running.iter().any(|(pid, _)| *pid == 20));
         // Another user's sxhkd is ignored.
         assert!(theirs.is_empty());
     }
@@ -855,10 +913,8 @@ mod tests {
             .collect();
         assert_eq!(keys, ["super+a", "super+b"]);
         assert_eq!(notes.len(), 2, "{notes:?}");
-        assert!(
-            notes[0].starts_with(&format!("can't read {cwd}/missing")),
-            "{notes:?}"
-        );
+        let missing = format!("can't read {}/20/cwd/missing", dir.display());
+        assert!(notes[0].starts_with(&missing), "{notes:?}");
         assert!(notes[1].starts_with("leaving out 1 hotkey(s)"), "{notes:?}");
         // No sxhkd of this user: the default path from keybind-find's own environment, said so.
         let env = |k: &str| (k == "XDG_CONFIG_HOME").then(|| OsString::from(&cwd));

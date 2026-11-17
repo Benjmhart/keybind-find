@@ -50,6 +50,7 @@ mod zed;
 mod zellij;
 
 pub(crate) use sheets::is_browser;
+pub(crate) use sxhkd::running as sxhkd_running;
 pub(crate) use vscode::is_vscode;
 pub(crate) use zed::is_zed;
 

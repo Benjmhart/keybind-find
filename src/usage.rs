@@ -70,8 +70,8 @@ pub fn rank(entries: &mut [Entry], counts: &Counts) {
 }
 
 /// One entry from each program in turn, each program keeping its order, so the first screen isn't all one program.
-/// The turns go: the innermost program (the last in the usual order), then the window manager, then the rest from
-/// inner to outer.
+/// The turns go: the innermost program (the last in the usual order), then the window managers (sxhkd's keys count as
+/// one), then the rest from inner to outer.
 fn alternate(entries: &mut [Entry]) {
     let mut groups: Vec<Vec<Entry>> = Vec::new();
     for e in entries.iter() {
