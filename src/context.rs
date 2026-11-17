@@ -21,7 +21,9 @@ pub fn detect() -> Context {
     let wayland = set(env_var("WAYLAND_DISPLAY"));
     let session = current_session();
     let (mut ctx, program) = focus(session, wayland, read_focus, run);
-    add_nested_nvim(&mut ctx.providers, run, std::path::Path::new("/proc"));
+    for warning in add_nested_nvim(&mut ctx.providers, run, std::path::Path::new("/proc")) {
+        eprintln!("{warning}");
+    }
     let window = keybind_find_sheet::Context {
         wm: session.map(str::to_string),
         class: ctx.class.clone(),
@@ -86,35 +88,44 @@ fn focus(
     (ctx, program)
 }
 
-/// nvim inside herdr, tmux or screen, each asked through `run` only in its own context; screen also reads `proc`
-/// (`/proc`). Both are test seams.
+/// nvim inside herdr, tmux, screen or zellij, each asked through `run` only in its own context; screen also reads `proc`
+/// (`/proc`). Both are test seams. Returns the warnings, for stderr.
+#[must_use]
 fn add_nested_nvim(
     providers: &mut Vec<&'static str>,
     run: impl Fn(&str, &[&str]) -> anyhow::Result<String> + Copy,
     proc: &std::path::Path,
-) {
-    add_nvim_in(providers, "herdr", || herdr_pane_runs_nvim(run));
-    add_nvim_in(providers, "tmux", || tmux_pane_runs_nvim(run));
-    add_nvim_in(providers, "screen", || screen_window_runs_nvim(run, proc));
+) -> Vec<String> {
+    [
+        add_nvim_in(providers, "herdr", || herdr_pane_runs_nvim(run)),
+        add_nvim_in(providers, "tmux", || tmux_pane_runs_nvim(run)),
+        add_nvim_in(providers, "screen", || screen_window_runs_nvim(run, proc)),
+        add_nvim_in(providers, "zellij", || zellij_pane_runs_nvim(run)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
-/// In a context holding the multiplexer `outer` (herdr, tmux), adds nvim after it when its focused pane runs nvim.
-/// Only that context calls `query`, so no other context pays for it; a failed query warns and keeps the plain
-/// context.
+/// In a context holding the multiplexer `outer` (herdr, tmux, screen, zellij), adds nvim after it when its focused pane runs nvim.
+/// Only that context calls `query`, so no other context pays for it; a failed query keeps the plain context and
+/// returns its one-line warning.
+#[must_use]
 fn add_nvim_in(
     providers: &mut Vec<&'static str>,
     outer: &str,
     query: impl FnOnce() -> anyhow::Result<bool>,
-) {
-    let Some(i) = providers.iter().position(|p| *p == outer) else {
-        return;
-    };
+) -> Option<String> {
+    let i = providers.iter().position(|p| *p == outer)?;
     match query() {
-        Ok(true) => providers.insert(i + 1, "nvim"),
-        Ok(false) => {}
-        Err(e) => eprintln!(
+        Ok(true) => {
+            providers.insert(i + 1, "nvim");
+            None
+        }
+        Ok(false) => None,
+        Err(e) => Some(format!(
             "keybind-find: {outer} pane: {e:#}; showing {outer}'s bindings without nvim's"
-        ),
+        )),
     }
 }
 
@@ -348,6 +359,50 @@ fn newest_client(clients: &str) -> anyhow::Result<Option<&str>> {
         }
     }
     Ok(newest.map(|(_, rest)| rest))
+}
+
+/// Asks zellij (through `run`, a test seam) whether its one client's focused pane runs nvim. zellij picks the session:
+/// none or several active is its error. No pid is recorded: the nvim provider reads nvim's config.
+/// ponytail: one client only; several are an error, not a guess. Find the pane's process by `ZELLIJ_PANE_ID` in
+/// `/proc/*/environ` when nvim's live maps are wanted inside zellij.
+fn zellij_pane_runs_nvim(
+    run: impl Fn(&str, &[&str]) -> anyhow::Result<String>,
+) -> anyhow::Result<bool> {
+    // `action list-clients` never starts a session: with none active it exits 1.
+    zellij_client_runs_nvim(&run("zellij", &["action", "list-clients"])?)
+}
+
+/// From `zellij action list-clients`' table (`CLIENT_ID ZELLIJ_PANE_ID RUNNING_COMMAND`): whether its one client's
+/// command's program (first word, file name) is nvim. No client, several, or another table is an error.
+fn zellij_client_runs_nvim(table: &str) -> anyhow::Result<bool> {
+    let mut lines = table.lines().filter(|l| !l.trim().is_empty());
+    let header: Vec<&str> = lines
+        .next()
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect();
+    if header != ["CLIENT_ID", "ZELLIJ_PANE_ID", "RUNNING_COMMAND"] {
+        // zellij 0.46 exits 0 with several sessions, their names on stdout and its question on stderr.
+        bail!(
+            "zellij printed no client table (with several sessions it lists them and asks which)"
+        );
+    }
+    let rows: Vec<&str> = lines.collect();
+    if rows.is_empty() {
+        // No client attached, or the pane's scrollback open in the editor (zellij swaps the pane out).
+        bail!("zellij listed no client (none attached to its session, or its scrollback is open in the editor)");
+    }
+    let [row] = rows.as_slice() else {
+        bail!(
+            "{} zellij clients; can't tell which is in this window",
+            rows.len()
+        );
+    };
+    let program = row
+        .split_whitespace()
+        .nth(2)
+        .with_context(|| format!("zellij printed the client row {row:?}, with no command"))?;
+    Ok(std::path::Path::new(program).file_name() == Some("nvim".as_ref()))
 }
 
 /// Asks herdr (through `run`, a test seam) whether its focused pane runs nvim. `focused_pane_id` is the focus of
@@ -937,10 +992,21 @@ fn focused(node: &serde_json::Value) -> Option<&serde_json::Value> {
 
 /// Runs a short query (X, sway, Hyprland) with a 1 s limit, so a wedged display server can't hang the hotkey.
 fn run(program: &str, args: &[&str]) -> anyhow::Result<String> {
+    run_for(query_command(program, args), Duration::from_secs(1))
+}
+
+/// `run`'s command: a UTF-8 locale keeps xprop from octal-escaping non-ASCII titles when launched with a bare
+/// environment; no mise auto-install. zellij alone runs from `/`, as its provider runs it; the others keep the
+/// launcher's working directory (a tool pinned in a home-level mise file needs it).
+fn query_command(program: &str, args: &[&str]) -> Command {
     let mut cmd = Command::new(program);
-    // A UTF-8 locale keeps xprop from octal-escaping non-ASCII titles when launched with a bare environment.
-    cmd.args(args).env("LC_ALL", "C.UTF-8");
-    run_for(cmd, Duration::from_secs(1))
+    cmd.args(args)
+        .env("LC_ALL", "C.UTF-8")
+        .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
+    if program == "zellij" {
+        cmd.current_dir("/");
+    }
+    cmd
 }
 
 /// Most a program may print on either stream; more is cut off (a runaway program can't eat memory).
@@ -2120,23 +2186,32 @@ mod tests {
     fn nvim_is_added_only_in_a_herdr_context() {
         let herdr = || providers_for(Some("xmonad"), Some("Alacritty"), Some("herdr"), &[]);
         let mut p = herdr();
-        add_nvim_in(&mut p, "herdr", || Ok(true));
+        assert_eq!(add_nvim_in(&mut p, "herdr", || Ok(true)), None);
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "herdr", "nvim", "sheets"]
         );
         let mut p = herdr();
-        add_nvim_in(&mut p, "herdr", || Ok(false));
+        assert_eq!(add_nvim_in(&mut p, "herdr", || Ok(false)), None);
         assert_eq!(p, herdr());
         // herdr can't be queried: the plain herdr context.
         let mut p = herdr();
-        add_nvim_in(&mut p, "herdr", || anyhow::bail!("running herdr"));
+        assert_eq!(
+            add_nvim_in(&mut p, "herdr", || anyhow::bail!("running herdr")),
+            Some(
+                "keybind-find: herdr pane: running herdr; showing herdr's bindings without nvim's"
+                    .to_string()
+            )
+        );
         assert_eq!(p, herdr());
         // Any other context never queries herdr.
         for child in [Some("zsh"), Some("nvim"), Some("tmux"), None] {
             let mut p = providers_for(Some("xmonad"), Some("Alacritty"), child, &[]);
             let before = p.clone();
-            add_nvim_in(&mut p, "herdr", || panic!("herdr queried for {child:?}"));
+            assert_eq!(
+                add_nvim_in(&mut p, "herdr", || panic!("herdr queried for {child:?}")),
+                None
+            );
             assert_eq!(p, before);
         }
     }
@@ -2177,21 +2252,30 @@ mod tests {
     fn nvim_is_added_only_in_a_tmux_context() {
         let tmux = || providers_for(Some("xmonad"), Some("Alacritty"), Some("tmux: client"), &[]);
         let mut p = tmux();
-        add_nvim_in(&mut p, "tmux", || Ok(true));
+        assert_eq!(add_nvim_in(&mut p, "tmux", || Ok(true)), None);
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "tmux", "nvim", "sheets"]
         );
         let mut p = tmux();
-        add_nvim_in(&mut p, "tmux", || Ok(false));
+        assert_eq!(add_nvim_in(&mut p, "tmux", || Ok(false)), None);
         assert_eq!(p, tmux());
         let mut p = tmux();
-        add_nvim_in(&mut p, "tmux", || anyhow::bail!("running tmux"));
+        assert_eq!(
+            add_nvim_in(&mut p, "tmux", || anyhow::bail!("running tmux")),
+            Some(
+                "keybind-find: tmux pane: running tmux; showing tmux's bindings without nvim's"
+                    .to_string()
+            )
+        );
         assert_eq!(p, tmux());
         for child in [Some("zsh"), Some("nvim"), Some("herdr"), None] {
             let mut p = providers_for(Some("xmonad"), Some("Alacritty"), child, &[]);
             let before = p.clone();
-            add_nvim_in(&mut p, "tmux", || panic!("tmux queried for {child:?}"));
+            assert_eq!(
+                add_nvim_in(&mut p, "tmux", || panic!("tmux queried for {child:?}")),
+                None
+            );
             assert_eq!(p, before);
         }
     }
@@ -2267,7 +2351,7 @@ mod tests {
         // Through `add_nested_nvim`: nvim right after screen.
         let screen = || providers_for(Some("xmonad"), Some("Alacritty"), Some("screen"), &[]);
         let mut p = screen();
-        add_nested_nvim(&mut p, fake, &dir);
+        assert!(add_nested_nvim(&mut p, fake, &dir).is_empty());
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "screen", "nvim", "sheets"]
@@ -2277,7 +2361,7 @@ mod tests {
         window.set("0 (bash)");
         let bash = screen_window_program(fake, &dir);
         let mut p = screen();
-        add_nested_nvim(&mut p, fake, &dir);
+        assert!(add_nested_nvim(&mut p, fake, &dir).is_empty());
         assert_eq!(p, screen());
         // A window without a readable stat: its own process is the program.
         write("400/environ", b"WINDOW=4\0");
@@ -2299,6 +2383,116 @@ mod tests {
     }
 
     #[test]
+    fn nvim_is_added_in_zellij_when_its_one_client_runs_nvim() {
+        let zellij = || providers_for(Some("xmonad"), Some("Alacritty"), Some("zellij"), &[]);
+        assert_eq!(
+            zellij(),
+            ["xmonad", "espanso", "alacritty", "zellij", "sheets"]
+        );
+        let header = "CLIENT_ID  ZELLIJ_PANE_ID RUNNING_COMMAND\n";
+        let row = |command: &str| format!("1          terminal_0     {command:<15}\n");
+        let calls = std::cell::RefCell::new(Vec::new());
+        let with = |out: anyhow::Result<String>| {
+            let out = std::cell::RefCell::new(Some(out));
+            let fake = |program: &str, args: &[&str]| {
+                calls
+                    .borrow_mut()
+                    .push(format!("{program} {}", args.join(" ")));
+                out.borrow_mut().take().unwrap()
+            };
+            let mut p = zellij();
+            let warnings = add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
+            (p, warnings)
+        };
+        let with_nvim = ["xmonad", "espanso", "alacritty", "zellij", "nvim", "sheets"];
+        assert_eq!(
+            with(Ok(format!("{header}{}", row("nvim x")))),
+            (with_nvim.to_vec(), vec![])
+        );
+        assert_eq!(*calls.borrow(), ["zellij action list-clients"]);
+        assert_eq!(
+            with(Ok(format!("{header}{}", row("/usr/bin/nvim x")))).0,
+            with_nvim
+        );
+        // Not nvim, and no warning: a shell (`N/A`), a plugin pane, zsh, vi (zellij shows a pane editing a file as
+        // `$EDITOR <file>`, vi when unset, even when nvim runs it), a longer name.
+        let plugin = format!("{header}1          plugin_2       zellij:session-manager\n");
+        for out in [
+            format!("{header}{}", row("N/A")),
+            plugin,
+            format!("{header}{}", row("zsh")),
+            format!("{header}{}", row("vi x")),
+            format!("{header}{}", row("nvimx a")),
+        ] {
+            assert_eq!(with(Ok(out)), (zellij(), vec![]));
+        }
+        assert_eq!(
+            with(Err(anyhow::anyhow!(
+                "zellij failed (exit status: 1): There is no active session!"
+            ))),
+            (
+                zellij(),
+                vec!["keybind-find: zellij pane: zellij failed (exit status: 1): There is no active session!; \
+                      showing zellij's bindings without nvim's"
+                    .to_string()]
+            )
+        );
+        // Can't tell: the plain context and one warning.
+        let two = format!(
+            "{header}{}{}",
+            row("nvim x"),
+            row("zsh").replacen('1', "2", 1)
+        );
+        for out in [
+            Ok(two.clone()),
+            Ok(header.to_string()),
+            Ok(row("nvim x")),
+            Err(anyhow::anyhow!(
+                "zellij failed (exit status: 1): There is no active session!"
+            )),
+            Err(anyhow::anyhow!(
+                "zellij failed (exit status: 1): Please specify the session name"
+            )),
+            // What 0.46 prints with several sessions: exit 0, their names.
+            Ok(
+                "\x1b[32;1ma\x1b[m [Created 2s ago] \n\x1b[32;1mb\x1b[m [Created 2s ago] \n"
+                    .to_string(),
+            ),
+        ] {
+            let (p, warnings) = with(out);
+            assert_eq!(p, zellij());
+            assert_eq!(warnings.len(), 1);
+        }
+        assert!(format!("{:#}", zellij_client_runs_nvim(&two).unwrap_err())
+            .contains("2 zellij clients"));
+        assert_eq!(
+            format!("{:#}", zellij_client_runs_nvim(header).unwrap_err()),
+            "zellij listed no client (none attached to its session, or its scrollback is open in the editor)"
+        );
+        // All three columns, not just the first.
+        assert!(
+            zellij_client_runs_nvim(&format!("CLIENT_ID PANE CMD\n{}", row("nvim x"))).is_err()
+        );
+        assert!(zellij_client_runs_nvim(&format!("{header}1 terminal_0\n")).is_err());
+        assert!(zellij_client_runs_nvim(&row("nvim x")).is_err());
+        // A line before the rows that isn't the header: not the table.
+        assert!(zellij_client_runs_nvim(&format!("a note\n{}", row("nvim x"))).is_err());
+        assert!(zellij_client_runs_nvim(&format!("{header}{}", row("nvim x"))).unwrap());
+        // No zellij in the context: zellij is never run.
+        calls.borrow_mut().clear();
+        let fake = |program: &str, args: &[&str]| {
+            calls
+                .borrow_mut()
+                .push(format!("{program} {}", args.join(" ")));
+            Ok(format!("{header}{}", row("nvim x")))
+        };
+        let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("zsh"), &[]);
+        assert!(add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent")).is_empty());
+        assert!(calls.borrow().is_empty());
+        assert!(!p.contains(&"nvim"));
+    }
+
+    #[test]
     fn nvim_is_added_only_in_a_screen_context() {
         let screen = || providers_for(Some("xmonad"), Some("Alacritty"), Some("screen"), &[]);
         assert_eq!(
@@ -2306,7 +2500,7 @@ mod tests {
             ["xmonad", "espanso", "alacritty", "screen", "sheets"]
         );
         let mut p = screen();
-        add_nvim_in(&mut p, "screen", || Ok(true));
+        assert_eq!(add_nvim_in(&mut p, "screen", || Ok(true)), None);
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "screen", "nvim", "sheets"]
@@ -2320,12 +2514,17 @@ mod tests {
             anyhow::bail!("No Sockets found")
         };
         let mut p = screen();
-        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
+        let warnings = add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
         assert_eq!(p, screen());
+        assert_eq!(warnings.len(), 1);
+        assert!(
+            warnings[0].contains("screen pane: No Sockets found"),
+            "{warnings:?}"
+        );
         assert_eq!(*calls.borrow(), ["screen -ls"]);
         calls.borrow_mut().clear();
         let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("zsh"), &[]);
-        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
+        assert!(add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent")).is_empty());
         assert!(calls.borrow().is_empty());
     }
 
@@ -2341,7 +2540,7 @@ mod tests {
             })
         };
         let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("tmux: client"), &[]);
-        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
+        assert!(add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent")).is_empty());
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "tmux", "nvim", "sheets"]
@@ -2350,7 +2549,7 @@ mod tests {
         assert_eq!(*calls.borrow(), ["tmux", "tmux"]);
         calls.borrow_mut().clear();
         let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("herdr"), &[]);
-        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
+        assert!(add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent")).is_empty());
         assert_eq!(
             p,
             ["xmonad", "espanso", "alacritty", "herdr", "nvim", "sheets"]
@@ -2358,7 +2557,7 @@ mod tests {
         assert_eq!(*calls.borrow(), ["herdr", "herdr"]);
         calls.borrow_mut().clear();
         let mut p = providers_for(Some("xmonad"), Some("Alacritty"), Some("zsh"), &[]);
-        add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent"));
+        assert!(add_nested_nvim(&mut p, fake, std::path::Path::new("/nonexistent")).is_empty());
         assert!(calls.borrow().is_empty());
     }
 
@@ -3434,6 +3633,24 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         assert!(run("false", &[]).is_err());
         assert!(run("/nonexistent-kbf", &[]).is_err());
         assert_eq!(run("sh", &["-c", "echo x"]).unwrap(), "x\n");
+        // No mise auto-install; the launcher's working directory, but zellij from `/`.
+        assert_eq!(
+            run("sh", &["-c", "pwd -P; echo $MISE_NOT_FOUND_AUTO_INSTALL"]).unwrap(),
+            format!(
+                "{}\n0\n",
+                std::env::current_dir()
+                    .unwrap()
+                    .canonicalize()
+                    .unwrap()
+                    .display()
+            )
+        );
+        assert_ne!(std::env::current_dir().unwrap(), std::path::Path::new("/"));
+        assert_eq!(query_command("tmux", &[]).get_current_dir(), None);
+        assert_eq!(
+            query_command("zellij", &[]).get_current_dir(),
+            Some(std::path::Path::new("/"))
+        );
         let err = run("sh", &["-c", "echo one >&2; echo two >&2; exit 3"]).unwrap_err();
         assert!(err.to_string().ends_with("one two"), "{err}");
         // An empty stderr: the reason is on stdout.

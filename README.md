@@ -59,7 +59,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 
 nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, helix, herdr, tmux, zellij, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
-sway `app_id`, Hyprland `class`); nvim also inside a herdr or tmux pane or a screen window. When one terminal process runs several shells
+sway `app_id`, Hyprland `class`); nvim also inside a herdr, tmux or zellij pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
 GNOME Terminal, Xfce Terminal, WezTerm, Ghostty and Terminator), keybind-find finds the focused one on X11 when the
 terminal puts the window's id in each shell's environment (`WINDOWID`: Xfce Terminal, kitty, urxvt, alacritty), every
@@ -521,8 +521,17 @@ session, a client started with `--config`; and presets the running zellij would 
 place of the built-in one). Mouse binds are never listed. keybind-find reads its own environment and `PATH`, not the
 zellij client's: `ZELLIJ_CONFIG_FILE`, `ZELLIJ_CONFIG_DIR` or `XDG_CONFIG_HOME` set only in your shell, a `zellij` that
 isn't on the `PATH` of whatever starts keybind-find, or a client still running an older zellij after an upgrade, give
-a different list than the running zellij has. The program in zellij's focused pane (a shell, nvim) isn't found yet:
-only zellij's own keys are listed.
+a different list than the running zellij has; and zellij's sessions are looked for in the socket directory from
+keybind-find's own `ZELLIJ_SOCKET_DIR`, `XDG_RUNTIME_DIR` or `TMPDIR`.
+
+nvim in zellij's focused pane is found from `zellij action list-clients`, its keys read from its config (not the
+running nvim). zellij shows a pane running vi, vim or nvim on exactly one file (`FILE` or `+N FILE`) under the name
+of its editor (`scrollback_editor`, else the server's `$EDITOR`, which config.kdl's `env` block can set, else
+`$VISUAL`, else `vi`; an empty `$EDITOR` renames nothing) when that editor is itself vi, vim or nvim. So nvim on one
+file is missed when that editor is vi or vim (vi when none is set), and with nvim as the editor a vi or vim pane on
+one file is taken for nvim. Several sessions (detached ones count), several clients, no client attached, no client
+listed (as while the pane's scrollback is open in the editor) or a zellij without `action list-clients` give one line
+and only zellij's keys.
 
 ### kitty
 

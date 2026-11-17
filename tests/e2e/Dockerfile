@@ -18,7 +18,7 @@ RUN echo "Server = https://archive.archlinux.org/repos/${SNAPSHOT}/\$repo/os/\$a
       ffmpeg grim fzf wtype xorg-xmodmap \
       xterm alacritty kitty ghostty foot xfce4-terminal gnome-terminal rxvt-unicode terminator wezterm \
       zsh bash fish tmux screen less \
-      helix vim nano micro mc ranger ncmpcpp yazi emacs-nox \
+      helix vim neovim nano micro mc ranger ncmpcpp yazi emacs-nox \
       zathura mpv code obsidian zed xfconf glib2 \
  && pacman -Scc --noconfirm
 # sway ships with cap_sys_nice, which a container's capability set doesn't allow: its exec fails with EPERM.
