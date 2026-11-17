@@ -274,7 +274,7 @@ def bare_args(s):
 # objects/key.c:303-321). Translated as awesome.rs's AC says, in the oracle's own tables: Mod4 super, Mod1 alt,
 # Control ctrl, Shift shift, any other modifier kept by its X name; `#10`…`#19` the number row (`1`…`0`), any other
 # keycode kept as `#N`; an upper-case letter as shift; a name outside the notation `?name`; a key object with no key
-# name (the chunk sends it empty) `!nokey`, never known. root.keys() gives keysym names, never punctuation characters.
+# name (the chunk sends it empty) or `NoSymbol` `!nokey`, never known. root.keys() gives keysym names, never punctuation characters.
 # ponytail: a key bound with Mod2 or Lock shows here without it (the chunk drops awful.key's variants), so it differs
 # unexplained; e2e's rc.lua binds none.
 AWESOME_MODS = {"Mod4": "super", "Mod1": "alt", "Control": "ctrl", "Shift": "shift"}
@@ -311,9 +311,13 @@ def awesome_report(text):
         if len(fields) != 2:
             keys.add("!line:" + entry)
             continue
-        mods, key = (bytes.fromhex(f).decode(errors="replace") for f in fields)
+        try:
+            mods, key = (bytes.fromhex(f).decode(errors="replace") for f in fields)
+        except ValueError:
+            keys.add("!line:" + entry)
+            continue
         mods = [x for x in mods.split("\0") if x]
-        keys.add(awesome_key(mods, key) if key else "!nokey:" + "+".join(mods))
+        keys.add(awesome_key(mods, key) if key not in ("", "NoSymbol") else "!nokey:" + "+".join(mods))
     return keys
 
 
@@ -550,6 +554,8 @@ def self_test():
     assert awesome_report(head + "4d6f6434,73,73\"\n") == {"!line:4d6f6434,73,73"}
     assert awesome_report(head + hexed(["Mod4"], "") + "\"\n") == {"!nokey:Mod4"}
     assert awesome_report(head + "ff,73\"\n") == {"\ufffd+s"}
+    assert awesome_report(head + hexed(["Mod4"], "NoSymbol") + "\"\n") == {"!nokey:Mod4"}
+    assert awesome_report(head + "4d6,73\"\n") == {"!line:4d6,73"}
     ak = KNOWN["awesome"]
     examples = {"*+Mod3+*": "super+Mod3+x", "*+Mod5+*": "super+Mod5+x", "Any+*": "Any+F13", "*#[0-9]*": "super+#94",
                 "super+eacute": "super+eacute"}

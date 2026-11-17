@@ -20,12 +20,15 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 /// then `;MODS,KEY,DESCRIPTION,GROUP` per entry, each field hex-encoded (the modifiers joined by NUL first), so the
 /// reply is `[0-9a-f,;]` only: dbus-send prints a string as it is between quotes (`tools/dbus-print-message.c:324-333`
 /// at dbus 1.16.2), and a description with `"` or a newline would be ambiguous. `data.mod`, else awesome-git's
-/// `data.modifiers`. A key given as a number is its text, as awesome reads it (`lua_tolstring`, `objects/key.c:337`).
+/// `data.modifiers`; `data.key`, else awesome-git's one-key `data.keys = {{key}}` (`lib/awful/key.lua:323-330` at master
+/// `1a5163e`, read as its popup reads it, `widget.lua:542-544`; more than one is a key group, left out). A key given as
+/// a number is its text, as awesome reads it (`lua_tolstring`, `objects/key.c:337`).
 const CHUNK: &str = r#"local function h(s) return (s:gsub(".", function(c) return ("%02x"):format(c:byte()) end)) end
 local function t(v) return type(v) == "string" and v or "" end
 local o, n = {}, 0
 for _, d in pairs(require("awful.key").hotkeys) do
   local m, k = type(d) == "table" and (d.mod or d.modifiers), type(d) == "table" and d.key
+  if k == nil and type(d.keys) == "table" and #d.keys == 1 and type(d.keys[1]) == "table" then k = d.keys[1][1] end
   if type(k) == "number" then k = tostring(k) end
   local ok = type(m) == "table" and type(k) == "string"
   for _, x in ipairs(ok and m or {}) do ok = ok and type(x) == "string" end
@@ -95,7 +98,8 @@ struct LeftOut {
     /// Entries that aren't one key (awesome-git key groups, odd modifiers), counted by the chunk.
     shapes: usize,
     mods: usize,
-    unknown_mods: usize,
+    /// Listed keys whose modifiers had a name awesome doesn't know (ignored, as awesome ignores it).
+    ignored: usize,
     keycodes: usize,
     names: usize,
 }
@@ -118,6 +122,7 @@ fn parse(out: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
     let mut entries = payload.split(';');
     left.shapes = entries
         .next()
+        .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
         .and_then(|n| n.parse().ok())
         .ok_or_else(|| unexpected(payload, "no count of entries left out"))?;
     for entry in entries {
@@ -129,13 +134,19 @@ fn parse(out: &str) -> anyhow::Result<(Sheet, Vec<String>)> {
         let [mods, key, desc, group] = fields.as_slice() else {
             return Err(unexpected(payload, "an entry hasn't four fields"));
         };
-        let mods: Vec<&str> = mods.split('\0').filter(|m| !m.is_empty()).collect();
+        // No modifiers is an empty field; an empty name among others is a name awesome doesn't know.
+        let mods: Vec<&str> = match mods.as_str() {
+            "" => Vec::new(),
+            m => m.split('\0').collect(),
+        };
         let key = match translate(&mods, key) {
-            Ok(k) => k,
+            Ok((k, ignored)) => {
+                left.ignored += usize::from(ignored);
+                k
+            }
             Err(why) => {
                 *match why {
                     Why::Modifier => &mut left.mods,
-                    Why::UnknownModifier => &mut left.unknown_mods,
                     Why::Keycode => &mut left.keycodes,
                     Why::Name => &mut left.names,
                 } += 1;
@@ -164,10 +175,6 @@ impl LeftOut {
     fn notes(&self) -> Vec<String> {
         let parts: Vec<String> = [
             (self.mods, "with a Mod2, Mod3, Mod5, Lock or Any modifier"),
-            (
-                self.unknown_mods,
-                "with an unknown modifier name (awesome ignores it)",
-            ),
             (self.keycodes, "a keycode other than the number row's"),
             (self.names, "a key name keybind-find can't send"),
             (
@@ -179,10 +186,17 @@ impl LeftOut {
         .filter(|(n, _)| *n > 0)
         .map(|(n, why)| format!("{n} {why}"))
         .collect();
-        if parts.is_empty() {
-            return Vec::new();
+        let mut notes = Vec::new();
+        if !parts.is_empty() {
+            notes.push(format!("leaving out hotkeys: {}", parts.join(", ")));
         }
-        vec![format!("leaving out hotkeys: {}", parts.join(", "))]
+        if self.ignored > 0 {
+            notes.push(format!(
+                "{} hotkeys with an unknown modifier name, ignored as awesome does",
+                self.ignored
+            ));
+        }
+        notes
     }
 }
 
@@ -245,7 +259,6 @@ fn unhex(s: &str) -> Option<String> {
 #[derive(Debug, PartialEq)]
 enum Why {
     Modifier,
-    UnknownModifier,
     Keycode,
     Name,
 }
@@ -255,8 +268,10 @@ enum Why {
 /// or `#N`, a keycode (`objects/key.c:103-107`); `#10`…`#19` are the number row, which the stock rc binds tags to
 /// (`awesomerc.lua:395-440`) and the hotkeys popup labels `1`…`0` (`lib/awful/hotkeys_popup/widget.lua:139,
 /// 165-177`).
-fn translate(mods: &[&str], key: &str) -> Result<String, Why> {
+/// Also whether a modifier name awesome doesn't know was ignored.
+fn translate(mods: &[&str], key: &str) -> Result<(String, bool), Why> {
     let mut out = Vec::with_capacity(mods.len() + 1);
+    let mut ignored = false;
     for m in mods {
         out.push(match *m {
             "Mod4" => "super",
@@ -265,8 +280,12 @@ fn translate(mods: &[&str], key: &str) -> Result<String, Why> {
             "Shift" => "shift",
             // Mod2 (num lock), Mod3, Mod5, Lock (caps lock), Any.
             "Mod2" | "Mod3" | "Mod5" | "Lock" | "Any" => return Err(Why::Modifier),
-            // `xutil_key_mask_fromstr` gives 0: the key fires without it, so the listed chord would be wrong.
-            _ => return Err(Why::UnknownModifier),
+            // `xutil_key_mask_fromstr` gives 0 (`""`, `"Super"`, `"mod4"`): the key fires without it, so it is
+            // dropped as awesome drops it.
+            _ => {
+                ignored = true;
+                continue;
+            }
         });
     }
     let mut chars = key.chars();
@@ -288,12 +307,16 @@ fn translate(mods: &[&str], key: &str) -> Result<String, Why> {
             Ok(19) => "0".into(),
             _ => return Err(Why::Keycode),
         },
+        // `"10"`: no keysym (awesome never fires it), and xdotool would read it as keycode 10.
+        _ if key.bytes().all(|b| b.is_ascii_digit()) => return Err(Why::Name),
+        // ponytail: any `[A-Za-z0-9_]+` name is taken; one X has no keysym for (a typo, `escape`) is listed though
+        // awesome gets NoSymbol for it and never fires it. Checking needs X's keysym name table.
         _ if !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') => {
             key.into()
         }
         _ => return Err(Why::Name),
     };
-    Ok(chord(&out, &sym))
+    Ok((chord(&out, &sym), ignored))
 }
 
 #[cfg(test)]
@@ -376,7 +399,8 @@ mod tests {
             entry(&["Mod4"], "é", "accent", "g"),
             entry(&["Mod4"], "a", "again", "g"),
             entry(&[], "XF86AudioMute", "mute", "media"),
-            entry(&["Super"], "c", "unknown", "g"),
+            entry(&["Mod4", "Super"], "c", "unknown", "g"),
+            entry(&["Mod4", ""], "d", "empty", "g"),
         ]
         .join(";");
         let (sheet, notes) = parse(&reply(&payload)).unwrap();
@@ -388,12 +412,17 @@ mod tests {
         );
         // Duplicates are kept.
         assert_eq!(sheet.binds["g"][0].desc, "again");
-        assert_eq!(sheet.binds.values().flatten().count(), 3);
+        assert_eq!(sheet.binds.values().flatten().count(), 5);
+        assert_eq!(one(&sheet, "super+c"), ("g", "unknown"));
+        assert_eq!(one(&sheet, "super+d"), ("g", "empty"));
         // No modifiers.
         assert_eq!(one(&sheet, "XF86AudioMute"), ("media", "mute"));
         assert_eq!(
             notes,
-            ["leaving out hotkeys: 1 with a Mod2, Mod3, Mod5, Lock or Any modifier, 1 with an unknown modifier name (awesome ignores it), 1 a keycode other than the number row's, 1 a key name keybind-find can't send, 2 not one key (awesome-git's key groups, or modifiers that aren't strings)"]
+            [
+                "leaving out hotkeys: 1 with a Mod2, Mod3, Mod5, Lock or Any modifier, 1 a keycode other than the number row's, 1 a key name keybind-find can't send, 2 not one key (awesome-git's key groups, or modifiers that aren't strings)",
+                "2 hotkeys with an unknown modifier name, ignored as awesome does"
+            ]
         );
         // A field that isn't hex, a short entry, a missing count.
         for bad in [
@@ -402,9 +431,14 @@ mod tests {
             "x;",
             ";4d,61,,",
             "0;4D,61,,",
+            "+0;",
+            "+0",
         ] {
             let e = parse(&reply(bad)).unwrap_err().to_string();
-            assert!(e.contains("unexpected reply"), "{bad}: {e}");
+            assert!(
+                e.contains("unexpected reply") && e.contains("please report it"),
+                "{bad}: {e}"
+            );
         }
         assert!(parse(&reply("0;4d6f6434,6,,"))
             .unwrap_err()
@@ -463,8 +497,7 @@ mod tests {
             (&["Mod4"], " ", Ok("super+space")),
             (&["Mod4"], "1", Ok("super+1")),
             (&["Mod4"], "Page_Up", Ok("super+Page_Up")),
-            (&["Super"], "a", Err(Why::UnknownModifier)),
-            (&["mod4"], "a", Err(Why::UnknownModifier)),
+            (&["Mod4"], "10", Err(Why::Name)),
             (&["Mod4"], "#", Ok("super+numbersign")),
             (&["Mod2"], "a", Err(Why::Modifier)),
             (&["Mod3"], "a", Err(Why::Modifier)),
@@ -481,10 +514,19 @@ mod tests {
         ] {
             assert_eq!(
                 translate(mods, key),
-                want.map(str::to_string),
+                want.map(|k| (k.to_string(), false)),
                 "{mods:?} {key}"
             );
         }
+        // A modifier name awesome doesn't know is dropped, as awesome drops it, and said so.
+        for mods in [&["Mod4", "Super"][..], &["mod4", "Mod4"], &["Mod4", ""]] {
+            assert_eq!(
+                translate(mods, "c"),
+                Ok(("super+c".to_string(), true)),
+                "{mods:?}"
+            );
+        }
+        assert_eq!(translate(&["Super"], "c"), Ok(("c".to_string(), true)));
     }
 
     #[test]
@@ -549,8 +591,55 @@ mod tests {
         assert!(e.contains("dbus-send is not installed"), "{e}");
     }
 
+    fn on_path(program: &str) -> bool {
+        std::env::var_os("PATH")
+            .is_some_and(|path| std::env::split_paths(&path).any(|d| d.join(program).is_file()))
+    }
+
+    /// `CHUNK` itself, run by a plain Lua over a stub `awful.key` holding each shape the chunk reads; skipped without
+    /// a Lua.
+    #[test]
+    fn the_chunk_in_lua() {
+        let Some(lua) = ["lua", "lua5.4", "lua5.3", "luajit"]
+            .into_iter()
+            .find(|p| on_path(p))
+        else {
+            eprintln!("skipping: no lua, lua5.4, lua5.3 or luajit installed");
+            return;
+        };
+        let program = format!(
+            r##"package.preload["awful.key"] = function() return {{ hotkeys = {{
+  {{ mod = {{ "Mod4" }}, key = "s", description = "help", group = "awesome" }},
+  {{ mod = {{ "Mod4" }}, modifiers = {{ "Mod4" }}, keys = {{ {{ "y" }} }}, description = "git" }},
+  {{ mod = {{ "Mod4" }}, key = 7, description = "numeric" }},
+  {{ mod = {{ "Mod4" }}, keys = {{ {{ "#10", 1 }}, {{ "#11", 2 }} }}, keygroup = "numrow" }},
+  {{ mod = {{ 1 }}, key = "z" }},
+}} }} end
+io.write((function()
+{CHUNK}
+end)())"##
+        );
+        let out = Command::new(lua).args(["-e", &program]).output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let payload = String::from_utf8(out.stdout).unwrap();
+        let (sheet, notes) = parse(&reply(&payload)).unwrap();
+        assert_eq!(one(&sheet, "super+s"), ("awesome", "help"));
+        assert_eq!(one(&sheet, "super+y"), ("awesome", "git"));
+        assert_eq!(one(&sheet, "super+7"), ("awesome", "numeric"));
+        assert_eq!(sheet.binds.values().flatten().count(), 3);
+        assert_eq!(
+            notes,
+            ["leaving out hotkeys: 2 not one key (awesome-git's key groups, or modifiers that aren't strings)"]
+        );
+    }
+
     #[test]
     fn the_chunk_is_sent_as_one_string_argument() {
+        assert_eq!(TIMEOUT, Duration::from_millis(2000));
         let cmd = command();
         let args: Vec<_> = cmd
             .get_args()
@@ -578,13 +667,9 @@ mod tests {
     fn real_awesome() {
         use std::io::{BufRead, BufReader};
         use std::process::Stdio;
-        let have = |p: &str| {
-            std::env::var_os("PATH")
-                .is_some_and(|path| std::env::split_paths(&path).any(|d| d.join(p).is_file()))
-        };
         if !["awesome", "Xvfb", "dbus-daemon", "dbus-send"]
             .iter()
-            .all(|p| have(p))
+            .all(|p| on_path(p))
         {
             eprintln!("skipping: awesome, Xvfb, dbus-daemon or dbus-send not installed");
             return;
@@ -637,13 +722,13 @@ mod tests {
         // One key, a numeric key, and two hand-made entries: awesome-git's shape, and a key group (left out).
         std::fs::write(
             &rc,
-            r#"local awful = require("awful")
+            r##"local awful = require("awful")
 root.keys(awful.key({ "Mod4", "Shift" }, "x", function() end, { description = "real test", group = "test" }))
 awful.key({ "Mod4" }, 7, function() end, { description = "numeric", group = "test" })
 local hotkeys = require("awful.key").hotkeys
-table.insert(hotkeys, { modifiers = { "Mod4" }, key = "y", description = "git" })
-table.insert(hotkeys, { mod = { "Mod4" }, key = { "a", "b" } })
-"#,
+table.insert(hotkeys, { mod = { "Mod4" }, modifiers = { "Mod4" }, keys = { { "y" } }, description = "git" })
+table.insert(hotkeys, { mod = { "Mod4" }, keys = { { "#10", 1 }, { "#11", 2 } }, keygroup = "numrow" })
+"##,
         )
         .unwrap();
         let mut wm = KillOnDrop(

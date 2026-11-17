@@ -682,10 +682,12 @@ Modifiers show as `super` (Mod4), `alt` (Mod1), `ctrl` and `shift`; the number-r
 tags to (`#10` to `#19`) show as `1` to `0`, as the popup labels them. Those keycodes are sent as the keys `1` to `0`,
 so on a layout whose number row types other characters (AZERTY) the sent key may not be that key. An upper-case
 letter key (`"J"`) is listed as `shift+j`, but awesome 4.3 matches keys by their unshifted symbol, so such a key, like
-a shifted symbol (`"#"`), never fires there. Keys with a `Mod2`, `Mod3`, `Mod5`, `Lock` or `Any` modifier, or a
-modifier name awesome doesn't know (`"Super"`, `"mod4"`: awesome ignores it, so the key fires without it), any other
-keycode (`#94`), a key name keybind-find can't send (a non-ASCII character), and entries that aren't one key
-(awesome-git's key groups) are left out, counted in one line.
+a shifted symbol (`"#"`), never fires there. A modifier name awesome doesn't know (`"Super"`, `"mod4"`) is ignored
+by awesome, so the key fires without it; keybind-find drops it too and says how many keys had one. Keys with a `Mod2`,
+`Mod3`, `Mod5`, `Lock` or `Any` modifier, any other keycode (`#94`), a key name keybind-find can't send (a non-ASCII
+character, or a number of two or more digits, which awesome can't resolve), and entries that aren't one key
+(awesome-git's key groups) are left out, counted in one line. Under awesome-git, a key made with one key (`keys =
+{{"y"}}`) is read as awesome-git's popup reads it.
 
 awesome answers only when your `rc.lua` loads `awful` (`require("awful")`, as the stock config does), awesome was
 built with D-Bus, and keybind-find runs on awesome's session bus. Bind keybind-find with `awful.spawn("keybind-find")`,

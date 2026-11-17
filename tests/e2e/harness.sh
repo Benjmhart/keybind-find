@@ -307,18 +307,21 @@ dbus-update-activation-environment DISPLAY
 i3 -c "$HOME/.config/i3/config" >"$OUT/i3.log" 2>&1 &
 I3=$!
 for _ in $(seq 100); do i3-msg -q nop 2>/dev/null && break; sleep 0.1; done
-PHASE=x11 . "$E/cases"
 # The daemons the cases left (outside their process groups), so none carries this display into the next phase.
-emacsclient -e '(kill-emacs)' >/dev/null 2>&1
-tmux kill-server 2>/dev/null
-pkill -x screen 2>/dev/null; pkill -x gnome-terminal- 2>/dev/null
+stop_daemons() {
+  emacsclient -e '(kill-emacs)' >/dev/null 2>&1
+  tmux kill-server 2>/dev/null
+  pkill -x screen 2>/dev/null; pkill -x gnome-terminal- 2>/dev/null
+}
+PHASE=x11 . "$E/cases"
+stop_daemons
 kill "$I3" 2>/dev/null; wait "$I3" 2>/dev/null
 
 # --- X11: awesome on the same display ---------------------------------------------------------------------------
 # i3 gone first (one window manager per display). awesome answers on this session bus once its rc.lua has loaded awful,
-# which owns org.awesomewm.awful (lib/awful/dbus.lua:16 at v4.3): the cases wait for that name. Only when an awesome
-# case is wanted (every case name starting `awesome`), as niri's phase is only when named.
-if [ -z "${CASES:-}" ] || [[ " $CASES " == *" awesome"* ]]; then
+# which owns org.awesomewm.awful (lib/awful/dbus.lua:16 at v4.3): the cases wait for that name. Only when the phase
+# or an awesome case (every case name starting `awesome`) is wanted, as niri's phase is only when named.
+if wanted awesome-phase || [[ " ${CASES:-} " == *" awesome"* ]]; then
   awesome -c "$HOME/.config/awesome/rc.lua" >"$OUT/awesome.log" 2>&1 &
   AWESOME=$!
   owned=""
@@ -335,13 +338,11 @@ if [ -z "${CASES:-}" ] || [[ " $CASES " == *" awesome"* ]]; then
     record awesome-phase "FAIL	awesome didn't start	$(tail -c 300 "$OUT/awesome.log" | tr '\n\t' '  ')"
     FAILED=1
   fi
-  # Stopped before anything else runs: up to 5 s for it to exit, then killed. (A `kill -0` loop would wait out the 5 s:
-  # an exited child stays a zombie until `wait`.)
+  # Stopped before anything else runs: up to 5 s for it to exit, then killed.
   kill "$AWESOME" 2>/dev/null
-  (sleep 5; kill -9 "$AWESOME") 2>/dev/null &
-  stopper=$!
+  timeout 5 tail --pid="$AWESOME" -f /dev/null || kill -9 "$AWESOME" 2>/dev/null
   wait "$AWESOME" 2>/dev/null
-  kill "$stopper" 2>/dev/null; wait "$stopper" 2>/dev/null
+  stop_daemons
 fi
 kill "$XVFB" 2>/dev/null
 unset DISPLAY
