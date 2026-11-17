@@ -38,7 +38,8 @@ if [ "$PHASE" = x11 ]; then
   pkill -x zellij || true
   x less           "i3 less"    "less|X|quit"                       -- xterm -e less /etc/os-release
   # sxhkd's hotkeys beside i3's, from the sxhkd running on this display (stopped after, so later cases don't list it).
-  wanted sxhkd && { sxhkd >"$OUT/sxhkd.log" 2>&1 & }
+  # sxhkd exits without SHELL (it runs commands through it), which the harness leaves unset.
+  wanted sxhkd && { SHELL=/bin/sh sxhkd >"$OUT/sxhkd.log" 2>&1 & }
   x sxhkd          "i3 sxhkd zsh" "sxhkd|super+alt+x|e2e quit"       -- xterm -e zsh
   pkill -x sxhkd || true
   # Terminals with keys of their own, a shell inside.
