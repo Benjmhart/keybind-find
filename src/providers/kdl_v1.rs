@@ -3,8 +3,19 @@
 
 use kdl::{KdlDocument, KdlNode};
 
+/// Deepest `{ }` nesting parsed (zellij's files nest 4 deep): the parser recurses per level, so a deeper text is
+/// refused before it could overflow the stack and abort. Providers run on 2 MiB threads, where a debug build's parser
+/// overflowed between 128 and 256 levels (measured 2026-11-16): 64 leaves room.
+const MAX_DEPTH: usize = 64;
+
 /// `text` as a KDL v1 document; a failure is `line N: <message>`, from the first diagnostic.
 pub(crate) fn parse(text: &str) -> anyhow::Result<KdlDocument> {
+    if let Some(at) = too_deep(text) {
+        anyhow::bail!(
+            "line {}: nested more than {MAX_DEPTH} deep",
+            line_at(text, at)
+        );
+    }
     KdlDocument::parse_v1(text).map_err(|e| match e.diagnostics.first() {
         Some(d) => anyhow::anyhow!(
             "line {}: {}",
@@ -13,6 +24,39 @@ pub(crate) fn parse(text: &str) -> anyhow::Result<KdlDocument> {
         ),
         None => anyhow::anyhow!("not KDL"),
     })
+}
+
+/// The byte offset of the first `{` nested deeper than `MAX_DEPTH`, if any. Braces in `"…"` strings (escapes skipped)
+/// and `//` comments don't count. ponytail: a cheap scan, not KDL: braces in raw strings and `/* */` comments count, so
+/// a file holding hundreds of unmatched `{` there would be refused; a real config holds a handful.
+fn too_deep(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let (mut i, mut depth) = (0, 0usize);
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'{' => {
+                depth += 1;
+                if depth > MAX_DEPTH {
+                    return Some(i);
+                }
+            }
+            b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 /// `node`'s 1-based line in `text`, the document it was parsed from.
@@ -44,6 +88,27 @@ mod tests {
         let e = err(&format!("a \"{}\"\nb\nc 1.\nd\n", "é".repeat(20)));
         assert!(e.starts_with("line 3: "), "{e}");
         assert!(err("x }\n").starts_with("line 1: "));
+    }
+
+    #[test]
+    fn too_deep_is_one_error() {
+        assert_eq!(MAX_DEPTH, 64);
+        // Deep enough to overflow the parser's stack: one error, no abort.
+        let deep = format!("a\n{}", "b {".repeat(100_000));
+        assert_eq!(err(&deep), "line 2: nested more than 64 deep");
+        let at = |n: usize| format!("{}{}", "b {\n".repeat(n), "}\n".repeat(n));
+        assert!(parse(&at(64)).is_ok());
+        assert_eq!(err(&at(65)), "line 65: nested more than 64 deep");
+        // Braces in strings (an escaped quote inside) and `//` comments don't count.
+        let quoted = format!(
+            "{}a \"{{\\\"{{\" // {{{{\n{}",
+            "b {\n".repeat(64),
+            "}\n".repeat(64)
+        );
+        assert!(parse(&quoted).is_ok(), "{:#}", parse(&quoted).unwrap_err());
+        // Extra closing braces never take the depth below zero (and hide a deeper nesting after them).
+        assert_eq!(too_deep(&format!("}}}}{}", "{".repeat(64))), None);
+        assert_eq!(too_deep(&format!("}}}}{}", "{".repeat(65))), Some(66));
     }
 
     #[test]

@@ -237,8 +237,14 @@ def zellij_report(text):
         net = bare.count("{") - bare.count("}")
         if stack == ["preset", "defaults"] and KDL_STRING.search(s):
             leaders[s.split()[0]] = KDL_STRING.search(s).group(1)
-        elif stack == ["keybinds"] and net > 0:
-            modes = zellij_modes(s)
+        elif stack == ["keybinds"] and s != "}":
+            # A mode header is `NAME [args] {` alone on its line; anything else here (a block opened and closed on one
+            # line, a name with its `{` on the next) isn't read: its binds go nowhere, and the line is a difference.
+            if net == 1 and bare.endswith("{") and re.match(r"[A-Za-z_]", s):
+                modes = zellij_modes(s)
+            else:
+                keys.add("!line:" + s)
+                modes = []
         elif len(stack) == 2 and stack[0] == "keybinds":
             if s.startswith("bind "):
                 for k in KDL_STRING.findall(bare_args(s)):
@@ -284,6 +290,12 @@ KNOWN = {
     ],
 }
 
+# Keys the e2e config unbinds in every mode: none may stay in the dump. A KNOWN pattern alone can't tell: a key keybind-
+# find kept in one mode is on both sides there, so no difference, while the other modes still match the pattern.
+UNBOUND = {
+    "zellij": [("input_mode=*\tctrl+q", "config.kdl's top-level `unbind \"Ctrl q\"`")],
+}
+
 
 # --- shared -----------------------------------------------------------------------------------------------------------
 def dump_keys(sheet):
@@ -319,6 +331,29 @@ def listed(keys):
     return shown + (f" (+{len(keys) - 10} more)" if len(keys) > 10 else "")
 
 
+def check(provider, report, dump):
+    """(the problems, the counts) of one comparison: keys only one side has and no KNOWN entry covers, stale KNOWN
+    entries, and a dump key that UNBOUND says must be gone."""
+    only_r, only_d, stale = compare(report, dump, KNOWN.get(provider, []))
+    problems = []
+    if only_r:
+        problems.append(f"only in {provider}: {listed(only_r)}")
+    if only_d:
+        problems.append(f"only in keybind-find: {listed(only_d)}")
+    if stale:
+        problems.append(f"stale known difference: {', '.join(stale)}")
+    still = sorted(k for k in dump if any(fnmatch.fnmatchcase(k, p) for p, _ in UNBOUND.get(provider, [])))
+    if still:
+        problems.append(f"unbound in the config, still in keybind-find: {listed(still)}")
+    return problems, counts(provider, report, dump, only_r, only_d)
+
+
+def counts(provider, report, dump, only_r, only_d):
+    """The row's counts: each side's keys, and how many differences KNOWN covers (on either side)."""
+    known = len(report ^ dump) - len(only_r) - len(only_d)
+    return f"{provider}:{len(report)} keybind-find:{len(dump)} known:{known}"
+
+
 def main(provider, report_path, dump_path):
     if provider not in REPORTS:
         print(f"FAIL\tno oracle for {provider} (tests/e2e/oracle.py REPORTS)")
@@ -333,16 +368,7 @@ def main(provider, report_path, dump_path):
     if not report:
         print(f"FAIL\t{provider}'s report is empty")
         return 1
-    known = KNOWN.get(provider, [])
-    only_r, only_d, stale = compare(report, dump, known)
-    counts = f"{provider}:{len(report)} keybind-find:{len(dump)} known:{len(report ^ dump) - len(only_r) - len(only_d)}"
-    problems = []
-    if only_r:
-        problems.append(f"only in {provider}: {listed(only_r)}")
-    if only_d:
-        problems.append(f"only in keybind-find: {listed(only_d)}")
-    if stale:
-        problems.append(f"stale known difference: {', '.join(stale)}")
+    problems, counts = check(provider, report, dump)
     print(("FAIL\t" + "; ".join(problems) if problems else "ok") + f"\t{counts}")
     return 1 if problems else 0
 
@@ -428,6 +454,20 @@ def self_test():
     # A dump-only key a report pattern would match still fails.
     assert compare(both, both | {"input_mode=pane\tctrl+q"}, zk[:1]) == ([], ["input_mode=pane\tctrl+q"],
                                                                          ["input_mode=*\tctrl+q"])
+    # Mode headers the reader can't follow are differences, and their binds go to no mode.
+    split = 'keybinds {\n  normal\n  {\n    bind "a" { X; }\n  }\n  pane { bind "b" { X; }; }\n  tab {\n    bind "c" { X; }\n  }\n}\n'
+    assert zellij_report(split) == {"!line:normal", "!line:{", "!line:pane { bind \"b\" { X; }; }",
+                                    "input_mode=tab\tc"}, zellij_report(split)
+    # zellij's whole check: the partial unbind (ctrl+q kept in pane) fails, the full one passes with known:15.
+    modes = [m for m in ZELLIJ_MODES if m != "locked"]
+    report = {f"input_mode={m}\tctrl+q" for m in modes} | {"input_mode=locked\tctrl+g"}
+    dump = {"input_mode=locked\tctrl+g", "input_mode=normal\talt+y"}
+    assert check("zellij", report, dump) == ([], "zellij:15 keybind-find:2 known:15"), check("zellij", report, dump)
+    problems, _ = check("zellij", report, dump | {"input_mode=pane\tctrl+q"})
+    assert problems == ["unbound in the config, still in keybind-find: input_mode=pane ctrl+q"], problems
+    assert counts("k", {"a", "b"}, {"a", "c"}, [], []) == "k:2 keybind-find:2 known:2"
+    assert counts("k", {"a", "b"}, {"a", "c"}, ["b"], []) == "k:2 keybind-find:2 known:1"
+    assert counts("k", {"a", "b"}, {"a", "c"}, [], ["c"]) == "k:2 keybind-find:2 known:1"
     sheet = {"binds": {"k": [{"key": "Escape", "when": {"keyboard_mode": ["mv"]}}, {"key": "ctrl+a"}]}}
     assert dump_keys(sheet) == {"keyboard_mode=mv\tEscape", "ctrl+a"}
     print("oracle.py: self-test ok")

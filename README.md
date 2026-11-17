@@ -499,10 +499,12 @@ come from the installed zellij (`zellij --version`), with your `config.kdl` appl
 `/etc/zellij`.
 
 - From 0.46, the defaults are the keybinding preset your `keybinds preset="…"` names (`default` when none), as
-  `zellij setup --dump-keybinds <preset>` prints it, with its `{primary}`, `{secondary}` and `{unlock}` leader keys
-  taken from your `keybinds primary="…" secondary="…" unlock="…"`, else from the preset. A preset zellij can't print,
-  or leader keys that are empty or the same, give the `default` preset with its own leaders and a one-line note, as
-  zellij does.
+  `zellij setup --dump-keybinds=<preset>` prints it: one of zellij's built-in presets, else
+  `keybinds/<preset>.kdl` in zellij's default config directory. Its `{primary}`, `{secondary}` and `{unlock}` leader
+  keys come from your `keybinds primary="…" secondary="…" unlock="…"`, else from the preset. A preset zellij can't
+  print, or leader keys that are empty or the same, give zellij's built-in `default` preset with its own leaders and a
+  one-line note. A key or mode in zellij's own output that keybind-find doesn't know (a newer zellij's) is left out
+  and counted in one line.
 - Before 0.46, the defaults are the `keybinds` of `zellij setup --dump-config`.
 
 A config zellij would refuse (a key or mode it doesn't know, a `clear-defaults` that isn't `true` or `false`, a KDL
@@ -511,8 +513,13 @@ character) is left out and counted in one line. Each bind's description is its a
 (`NewPane "Down"; SwitchToMode "Normal"`); they are shown, never checked.
 
 Not seen: keys a layout sets, `zellij options --keybinds-preset` (and `--keybinds-primary` and the rest) given for one
-session, a client started with `--config`, and a preset in `keybinds_dir`; mouse binds are never listed. The program in
-zellij's focused pane (a shell, nvim) isn't found yet: only zellij's own keys are listed.
+session, a client started with `--config`; and presets the running zellij would find but `--dump-keybinds` doesn't (in
+`$ZELLIJ_CONFIG_DIR/keybinds` or a `keybinds_dir`, a preset given as a path, or your own `keybinds/default.kdl` in
+place of the built-in one). Mouse binds are never listed. keybind-find reads its own environment and `PATH`, not the
+zellij client's: `ZELLIJ_CONFIG_FILE`, `ZELLIJ_CONFIG_DIR` or `XDG_CONFIG_HOME` set only in your shell, a `zellij` that
+isn't on the `PATH` of whatever starts keybind-find, or a client still running an older zellij after an upgrade, give
+a different list than the running zellij has. The program in zellij's focused pane (a shell, nvim) isn't found yet:
+only zellij's own keys are listed.
 
 ### kitty
 

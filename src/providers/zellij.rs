@@ -4,8 +4,14 @@
 //! bind is tagged with its mode (`input_mode`): zellij has no query for a client's mode, so every mode is listed.
 //! Shown when a terminal's foreground program is zellij.
 //!
-//! ponytail: a user preset in `keybinds_dir`, a client started with `--config`, `zellij options --keybinds-*` and a
-//! layout's keybinds apply to one session and aren't seen; actions are shown as written, never checked.
+//! ponytail: the preset is whatever `zellij setup --dump-keybinds=<name>` prints: zellij's built-ins first, then only
+//! `<default config dir>/keybinds/<name>.kdl`. A running zellij also looks in `$ZELLIJ_CONFIG_DIR/keybinds` and a
+//! `keybinds_dir` option, takes a path as the preset, and lets a user `keybinds/default.kdl` replace the built-in one:
+//! those aren't followed (the fallback note says "built-in default"). Nor are a client started with `--config`,
+//! `zellij options --keybinds-*` or a layout's keybinds (one session each). keybind-find reads its own environment and
+//! `PATH`, not the zellij client's: `ZELLIJ_CONFIG_*` or `XDG_CONFIG_HOME` set only in the shell, a zellij not on the
+//! launcher's `PATH`, or a client still running an older zellij after an upgrade, aren't followed. Actions are shown
+//! as written, never checked.
 
 use super::kdl_v1;
 use super::nvim::single;
@@ -57,7 +63,7 @@ pub fn sheet() -> anyhow::Result<Sheet> {
         config_file(&env).as_deref(),
     )?;
     for note in notes {
-        eprintln!("keybind-find: zellij: {note}");
+        eprintln!("{}", note_line(&note));
     }
     Ok(sheet)
 }
@@ -95,23 +101,25 @@ fn read(run: Run, config: Option<&Path>) -> anyhow::Result<(Sheet, Vec<String>)>
         .and_then(|d| d.nodes().iter().find(|n| n.name().value() == "keybinds"));
     let user_text = text.as_deref().unwrap_or_default();
     let mut notes = Vec::new();
-    let mut binds = if new {
+    let (mut binds, unknown) = if new {
         let (preset, leaders) = match user {
             Some(k) => selection(k, user_text).map_err(in_file)?,
             None => ("default".to_string(), BTreeMap::new()),
         };
-        let (binds, note) = defaults(&preset, &leaders, run)?;
+        let (binds, unknown, note) = defaults(&preset, &leaders, run)?;
         notes.extend(note);
-        binds
+        (binds, unknown)
     } else {
         let out = run(&["setup", "--dump-config"]).context("running zellij setup --dump-config")?;
         dump_config_binds(&out).context("reading zellij setup --dump-config")?
     };
     if let Some(user) = user {
-        apply(&mut binds, user, user_text, None, new).map_err(in_file)?;
+        Src::user(user_text)
+            .apply(&mut binds, user, new)
+            .map_err(in_file)?;
     }
     let (sheet, skipped) = sheet_of(&binds)?;
-    notes.extend(left_out(skipped));
+    notes.extend(left_out(skipped, unknown));
     Ok((sheet, notes))
 }
 
@@ -263,64 +271,216 @@ type Actions = Vec<String>;
 /// Mode → key → actions.
 type Binds = BTreeMap<&'static str, BTreeMap<Key, Actions>>;
 
-/// An error at `node`'s line in `text`.
-fn at(text: &str, node: &KdlNode, msg: impl std::fmt::Display) -> anyhow::Error {
-    anyhow!("line {}: {msg}", kdl_v1::line(text, node))
+/// A KDL text being applied: the text (for line numbers), a preset's leader values, and whether it is zellij's own
+/// output. Zellij's own text is read leniently: a mode or key this keybind-find doesn't know (a newer zellij's) is left
+/// out and counted in `unknown`, not an error; a key holding a leader placeholder is still strict (its value is the
+/// user's). The user's config is strict, as zellij is.
+struct Src<'a> {
+    text: &'a str,
+    leaders: Option<&'a BTreeMap<String, String>>,
+    own: bool,
+    unknown: std::cell::Cell<usize>,
 }
 
-/// A node's entries as strings (`kdl_string_arguments!`: properties too); any other value is an error.
-fn strings<'a>(node: &'a KdlNode, text: &str) -> anyhow::Result<Vec<&'a str>> {
-    node.entries()
-        .iter()
-        .map(|e| {
-            e.value().as_string().ok_or_else(|| {
-                at(
-                    text,
-                    node,
-                    format!("{} is not a string", value_text(e.value())),
-                )
+impl<'a> Src<'a> {
+    fn user(text: &'a str) -> Src<'a> {
+        Src {
+            text,
+            leaders: None,
+            own: false,
+            unknown: Default::default(),
+        }
+    }
+
+    fn own(text: &'a str, leaders: Option<&'a BTreeMap<String, String>>) -> Src<'a> {
+        Src {
+            text,
+            leaders,
+            own: true,
+            unknown: Default::default(),
+        }
+    }
+
+    /// An error at `node`'s line.
+    fn at(&self, node: &KdlNode, msg: impl std::fmt::Display) -> anyhow::Error {
+        anyhow!("line {}: {msg}", kdl_v1::line(self.text, node))
+    }
+
+    /// A node's entries as strings (`kdl_string_arguments!`: properties too); any other value is an error.
+    fn strings<'n>(&self, node: &'n KdlNode) -> anyhow::Result<Vec<&'n str>> {
+        node.entries()
+            .iter()
+            .map(|e| {
+                e.value().as_string().ok_or_else(|| {
+                    self.at(node, format!("{} is not a string", value_text(e.value())))
+                })
             })
-        })
-        .collect()
-}
+            .collect()
+    }
 
-/// `clear-defaults` on `node` (its last such property): `true`, `false`, or an error for anything else.
-fn clears(node: &KdlNode, text: &str) -> anyhow::Result<bool> {
-    match node.get("clear-defaults") {
-        None => Ok(false),
-        Some(v) => v.as_bool().ok_or_else(|| {
-            at(
-                text,
-                node,
-                format!(
-                    "clear-defaults must be true or false, not {}",
-                    value_text(v)
-                ),
-            )
-        }),
+    /// `clear-defaults` on `node` (its last such property): `true`, `false`, or an error for anything else.
+    fn clears(&self, node: &KdlNode) -> anyhow::Result<bool> {
+        match node.get("clear-defaults") {
+            None => Ok(false),
+            Some(v) => v.as_bool().ok_or_else(|| {
+                self.at(
+                    node,
+                    format!(
+                        "clear-defaults must be true or false, not {}",
+                        value_text(v)
+                    ),
+                )
+            }),
+        }
+    }
+
+    /// The keys of a `bind` or `unbind` node, each with the leaders' placeholders put in first (a preset's keys). In
+    /// zellij's own text a key not known here is skipped, and counted when `counted` (a bind's).
+    fn keys(&self, node: &KdlNode, counted: bool) -> anyhow::Result<Vec<Key>> {
+        let mut keys = Vec::new();
+        for raw in self.strings(node)? {
+            let k = match self.leaders {
+                Some(values) => substitute(raw, values),
+                None => raw.to_string(),
+            };
+            match Key::parse(&k) {
+                Some(key) => keys.push(key),
+                None if self.own && !raw.contains('{') => {
+                    if counted {
+                        self.unknown.set(self.unknown.get() + 1);
+                    }
+                }
+                None => return Err(self.at(node, format!("invalid key {k:?}"))),
+            }
+        }
+        Ok(keys)
+    }
+
+    /// The binds and unbinds of one mode or `shared*` block into `binds`: every `bind` first, then every `unbind`
+    /// (`bind_keys_in_block`); anything else is an error, as is a block with no `{ }`.
+    fn bind_block(
+        &self,
+        binds: &mut BTreeMap<Key, Actions>,
+        block: &KdlNode,
+    ) -> anyhow::Result<()> {
+        let nodes = block
+            .children()
+            .ok_or_else(|| {
+                self.at(
+                    block,
+                    format!("{} has no {{ }} block", block.name().value()),
+                )
+            })?
+            .nodes();
+        for node in nodes {
+            match node.name().value() {
+                "bind" => {
+                    let actions = node
+                        .children()
+                        .ok_or_else(|| self.at(node, "a bind with no { } block of actions"))?
+                        .nodes()
+                        .iter()
+                        .map(action_text)
+                        .collect::<Actions>();
+                    for key in self.keys(node, true)? {
+                        binds.insert(key, actions.clone());
+                    }
+                }
+                "unbind" => {}
+                other => {
+                    return Err(self.at(node, format!("unknown keybind instruction {other:?}")))
+                }
+            }
+        }
+        for node in nodes.iter().filter(|n| n.name().value() == "unbind") {
+            for key in self.keys(node, false)? {
+                binds.remove(&key);
+            }
+        }
+        Ok(())
+    }
+
+    /// A mode named in `block` (`count`: how many of `MODES` this zellij has). In zellij's own text an unknown one is
+    /// `None`, to be skipped.
+    fn mode(
+        &self,
+        name: &str,
+        block: &KdlNode,
+        count: usize,
+    ) -> anyhow::Result<Option<&'static str>> {
+        match mode_of(name, count) {
+            Some(m) => Ok(Some(m)),
+            None if self.own => Ok(None),
+            None => Err(self.at(block, format!("unknown mode {name:?}"))),
+        }
+    }
+
+    /// One `keybinds` block applied to `binds`, as zellij applies it (0.46 `parse_bind_blocks`, 0.45
+    /// `Keybinds::from_kdl`): `clear-defaults=true` empties everything; then every `shared`/`shared_except` (all modes
+    /// but those named) and `shared_among` (only those) block in order; then each mode block in order (its
+    /// `clear-defaults=true` empties the mode first); then the top-level `unbind`s in every mode (all of them from 0.46,
+    /// only the first before). `new`: 0.46 or later. In zellij's own text, a mode block of an unknown mode is skipped,
+    /// its binds counted; an unknown mode in a `shared*` list is passed over (keybind-find has no such mode to bind in).
+    fn apply(&self, binds: &mut Binds, keybinds: &KdlNode, new: bool) -> anyhow::Result<()> {
+        let count = if new { MODES.len() } else { MODES.len() - 1 };
+        if self.clears(keybinds)? {
+            binds.clear();
+        }
+        let Some(children) = keybinds.children() else {
+            // 0.45 refuses a `keybinds` with no `{ }`; 0.46 takes it.
+            return match new {
+                true => Ok(()),
+                false => Err(self.at(keybinds, "keybinds has no { } block")),
+            };
+        };
+        let nodes = children.nodes();
+        for block in nodes {
+            let except = match block.name().value() {
+                "shared" | "shared_except" => true,
+                "shared_among" => false,
+                _ => continue,
+            };
+            let mut named = Vec::new();
+            for m in self.strings(block)? {
+                named.extend(self.mode(m, block, count)?);
+            }
+            for &(mode, _) in &MODES[..count] {
+                if named.contains(&mode) != except {
+                    self.bind_block(binds.entry(mode).or_default(), block)?;
+                }
+            }
+        }
+        for block in nodes {
+            let name = block.name().value();
+            if ["unbind", "shared", "shared_except", "shared_among"].contains(&name) {
+                continue;
+            }
+            let Some(mode) = self.mode(name, block, count)? else {
+                // Its binds, into a mode of their own, only to be counted.
+                let mut unknown = BTreeMap::new();
+                self.bind_block(&mut unknown, block)?;
+                self.unknown.set(self.unknown.get() + unknown.len());
+                continue;
+            };
+            let mode_binds = binds.entry(mode).or_default();
+            if self.clears(block)? {
+                mode_binds.clear();
+            }
+            self.bind_block(mode_binds, block)?;
+        }
+        let unbinds = nodes.iter().filter(|n| n.name().value() == "unbind");
+        for node in unbinds.take(if new { usize::MAX } else { 1 }) {
+            for key in self.keys(node, false)? {
+                for mode_binds in binds.values_mut() {
+                    mode_binds.remove(&key);
+                }
+            }
+        }
+        Ok(())
     }
 }
 
-/// The keys of a `bind` or `unbind` node, each with `leaders`' placeholders put in first (a preset's keys).
-fn keys(
-    node: &KdlNode,
-    text: &str,
-    leaders: Option<&BTreeMap<String, String>>,
-) -> anyhow::Result<Vec<Key>> {
-    strings(node, text)?
-        .into_iter()
-        .map(|k| {
-            let k = match leaders {
-                Some(values) => substitute(k, values),
-                None => k.to_string(),
-            };
-            Key::parse(&k).ok_or_else(|| at(text, node, format!("invalid key {k:?}")))
-        })
-        .collect()
-}
-
-/// `{primary}`-style placeholders replaced by their values, then whitespace collapsed (`substitute_placeholders`). Every
-/// placeholder in a preset has a value by now (`preset_binds` checks).
+/// `{primary}`-style placeholders replaced by their values, then whitespace collapsed (`substitute_placeholders`).
 fn substitute(key: &str, values: &BTreeMap<String, String>) -> String {
     let mut key = key.to_string();
     for (name, value) in values {
@@ -329,132 +489,16 @@ fn substitute(key: &str, values: &BTreeMap<String, String>) -> String {
     key.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The binds and unbinds of one mode or `shared*` block into `binds`: every `bind` first, then every `unbind`
-/// (`bind_keys_in_block`); anything else is an error, as is a block with no `{ }`.
-fn bind_block(
-    binds: &mut BTreeMap<Key, Actions>,
-    block: &KdlNode,
-    text: &str,
-    leaders: Option<&BTreeMap<String, String>>,
-) -> anyhow::Result<()> {
-    let nodes = block
-        .children()
-        .ok_or_else(|| {
-            at(
-                text,
-                block,
-                format!("{} has no {{ }} block", block.name().value()),
-            )
-        })?
-        .nodes();
-    for node in nodes {
-        match node.name().value() {
-            "bind" => {
-                let actions = node
-                    .children()
-                    .ok_or_else(|| at(text, node, "a bind with no { } block of actions"))?
-                    .nodes()
-                    .iter()
-                    .map(action_text)
-                    .collect::<Actions>();
-                for key in keys(node, text, leaders)? {
-                    binds.insert(key, actions.clone());
-                }
-            }
-            "unbind" => {}
-            other => {
-                return Err(at(
-                    text,
-                    node,
-                    format!("unknown keybind instruction {other:?}"),
-                ))
-            }
-        }
-    }
-    for node in nodes.iter().filter(|n| n.name().value() == "unbind") {
-        for key in keys(node, text, leaders)? {
-            binds.remove(&key);
-        }
-    }
-    Ok(())
-}
-
-/// One `keybinds` block applied to `binds`, as zellij applies it (0.46 `parse_bind_blocks`, 0.45 `Keybinds::from_kdl`):
-/// `clear-defaults=true` empties everything; then every `shared`/`shared_except` (all modes but those named) and
-/// `shared_among` (only those) block in order; then each mode block in order (its `clear-defaults=true` empties the mode
-/// first); then the top-level `unbind`s in every mode (all of them from 0.46, only the first before). `new`: 0.46 or
-/// later.
-fn apply(
-    binds: &mut Binds,
-    keybinds: &KdlNode,
-    text: &str,
-    leaders: Option<&BTreeMap<String, String>>,
-    new: bool,
-) -> anyhow::Result<()> {
-    let count = if new { MODES.len() } else { MODES.len() - 1 };
-    if clears(keybinds, text)? {
-        binds.clear();
-    }
-    let Some(children) = keybinds.children() else {
-        // 0.45 refuses a `keybinds` with no `{ }`; 0.46 takes it.
-        return match new {
-            true => Ok(()),
-            false => Err(at(text, keybinds, "keybinds has no { } block")),
-        };
-    };
-    let nodes = children.nodes();
-    for block in nodes {
-        let except = match block.name().value() {
-            "shared" | "shared_except" => true,
-            "shared_among" => false,
-            _ => continue,
-        };
-        let named = strings(block, text)?
-            .into_iter()
-            .map(|m| {
-                mode_of(m, count).ok_or_else(|| at(text, block, format!("unknown mode {m:?}")))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        for &(mode, _) in &MODES[..count] {
-            if named.contains(&mode) != except {
-                bind_block(binds.entry(mode).or_default(), block, text, leaders)?;
-            }
-        }
-    }
-    for block in nodes {
-        let name = block.name().value();
-        if ["unbind", "shared", "shared_except", "shared_among"].contains(&name) {
-            continue;
-        }
-        let mode = mode_of(name, count)
-            .ok_or_else(|| at(text, block, format!("unknown mode {name:?}")))?;
-        let mode_binds = binds.entry(mode).or_default();
-        if clears(block, text)? {
-            mode_binds.clear();
-        }
-        bind_block(mode_binds, block, text, leaders)?;
-    }
-    let unbinds = nodes.iter().filter(|n| n.name().value() == "unbind");
-    for node in unbinds.take(if new { usize::MAX } else { 1 }) {
-        for key in keys(node, text, leaders)? {
-            for mode_binds in binds.values_mut() {
-                mode_binds.remove(&key);
-            }
-        }
-    }
-    Ok(())
-}
-
 /// The preset and leader values the user's `keybinds` node selects (`KeybindsSelection::from_kdl`): `preset` (default
 /// `default`) and the `primary`, `secondary` and `unlock` properties, each a string.
 fn selection(keybinds: &KdlNode, text: &str) -> anyhow::Result<(String, BTreeMap<String, String>)> {
+    let src = Src::user(text);
     let string = |name: &str| -> anyhow::Result<Option<String>> {
         keybinds
             .get(name)
             .map(|v| {
                 v.as_string().map(str::to_string).ok_or_else(|| {
-                    at(
-                        text,
+                    src.at(
                         keybinds,
                         format!("{name} must be a string, not {}", value_text(v)),
                     )
@@ -472,37 +516,61 @@ fn selection(keybinds: &KdlNode, text: &str) -> anyhow::Result<(String, BTreeMap
     Ok((preset, leaders))
 }
 
-/// zellij's defaults from 0.46: the preset named `preset`, as `zellij setup --dump-keybinds` prints it, with the user's
-/// `leaders`. A preset zellij can't dump or that doesn't apply (a leader empty, missing or equal to another): the
-/// `default` preset with its own leaders, as zellij does, and a note saying why.
+/// What `zellij setup --dump-keybinds` says (exit 1) when it has no preset of that name (`dump_specified_keybinds`).
+const NOT_FOUND: &str = "Keybinding preset not found: ";
+
+/// zellij's defaults from 0.46: the preset named `preset` as `zellij setup --dump-keybinds=<preset>` prints it (zellij's
+/// built-in presets, then `<default config dir>/keybinds/<preset>.kdl`), with the user's `leaders`; the binds, how
+/// many of zellij's own were unknown here, and a note. When zellij has no such preset, or the preset doesn't apply (a
+/// leader empty, missing or equal to another, a key the leaders make invalid): the `default` preset with its own
+/// leaders, which is what zellij falls back to, and a note saying why. Any other failure of the run (a timeout, no
+/// zellij) is the provider's error.
 fn defaults(
     preset: &str,
     leaders: &BTreeMap<String, String>,
     run: Run,
-) -> anyhow::Result<(Binds, Option<String>)> {
+) -> anyhow::Result<(Binds, usize, Option<String>)> {
     let dump = |name: &str| {
-        run(&["setup", "--dump-keybinds", name])
-            .with_context(|| format!("running zellij setup --dump-keybinds {name}"))
+        run(&["setup", &format!("--dump-keybinds={name}")])
+            .with_context(|| format!("running zellij setup --dump-keybinds={name}"))
     };
-    match dump(preset).and_then(|t| preset_binds(&t, leaders)) {
-        Ok(binds) => Ok((binds, None)),
+    let note = |e: &anyhow::Error| {
+        format!(
+            "can't use the keybinding preset {preset:?} ({e:#}); showing the built-in default preset with its own \
+             leader keys"
+        )
+    };
+    let text = match dump(preset) {
+        Ok(text) => text,
+        Err(e) if format!("{e:#}").contains(&format!("{NOT_FOUND}{preset}")) => {
+            let (binds, unknown) = preset_binds(&dump("default")?, &BTreeMap::new())
+                .context("reading the default preset")?;
+            return Ok((binds, unknown, Some(note(&e))));
+        }
+        Err(e) => return Err(e),
+    };
+    match preset_binds(&text, leaders) {
+        Ok((binds, unknown)) => Ok((binds, unknown, None)),
         Err(e) => {
-            let note = format!(
-                "can't use the keybinding preset {preset:?} ({e:#}); showing the default preset with its own leader \
-                 keys, as zellij does"
-            );
-            let text = dump("default")?;
-            let binds =
+            let text = match preset {
+                "default" => text,
+                _ => dump("default")?,
+            };
+            let (binds, unknown) =
                 preset_binds(&text, &BTreeMap::new()).context("reading the default preset")?;
-            Ok((binds, Some(note)))
+            Ok((binds, unknown, Some(note(&e))))
         }
     }
 }
 
-/// A 0.46 preset's binds (`KeybindPreset::from_kdl`, `leader_values`, `keybinds`): each placeholder its keys use takes
-/// the user's value, else the preset's `preset { defaults { … } }` one, whitespace collapsed; an empty value, a
-/// placeholder with none, or `primary` and `secondary` with the same modifiers is an error. `mousebinds` is never read.
-fn preset_binds(text: &str, requested: &BTreeMap<String, String>) -> anyhow::Result<Binds> {
+/// A 0.46 preset's binds (`KeybindPreset::from_kdl`, `leader_values`, `keybinds`) and how many of its binds were
+/// unknown here: each placeholder its keys use takes the user's value, else the preset's `preset { defaults { … } }`
+/// one, whitespace collapsed; an empty value, a placeholder with none, or `primary` and `secondary` with the same
+/// modifiers is an error. `mousebinds` is never read.
+fn preset_binds(
+    text: &str,
+    requested: &BTreeMap<String, String>,
+) -> anyhow::Result<(Binds, usize)> {
     let doc = kdl_v1::parse(text)?;
     let first = |name: &str| doc.nodes().iter().find(|n| n.name().value() == name);
     let mut defaults = BTreeMap::new();
@@ -553,11 +621,13 @@ fn preset_binds(text: &str, requested: &BTreeMap<String, String>) -> anyhow::Res
         }
     }
     let mut binds = Binds::new();
-    apply(&mut binds, keybinds, text, Some(&values), true)?;
-    Ok(binds)
+    let src = Src::own(text, Some(&values));
+    src.apply(&mut binds, keybinds, true)?;
+    Ok((binds, src.unknown.get()))
 }
 
-/// The `{name}` placeholders in `node`'s `bind` and `unbind` keys, and its children's (`collect_placeholders`).
+/// The `{name}` placeholders in `node`'s `bind` and `unbind` keys, and its children's (`collect_placeholders`, which
+/// reads arguments only: a placeholder only in a property gets no value, and that key is then invalid, as in zellij).
 fn placeholders(node: &KdlNode, found: &mut Vec<String>) {
     if ["bind", "unbind"].contains(&node.name().value()) {
         for k in node
@@ -583,8 +653,9 @@ fn placeholders(node: &KdlNode, found: &mut Vec<String>) {
     }
 }
 
-/// zellij's defaults before 0.46: the `keybinds` of `--dump-config` (its default config, no placeholders).
-fn dump_config_binds(text: &str) -> anyhow::Result<Binds> {
+/// zellij's defaults before 0.46: the `keybinds` of `--dump-config` (its default config, no placeholders), and how many
+/// of its binds were unknown here.
+fn dump_config_binds(text: &str) -> anyhow::Result<(Binds, usize)> {
     let doc = kdl_v1::parse(text)?;
     let keybinds = doc
         .nodes()
@@ -592,8 +663,9 @@ fn dump_config_binds(text: &str) -> anyhow::Result<Binds> {
         .find(|n| n.name().value() == "keybinds")
         .ok_or_else(|| anyhow!("no keybinds block"))?;
     let mut binds = Binds::new();
-    apply(&mut binds, keybinds, text, None, false)?;
-    Ok(binds)
+    let src = Src::own(text, None);
+    src.apply(&mut binds, keybinds, false)?;
+    Ok((binds, src.unknown.get()))
 }
 
 /// One action as written: its name, then each argument (a property as `name=value`), and `{…}` for a children block.
@@ -653,11 +725,33 @@ fn sheet_of(binds: &Binds) -> anyhow::Result<(Sheet, usize)> {
     Ok((sheet, skipped))
 }
 
-/// The one stderr line for `skipped` left-out binds; none when there are none.
-fn left_out(skipped: usize) -> Option<String> {
-    (skipped > 0).then(|| {
-        format!("leaving out {skipped} binds (a key with no X keysym, or a bind with no action)")
+/// The note for left-out binds: `skipped` keybind-find can't send (a key with no X keysym, or a bind with no action) and
+/// `unknown` of zellij's own in a mode or with a key keybind-find doesn't know (a newer zellij's); none when there are
+/// none.
+fn left_out(skipped: usize, unknown: usize) -> Option<String> {
+    let mut why = Vec::new();
+    if skipped > 0 {
+        why.push(format!(
+            "{skipped} with a key with no X keysym or no action"
+        ));
+    }
+    if unknown > 0 {
+        why.push(format!(
+            "{unknown} of zellij's own in a mode or with a key this keybind-find doesn't know"
+        ));
+    }
+    (!why.is_empty()).then(|| {
+        format!(
+            "leaving out {} binds ({})",
+            skipped + unknown,
+            why.join("; ")
+        )
     })
+}
+
+/// A note as its stderr line.
+fn note_line(note: &str) -> String {
+    format!("keybind-find: zellij: {note}")
 }
 
 #[cfg(test)]
@@ -710,12 +804,12 @@ mod tests {
     /// The sheet of `defaults` (a 0.46 preset with no user leaders) with the user config `user` on top.
     fn merged(defaults: &str, user: &str, new: bool) -> anyhow::Result<Vec<String>> {
         let mut binds = match new {
-            true => preset_binds(defaults, &BTreeMap::new())?,
-            false => dump_config_binds(defaults)?,
+            true => preset_binds(defaults, &BTreeMap::new())?.0,
+            false => dump_config_binds(defaults)?.0,
         };
         let doc = kdl_v1::parse(user)?;
         if let Some(k) = doc.nodes().iter().find(|n| n.name().value() == "keybinds") {
-            apply(&mut binds, k, user, None, new)?;
+            Src::user(user).apply(&mut binds, k, new)?;
         }
         Ok(rows(&sheet_of(&binds)?.0))
     }
@@ -728,7 +822,9 @@ mod tests {
 
     #[test]
     fn the_default_preset() {
-        let binds = preset_binds(&fixture("0.46.0/default.kdl"), &BTreeMap::new()).unwrap();
+        let (binds, unknown) =
+            preset_binds(&fixture("0.46.0/default.kdl"), &BTreeMap::new()).unwrap();
+        assert_eq!(unknown, 0);
         assert_eq!(
             counts(&binds),
             [
@@ -798,9 +894,13 @@ mod tests {
     fn leaders_from_the_user() {
         let binds = |l: &[(&str, &str)]| {
             rows(
-                &sheet_of(&preset_binds(&fixture("0.46.0/default.kdl"), &leaders(l)).unwrap())
-                    .unwrap()
-                    .0,
+                &sheet_of(
+                    &preset_binds(&fixture("0.46.0/default.kdl"), &leaders(l))
+                        .unwrap()
+                        .0,
+                )
+                .unwrap()
+                .0,
             )
         };
         let swapped = binds(&[("primary", "Alt"), ("secondary", "Ctrl")]);
@@ -819,9 +919,13 @@ mod tests {
         // unlock-first: `{unlock}` from its own defaults (Ctrl g), or the user's.
         let uf = |l| {
             rows(
-                &sheet_of(&preset_binds(&fixture("0.46.0/unlock-first.kdl"), &leaders(l)).unwrap())
-                    .unwrap()
-                    .0,
+                &sheet_of(
+                    &preset_binds(&fixture("0.46.0/unlock-first.kdl"), &leaders(l))
+                        .unwrap()
+                        .0,
+                )
+                .unwrap()
+                .0,
             )
         };
         assert!(has(&uf(&[]), "locked ctrl+g = SwitchToMode \"Normal\""));
@@ -864,7 +968,8 @@ mod tests {
 
     #[test]
     fn the_default_config_before_0_46() {
-        let binds = dump_config_binds(&fixture("0.45.1/default.kdl")).unwrap();
+        let (binds, unknown) = dump_config_binds(&fixture("0.45.1/default.kdl")).unwrap();
+        assert_eq!(unknown, 0);
         // No renamesession mode before 0.46.
         assert_eq!(binds.len(), 14);
         assert!(!binds.contains_key("renamesession"));
@@ -917,13 +1022,14 @@ mod tests {
             calls.borrow_mut().push(args.join(" "));
             match args {
                 ["--version"] => Ok(format!("zellij {version}\n")),
-                ["setup", "--dump-keybinds", "default"] => Ok(fixture("0.46.0/default.kdl")),
-                ["setup", "--dump-keybinds", "unlock-first"] => {
-                    Ok(fixture("0.46.0/unlock-first.kdl"))
-                }
-                ["setup", "--dump-keybinds", p] => {
-                    anyhow::bail!("Keybinding preset not found: {p}")
-                }
+                ["setup", "--dump-keybinds=default"] => Ok(fixture("0.46.0/default.kdl")),
+                ["setup", "--dump-keybinds=unlock-first"] => Ok(fixture("0.46.0/unlock-first.kdl")),
+                ["setup", "--dump-keybinds=slow"] => anyhow::bail!("zellij timed out after 2s"),
+                // zellij's own message for a preset it doesn't have, as `run_for` reports it.
+                ["setup", p] if p.starts_with("--dump-keybinds=") => anyhow::bail!(
+                    "zellij failed (exit status: 1): Keybinding preset not found: {}",
+                    &p["--dump-keybinds=".len()..]
+                ),
                 ["setup", "--dump-config"] => Ok(fixture("0.45.1/default.kdl")),
                 _ => anyhow::bail!("unexpected {args:?}"),
             }
@@ -958,12 +1064,12 @@ mod tests {
     #[test]
     fn commands_for_each_version() {
         let (_, calls) = read_with("0.46.0", None);
-        assert_eq!(calls, ["--version", "setup --dump-keybinds default"]);
+        assert_eq!(calls, ["--version", "setup --dump-keybinds=default"]);
         let (_, calls) = read_with("0.45.1", None);
         assert_eq!(calls, ["--version", "setup --dump-config"]);
         let (f, _g) = config("preset", "keybinds preset=\"unlock-first\" {\n}\n");
         let (out, calls) = read_with("0.46.0", Some(&f));
-        assert_eq!(calls, ["--version", "setup --dump-keybinds unlock-first"]);
+        assert_eq!(calls, ["--version", "setup --dump-keybinds=unlock-first"]);
         assert!(has(
             &rows(&out.unwrap().0),
             "locked ctrl+g = SwitchToMode \"Normal\""
@@ -975,13 +1081,13 @@ mod tests {
             calls,
             [
                 "--version",
-                "setup --dump-keybinds mine",
-                "setup --dump-keybinds default"
+                "setup --dump-keybinds=mine",
+                "setup --dump-keybinds=default"
             ]
         );
         let (sheet, notes) = out.unwrap();
         assert_eq!(notes.len(), 1, "{notes:?}");
-        assert!(notes[0].starts_with("can't use the keybinding preset \"mine\" (running zellij setup --dump-keybinds mine: Keybinding preset not found: mine); showing the default preset"), "{notes:?}");
+        assert!(notes[0].starts_with("can't use the keybinding preset \"mine\" (running zellij setup --dump-keybinds=mine: zellij failed (exit status: 1): Keybinding preset not found: mine); showing the built-in default preset with its own leader keys"), "{notes:?}");
         // The user's leaders were for `mine`: the default preset keeps its own.
         assert!(has(&rows(&sheet), "normal ctrl+p = SwitchToMode \"Pane\""));
         // A 0.45 config's preset properties mean nothing to 0.45.
@@ -1004,21 +1110,168 @@ mod tests {
         let (out, calls) = read_with("0.46.0", Some(&f));
         assert_eq!(
             calls,
-            [
-                "--version",
-                "setup --dump-keybinds default",
-                "setup --dump-keybinds default"
-            ]
+            // The default preset's text, dumped once, read again with its own leaders.
+            ["--version", "setup --dump-keybinds=default"]
         );
         let (sheet, notes) = out.unwrap();
         assert_eq!(
             notes,
-            ["can't use the keybinding preset \"default\" (primary and secondary are both \"Alt\"); showing the default preset with its own leader keys, as zellij does"]
+            ["can't use the keybinding preset \"default\" (primary and secondary are both \"Alt\"); showing the built-in default preset with its own leader keys"]
         );
         let rows = rows(&sheet);
         assert!(has(&rows, "normal ctrl+p = SwitchToMode \"Pane\""));
         // The user's own binds still apply on top.
         assert!(has(&rows, "normal alt+y = NewTab"));
+    }
+
+    #[test]
+    fn a_run_failure_is_no_fallback() {
+        // A timeout (or a crash, or no zellij) isn't a missing preset: the provider's one error, no second run.
+        let (f, _g) = config("slow", "keybinds preset=\"slow\" {\n}\n");
+        let (out, calls) = read_with("0.46.0", Some(&f));
+        assert_eq!(calls, ["--version", "setup --dump-keybinds=slow"]);
+        assert_eq!(
+            format!("{:#}", out.unwrap_err()),
+            "running zellij setup --dump-keybinds=slow: zellij timed out after 2s"
+        );
+        // The not-found message must name this preset.
+        let run = |args: &[&str]| -> anyhow::Result<String> {
+            match args {
+                ["setup", "--dump-keybinds=mine"] => {
+                    anyhow::bail!(
+                        "zellij failed (exit status: 1): Keybinding preset not found: other"
+                    )
+                }
+                _ => anyhow::bail!("unexpected {args:?}"),
+            }
+        };
+        let e = defaults("mine", &BTreeMap::new(), &run).unwrap_err();
+        assert_eq!(
+            format!("{e:#}"),
+            "running zellij setup --dump-keybinds=mine: zellij failed (exit status: 1): Keybinding preset not found: other"
+        );
+        // A preset that isn't `default` with bad leaders: the default preset is dumped.
+        let (f, _g) = config("uf", "keybinds preset=\"unlock-first\" unlock=\"\" {\n}\n");
+        let (out, calls) = read_with("0.46.0", Some(&f));
+        assert_eq!(
+            calls,
+            [
+                "--version",
+                "setup --dump-keybinds=unlock-first",
+                "setup --dump-keybinds=default"
+            ]
+        );
+        let (sheet, notes) = out.unwrap();
+        assert!(
+            notes[0].contains("the value for unlock is empty"),
+            "{notes:?}"
+        );
+        assert!(has(
+            &rows(&sheet),
+            "locked ctrl+g = SwitchToMode \"Normal\""
+        ));
+        assert!(has(&rows(&sheet), "normal ctrl+p = SwitchToMode \"Pane\""));
+    }
+
+    #[test]
+    fn newer_versions_read_presets() {
+        for v in ["0.47.0", "1.0.0"] {
+            let (out, calls) = read_with(v, None);
+            assert_eq!(calls, ["--version", "setup --dump-keybinds=default"], "{v}");
+            assert!(out.is_ok());
+        }
+    }
+
+    #[test]
+    fn zellijs_own_text_is_lenient() {
+        let preset = "keybinds {\n  newmode {\n    bind \"a\" \"b\" { Quit; }\n  }\n\
+                      shared_among \"newmode\" \"pane\" {\n    bind \"x\" { Detach; }\n  }\n\
+                      pane {\n    bind \"F13\" \"c\" { Quit; }\n    unbind \"F14\"\n  }\n}\n";
+        let (binds, unknown) = preset_binds(preset, &BTreeMap::new()).unwrap();
+        // newmode's two binds and F13.
+        assert_eq!(unknown, 3);
+        assert_eq!(
+            rows(&sheet_of(&binds).unwrap().0),
+            ["pane c = Quit", "pane x = Detach"]
+        );
+        let (binds, unknown) = dump_config_binds(preset).unwrap();
+        assert_eq!((unknown, binds["pane"].len()), (3, 2));
+        // The count reaches read()'s note.
+        let run = |args: &[&str]| -> anyhow::Result<String> {
+            match args {
+                ["--version"] => Ok("zellij 0.46.0".into()),
+                _ => Ok(preset.into()),
+            }
+        };
+        let (_, notes) = read(&run, None).unwrap();
+        assert_eq!(
+            notes,
+            ["leaving out 3 binds (3 of zellij's own in a mode or with a key this keybind-find doesn't know)"]
+        );
+        // A user's key keybind-find can't send: one note.
+        let (f, _g) = config("e", "keybinds {\n  normal { bind \"é\" { Quit; }; }\n}\n");
+        let (out, _) = read_with("0.46.0", Some(&f));
+        assert_eq!(
+            out.unwrap().1,
+            ["leaving out 1 binds (1 with a key with no X keysym or no action)"]
+        );
+        // A key a user's leader makes invalid is still an error (then the default preset).
+        let with_leader = "keybinds {\n  pane {\n    bind \"{primary} F13\" { Quit; }\n  }\n}\n";
+        let e = preset_binds(with_leader, &leaders(&[("primary", "Ctrl")])).unwrap_err();
+        assert_eq!(format!("{e:#}"), "line 3: invalid key \"Ctrl F13\"");
+        // The user's config stays strict.
+        let (f, _g) = config("strict", "keybinds {\n  newmode { }\n}\n");
+        assert!(
+            format!("{:#}", read_with("0.46.0", Some(&f)).0.unwrap_err())
+                .ends_with("line 2: unknown mode \"newmode\"")
+        );
+    }
+
+    #[test]
+    fn placeholders_as_zellij_collects_them() {
+        // Only in an unbind: still collected, so the key reads.
+        let p = "preset { defaults { primary \"Ctrl\"; }; }\nkeybinds {\n  pane {\n    bind \"x\" { Quit; }\n\
+                 bind \"Ctrl y\" { Quit; }\n    unbind \"{primary} y\"\n  }\n}\n";
+        assert_eq!(
+            rows(
+                &sheet_of(&preset_binds(p, &BTreeMap::new()).unwrap().0)
+                    .unwrap()
+                    .0
+            ),
+            ["pane x = Quit"]
+        );
+        // Only in a property: zellij doesn't collect it (`collect_placeholders` skips named entries), so it has no
+        // value and the key is invalid, as zellij finds it ("No value for the placeholder").
+        let p = "preset { defaults { primary \"Ctrl\"; }; }\nkeybinds {\n  pane {\n    bind k=\"{primary} x\" { Quit; }\n  }\n}\n";
+        let e = format!("{:#}", preset_binds(p, &BTreeMap::new()).unwrap_err());
+        assert_eq!(e, "line 4: invalid key \"{primary} x\"");
+        // Also in an argument: collected there, and the property's key reads too.
+        let p = "preset { defaults { primary \"Ctrl\"; }; }\nkeybinds {\n  pane {\n    bind \"{primary} a\" k=\"{primary} x\" { Quit; }\n  }\n}\n";
+        assert_eq!(
+            rows(
+                &sheet_of(&preset_binds(p, &BTreeMap::new()).unwrap().0)
+                    .unwrap()
+                    .0
+            ),
+            ["pane ctrl+a = Quit", "pane ctrl+x = Quit"]
+        );
+    }
+
+    #[test]
+    fn top_level_unbind_comes_last() {
+        let user = "keybinds clear-defaults=true {\n  unbind \"Ctrl g\"\n  normal { bind \"Ctrl g\" { Quit; }; }\n\
+                    shared { bind \"Ctrl g\" { Detach; }; }\n}\n";
+        for new in [true, false] {
+            let defaults = match new {
+                true => PRESET,
+                false => "keybinds {\n  normal { bind \"x\" { Quit; }; }\n}\n",
+            };
+            assert_eq!(
+                merged(defaults, user, new).unwrap(),
+                Vec::<String>::new(),
+                "{new}"
+            );
+        }
     }
 
     #[test]
@@ -1028,7 +1281,7 @@ mod tests {
             env!("CARGO_MANIFEST_DIR")
         ));
         let (out, calls) = read_with("0.46.0", Some(&f));
-        assert_eq!(calls, ["--version", "setup --dump-keybinds default"]);
+        assert_eq!(calls, ["--version", "setup --dump-keybinds=default"]);
         let (sheet, notes) = out.unwrap();
         assert!(notes.is_empty(), "{notes:?}");
         let rows = rows(&sheet);
@@ -1096,6 +1349,10 @@ mod tests {
             (
                 "keybinds preset=1 {\n}\n",
                 "line 1: preset must be a string, not 1",
+            ),
+            (
+                "keybinds primary=1 {\n}\n",
+                "line 1: primary must be a string, not 1",
             ),
             ("keybinds {\n  normal {\n", "line 2: Expected closing '}'"),
         ] {
@@ -1222,7 +1479,7 @@ mod tests {
              keybinds preset=\"nosuch\" clear-defaults=true {\n  normal { bind \"Alt z\" { Quit; }; }\n}\n",
         );
         let (out, calls) = read_with("0.46.0", Some(&f));
-        assert_eq!(calls, ["--version", "setup --dump-keybinds unlock-first"]);
+        assert_eq!(calls, ["--version", "setup --dump-keybinds=unlock-first"]);
         let rows = rows(&out.unwrap().0);
         assert!(has(&rows, "normal alt+y = NewTab") && !rows.iter().any(|r| r.contains("alt+z")));
         assert!(has(&rows, "locked ctrl+g = SwitchToMode \"Normal\""));
@@ -1317,7 +1574,9 @@ mod tests {
         let rows = |user: &str| {
             let doc = kdl_v1::parse(user).unwrap();
             let mut binds = Binds::new();
-            apply(&mut binds, &doc.nodes()[0], user, None, true).unwrap();
+            Src::user(user)
+                .apply(&mut binds, &doc.nodes()[0], true)
+                .unwrap();
             let (sheet, skipped) = sheet_of(&binds).unwrap();
             (rows(&sheet), skipped, sheet)
         };
@@ -1385,12 +1644,21 @@ mod tests {
 
     #[test]
     fn left_out_line() {
-        assert_eq!(left_out(0), None);
-        assert!(left_out(1).is_some());
+        assert_eq!(left_out(0, 0), None);
+        assert!(left_out(1, 0).is_some() && left_out(0, 1).is_some());
         assert_eq!(
-            left_out(2).as_deref(),
-            Some("leaving out 2 binds (a key with no X keysym, or a bind with no action)")
+            left_out(2, 0).as_deref(),
+            Some("leaving out 2 binds (2 with a key with no X keysym or no action)")
         );
+        assert_eq!(
+            left_out(0, 3).as_deref(),
+            Some("leaving out 3 binds (3 of zellij's own in a mode or with a key this keybind-find doesn't know)")
+        );
+        assert_eq!(
+            left_out(1, 2).as_deref(),
+            Some("leaving out 3 binds (1 with a key with no X keysym or no action; 2 of zellij's own in a mode or with a key this keybind-find doesn't know)")
+        );
+        assert_eq!(note_line("x y"), "keybind-find: zellij: x y");
     }
 
     #[test]
@@ -1472,6 +1740,24 @@ mod tests {
             ]),
             Some(home.join("x/zellij/config.kdl"))
         );
+        // A ZELLIJ_CONFIG_DIR without config.kdl: none, though ~/.config/zellij has one (no fall-through).
+        let empty = root.join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        std::fs::create_dir_all(home.join(".config/zellij")).unwrap();
+        std::fs::write(home.join(".config/zellij/config.kdl"), "").unwrap();
+        assert_eq!(
+            find(vec![("ZELLIJ_CONFIG_DIR", s(&empty)), ("HOME", s(&home))]),
+            None
+        );
+        assert!(find(vec![("HOME", s(&home))]).is_some());
+        std::fs::remove_dir_all(home.join(".config/zellij")).unwrap();
+        // A plain file at ~/.config/zellij stops the search (zellij's `exists()`), though
+        // $XDG_CONFIG_HOME/zellij/config.kdl exists. (AC #3 says "exists as a directory"; zellij doesn't check.)
+        std::fs::write(home.join(".config/zellij"), "").unwrap();
+        let xdg_x = vec![("HOME", s(&home)), ("XDG_CONFIG_HOME", s(&home.join("x")))];
+        assert_eq!(find(xdg_x.clone()), None);
+        std::fs::remove_file(home.join(".config/zellij")).unwrap();
+        assert!(find(xdg_x).is_some());
         // No HOME, no XDG: only /etc/zellij.
         assert_eq!(find(vec![]), none);
     }
@@ -1479,13 +1765,13 @@ mod tests {
     #[test]
     fn the_command() {
         assert_eq!(TIMEOUT, Duration::from_secs(2));
-        let cmd = command(&["setup", "--dump-keybinds", "default"]);
+        let cmd = command(&["setup", "--dump-keybinds=default"]);
         assert_eq!(cmd.get_program(), "zellij");
         let args: Vec<_> = cmd
             .get_args()
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(args, ["setup", "--dump-keybinds", "default"]);
+        assert_eq!(args, ["setup", "--dump-keybinds=default"]);
         let mise = cmd
             .get_envs()
             .find(|(k, _)| *k == "MISE_NOT_FOUND_AUTO_INSTALL")
@@ -1527,7 +1813,7 @@ mod tests {
         let (run, _bin) = fake(
             "ok",
             &format!(
-                "case \"$*\" in --version) echo 'zellij 0.46.0';; 'setup --dump-keybinds default') cat '{preset}';; *) exit 9;; esac"
+                "case \"$*\" in --version) echo 'zellij 0.46.0';; 'setup --dump-keybinds=default') cat '{preset}';; *) exit 9;; esac"
             ),
         );
         let (f, _g) = config(
@@ -1555,7 +1841,7 @@ mod tests {
         );
         let e = format!("{:#}", read(&run, None).unwrap_err());
         assert!(
-            e.starts_with("running zellij setup --dump-keybinds default: ") && e.contains("nope"),
+            e.starts_with("running zellij setup --dump-keybinds=default: ") && e.contains("nope"),
             "{e}"
         );
         // Not installed.
