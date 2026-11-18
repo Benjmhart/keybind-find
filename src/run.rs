@@ -277,6 +277,14 @@ fn send_with(
             e.bind.key
         );
     }
+    // niri's virtual keyboard hands a key straight to the focused window (smithay's virtual_keyboard_handle.rs), never
+    // to niri's bind matching (src/input/mod.rs `find_configured_bind` at v26.04): its own binds can't be sent.
+    if !dry_run && wayland && session == Some("niri") && e.provider == "niri" {
+        bail!(
+            "can't send niri's own keys with wtype (they reach the window, not niri): press {} yourself",
+            e.bind.key
+        );
+    }
     check(e, wayland)?;
     let cmds = commands(window, e, wayland);
     if dry_run {
@@ -836,6 +844,79 @@ mod tests {
             .unwrap();
             assert_eq!(*ran.borrow(), 1, "{session}");
         }
+    }
+
+    #[test]
+    fn niri_refuses_its_own_keys_only() {
+        let err = send_with(
+            None,
+            &entry("niri", "super+t"),
+            false,
+            true,
+            Some("niri"),
+            &mut Vec::new(),
+            &never_run,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "can't send niri's own keys with wtype (they reach the window, not niri): press super+t yourself"
+        );
+        // An app's key is sent with wtype, as under sway.
+        let ran = RefCell::new(Vec::new());
+        send_with(
+            None,
+            &entry("foot", "ctrl+shift+c"),
+            false,
+            true,
+            Some("niri"),
+            &mut Vec::new(),
+            &|c| {
+                ran.borrow_mut().extend_from_slice(c);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            *ran.borrow(),
+            commands(None, &entry("foot", "ctrl+shift+c"), true)
+        );
+        assert_eq!(ran.borrow()[0][0], "wtype");
+        // A niri bind is refused only under niri on Wayland: under sway (a leftover sheet) it is sent with wtype, and an
+        // X11 niri session (not one niri runs) sends it as any X11 key.
+        for (session, wayland) in [("sway", true), ("niri", false)] {
+            let ran = RefCell::new(0);
+            send_with(
+                Some("9"),
+                &entry("niri", "super+t"),
+                false,
+                wayland,
+                Some(session),
+                &mut Vec::new(),
+                &|_| {
+                    *ran.borrow_mut() += 1;
+                    Ok(())
+                },
+            )
+            .unwrap();
+            assert_eq!(*ran.borrow(), 1, "{session}");
+        }
+        // `--print` prints a niri bind.
+        let mut out = Vec::new();
+        send_with(
+            None,
+            &entry("niri", "super+t"),
+            true,
+            true,
+            Some("niri"),
+            &mut out,
+            &never_run,
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "wtype -M logo -k t -m logo\n"
+        );
     }
 
     #[test]

@@ -16,7 +16,8 @@ pub struct Context {
 
 /// Never fails: anything it can't read leaves that field `None`, the window-manager and espanso providers still
 /// apply, and one warning goes to stderr. Under sway the window comes from sway's tree, under Hyprland from `hyprctl`,
-/// under KDE on Wayland from `kdotool`, on X from X, and in any other Wayland session there is no focus source yet.
+/// under niri from `niri msg`, under KDE on Wayland from `kdotool`, on X from X, and in any other Wayland session
+/// (GNOME) there is no focus source.
 pub fn detect() -> Context {
     let wayland = set(env_var("WAYLAND_DISPLAY"));
     let session = current_session();
@@ -60,7 +61,7 @@ fn current_session() -> Option<&'static str> {
     )
 }
 
-/// The context for `session`, with the focus read from sway's tree, Hyprland's or KWin's active window (each through `query`,
+/// The context for `session`, with the focus read from sway's tree, Hyprland's, niri's or KWin's active window (each through `query`,
 /// `run`'s shape), from X through `read_x`, or not at all under any other Wayland session: an XWayland window's stale
 /// class would bring in a wrong sheet. Both readers are test seams. Also returns the program inside the window.
 fn focus(
@@ -83,6 +84,8 @@ fn focus(
         }
         Some("hyprland") if wayland => query("hyprctl", &["-j", "activewindow"])
             .and_then(|json| read_hyprland_focus(&mut ctx, &json)),
+        Some("niri") if wayland => query("niri", &["msg", "--json", "focused-window"])
+            .and_then(|json| read_niri_focus(&mut ctx, &json)),
         Some("kde") if wayland => {
             query("kdotool", &KDOTOOL_FOCUS).and_then(|out| read_kde_focus(&mut ctx, &out))
         }
@@ -656,13 +659,13 @@ fn session_file_name(d: &str) -> &str {
     name.strip_suffix(".desktop").unwrap_or(name)
 }
 
-/// The window-manager provider for a session: only sway, Hyprland, xmonad, KDE, Xfce, i3, GNOME and awesome have one. Nothing falls back to
+/// The window-manager provider for a session: only sway, Hyprland, niri, xmonad, KDE, Xfce, i3, GNOME and awesome have one. Nothing falls back to
 /// xmonad: a leftover `xmonad.keys` under i3 must not show.
 fn wm_provider(session: Option<&'static str>) -> Option<&'static str> {
     session.filter(|s| {
         matches!(
             *s,
-            "sway" | "hyprland" | "xmonad" | "kde" | "xfce" | "i3" | "gnome" | "awesome"
+            "sway" | "hyprland" | "niri" | "xmonad" | "kde" | "xfce" | "i3" | "gnome" | "awesome"
         )
     })
 }
@@ -988,6 +991,38 @@ fn read_hyprland_focus(ctx: &mut Context, json: &str) -> anyhow::Result<Option<F
     };
     ctx.window_id = Some(id);
     let child = program_in(&props, "pid from hyprctl", None);
+    ctx.class = props.class;
+    ctx.title = props.title;
+    child
+}
+
+/// Fills id, class (the app id), title and pid from `niri msg --json focused-window`, which prints niri's `Window` or
+/// `null` (niri-ipc/src/lib.rs:1297-1314, src/ipc/client.rs:172-173 at v26.04); returns the program running inside a
+/// terminal window. `null` is no window, nothing to warn about; a `null` pid (an xdg-desktop-portal window) is no pid.
+fn read_niri_focus(ctx: &mut Context, json: &str) -> anyhow::Result<Option<Foreground>> {
+    let window: serde_json::Value =
+        serde_json::from_str(json).context("parsing `niri msg --json focused-window`")?;
+    if window.is_null() {
+        return Ok(None);
+    }
+    let text = |k: &str| {
+        window[k]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    let props = Props {
+        class: text("app_id"),
+        instance: None,
+        pid: window["pid"]
+            .as_u64()
+            .and_then(|p| u32::try_from(p).ok())
+            .filter(|&p| p > 0),
+        title: text("title"),
+    };
+    // niri's own window id, not an X id: only `xdotool` on X11 would use it.
+    ctx.window_id = window["id"].as_u64().map(|id| id.to_string());
+    let child = program_in(&props, "pid from niri", None);
     ctx.class = props.class;
     ctx.title = props.title;
     child
@@ -1936,6 +1971,13 @@ mod tests {
             ["hyprland", "espanso", "alacritty", "tmux", "sheets"]
         );
         assert_eq!(hypr(None, None), ["hyprland", "espanso"]);
+        // So does niri.
+        let niri = |c, p| providers_for(wm_provider(Some("niri")), c, p, &[]);
+        assert_eq!(
+            niri(Some("foot"), Some("zsh")),
+            ["niri", "espanso", "foot", "zsh", "sheets"]
+        );
+        assert_eq!(niri(None, None), ["niri", "espanso"]);
         // No window-manager provider: the list starts with espanso.
         assert_eq!(
             providers_for(None, Some("Alacritty"), Some("nvim"), &[]),
@@ -2815,6 +2857,121 @@ mod tests {
         assert_eq!(ctx.providers, ["hyprland", "espanso", "sheets"]);
     }
 
+    fn niri_window(app_id: &str, pid: &str) -> String {
+        format!(
+            r#"{{"id":12,"title":"a title","app_id":"{app_id}","pid":{pid},"workspace_id":1,"is_focused":true,
+                "is_floating":false,"is_urgent":false,"layout":{{}},"focus_timestamp":null}}"#
+        )
+    }
+
+    #[test]
+    fn niri_focus_fills_the_context() {
+        // A foot: the program inside comes from its pid (a stand-in shell, as for Hyprland).
+        let mut sh = KillOnDrop(
+            Command::new("sh")
+                .args(["-c", "cat; :"])
+                .stdin(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut ctx = empty_context();
+        let found = loop {
+            let found =
+                read_niri_focus(&mut ctx, &niri_window("foot", &sh.0.id().to_string())).unwrap();
+            if found.as_ref().is_some_and(|f| f.comm == "cat") || Instant::now() > deadline {
+                break found;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert_eq!(found.map(|f| f.comm).as_deref(), Some("cat"));
+        assert_eq!(ctx.window_id.as_deref(), Some("12"));
+        assert_eq!(ctx.class.as_deref(), Some("foot"));
+        assert_eq!(ctx.title.as_deref(), Some("a title"));
+        let _ = sh.0.kill();
+        drop(sh.0.stdin.take());
+        // No window: `null`, nothing filled in, no warning.
+        let mut ctx = empty_context();
+        let focus = read_niri_focus(&mut ctx, "null");
+        assert!(matches!(focus, Ok(None)));
+        settle(&mut ctx, Some("niri"), focus);
+        assert_eq!((ctx.window_id, ctx.class, ctx.title), (None, None, None));
+        assert_eq!(ctx.providers, ["niri", "espanso"]);
+        // A portal window has a null pid: no program lookup, no warning.
+        let mut ctx = empty_context();
+        let focus = read_niri_focus(&mut ctx, &niri_window("xdg-desktop-portal-gnome", "null"));
+        assert!(matches!(focus, Ok(None)));
+        assert_eq!(ctx.class.as_deref(), Some("xdg-desktop-portal-gnome"));
+        // A terminal with a null pid: its class still counts, the program inside is unknown (one warning).
+        let mut ctx = empty_context();
+        let focus = read_niri_focus(&mut ctx, &niri_window("foot", "null"));
+        assert_eq!(
+            format!("{:#}", focus.as_ref().unwrap_err()),
+            "foot window has no pid from niri"
+        );
+        settle(&mut ctx, Some("niri"), focus);
+        assert_eq!(ctx.providers, ["niri", "espanso", "foot", "sheets"]);
+        // pid 0 or negative is no pid, as null is.
+        for pid in ["0", "-1"] {
+            let mut ctx = empty_context();
+            let focus = read_niri_focus(&mut ctx, &niri_window("foot", pid));
+            assert_eq!(
+                format!("{:#}", focus.unwrap_err()),
+                "foot window has no pid from niri",
+                "{pid}"
+            );
+        }
+        // Empty strings are no class or title; no id is no window id.
+        let mut ctx = empty_context();
+        let focus = read_niri_focus(&mut ctx, r#"{"title":"","app_id":"","pid":null}"#);
+        assert!(matches!(focus, Ok(None)));
+        assert_eq!((ctx.window_id, ctx.class, ctx.title), (None, None, None));
+        // Bad JSON: one warning (from `settle`), and the list without the window.
+        let mut ctx = empty_context();
+        let focus = read_niri_focus(&mut ctx, "not json");
+        assert!(focus.is_err());
+        settle(&mut ctx, Some("niri"), focus);
+        assert_eq!(ctx.providers, ["niri", "espanso"]);
+    }
+
+    #[test]
+    fn niri_never_falls_back_to_x() {
+        let asked = std::cell::RefCell::new(Vec::new());
+        let (ctx, program) = focus(
+            Some("niri"),
+            true,
+            |_| panic!("X read under niri"),
+            |p, args| {
+                asked.borrow_mut().push(format!("{p} {}", args.join(" ")));
+                Err(anyhow::anyhow!("niri timed out after 1s"))
+            },
+        );
+        assert_eq!(*asked.borrow(), ["niri msg --json focused-window"]);
+        assert_eq!(program, None);
+        assert_eq!((ctx.window_id, ctx.class), (None, None));
+        assert_eq!(ctx.providers, ["niri", "espanso"]);
+        let (ctx, _) = focus(
+            Some("niri"),
+            true,
+            |_| panic!("X read under niri"),
+            |_, _| Ok(niri_window("org.gnome.Nautilus", "1")),
+        );
+        // niri on X11 (no WAYLAND_DISPLAY): the window comes from X, and niri is never asked.
+        let (x11, _) = focus(
+            Some("niri"),
+            false,
+            |ctx| {
+                ctx.class = Some("Gimp".into());
+                Ok(None)
+            },
+            |p, _| panic!("{p} asked on X11"),
+        );
+        assert_eq!(x11.class.as_deref(), Some("Gimp"));
+        assert_eq!(x11.providers, ["niri", "espanso", "sheets"]);
+        assert_eq!(ctx.class.as_deref(), Some("org.gnome.Nautilus"));
+        assert_eq!(ctx.providers, ["niri", "espanso", "sheets"]);
+    }
+
     #[test]
     fn kde_focus_fills_the_context() {
         let kde = |ctx: &mut Context| {
@@ -3398,7 +3555,7 @@ mod tests {
     fn which_sessions_have_a_provider() {
         // Each session with a window-manager provider names itself; a new one adds a row.
         let with = [
-            "sway", "hyprland", "xmonad", "kde", "xfce", "i3", "gnome", "awesome",
+            "sway", "hyprland", "niri", "xmonad", "kde", "xfce", "i3", "gnome", "awesome",
         ];
         assert_eq!(wm_provider(None), None);
         // Xfce's Wayland session is unknown: no xfwm4 keys on another compositor.
@@ -3442,12 +3599,12 @@ mod tests {
 
     #[test]
     fn wayland_without_a_focus_source_reads_no_window() {
-        for session in [Some("niri"), Some("gnome"), None] {
+        for session in [Some("gnome"), None] {
             let (ctx, _) = focus(
                 session,
                 true,
                 |_| panic!("X read under Wayland"),
-                |p, _| panic!("{p} asked outside sway, Hyprland and KDE"),
+                |p, _| panic!("{p} asked outside sway, Hyprland, niri and KDE"),
             );
             assert_eq!((ctx.window_id, ctx.class, ctx.title), (None, None, None));
             // GNOME's own shortcuts still apply.
@@ -3496,7 +3653,7 @@ mod tests {
         );
         assert_eq!(program, None);
         let (_, program) = focus(
-            Some("niri"),
+            Some("gnome"),
             true,
             |_| panic!("X under Wayland"),
             |_, _| panic!(),

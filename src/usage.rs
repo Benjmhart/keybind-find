@@ -89,6 +89,7 @@ fn alternate(entries: &mut [Entry]) {
                 "xmonad"
                     | "sway"
                     | "hyprland"
+                    | "niri"
                     | "kde"
                     | "xfce"
                     | "i3"
@@ -291,6 +292,10 @@ mod tests {
         assert_eq!(
             ranked(&[("hyprland", 1), ("espanso", 1), ("nvim", 1)], ""),
             ["nvim0", "hyprland0", "espanso0"]
+        );
+        assert_eq!(
+            ranked(&[("niri", 1), ("espanso", 1), ("nvim", 1)], ""),
+            ["nvim0", "niri0", "espanso0"]
         );
         assert_eq!(
             ranked(&[("kde", 1), ("espanso", 1), ("nvim", 1)], ""),

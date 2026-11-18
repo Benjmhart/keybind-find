@@ -170,6 +170,11 @@ demo() {
   elif [ -n "$capped" ]; then
     record "$name.gif" "FAIL	the capture hit its 20 s limit before the end"
     FAILED=1
+  elif [ "${want%%$'\t'*}" = niri ] && [ -z "$sent" ] && [ "$status" != still ] &&
+    grep -qF "press ${want#*$'\t'} yourself" "$OUT/$name.kbf.log"; then
+    # A niri case's own key (the default query) is refused by design: wtype's keys reach the window, not niri. The
+    # refusal is the demo's end; a QUERY for the program's key shows a send.
+    record "$name.gif" "ok	$size bytes	query: $query, niri's own key refused (as designed)"
   elif [ "$status" != 0 ]; then
     [ "$status" = still ] && status="was still running after 10 s" || status="exited $status"
     record "$name.gif" "FAIL	keybind-find $status	$(tail -c 300 "$OUT/$name.kbf.log" | tr '\n\t' '  ')"
@@ -259,6 +264,36 @@ w() {
     sleep 1
     dump_and_check "$name" "$providers" "$key" && demo "$name" "$key"
     swaymsg -q kill
+  fi
+  sleep 0.5
+}
+
+# n NAME "PROVIDERS" "PROVIDER|KEY|DESC" -- COMMAND...: a case under niri (its phase), the program started through
+# niri (`niri msg action spawn`), its focus read through niri's IPC as keybind-find reads it.
+# niri double-forks what it spawns (src/utils/spawning.rs:178, and :275 on its systemd path, at v26.04), so the
+# program isn't niri's child: a window
+# that never appears is cleaned up by killing only the PROGRAM processes that weren't there before.
+n() {
+  local name=$1 providers=$2 key=$3
+  shift 4
+  wanted "$name" || return 0
+  command -v "$1" >/dev/null || { record "$name" "skip	$1 is not installed"; FAILED=1; return; }
+  local before old p; before=$(focused); old=" $(pgrep -x "$1" | tr '\n' ' ')"
+  niri msg action spawn -- "$@" >/dev/null 2>&1
+  local now=""
+  for _ in $(seq 150); do
+    now=$(focused)
+    [ -n "$now" ] && [ "$now" != "$before" ] && break
+    now=""; sleep 0.1
+  done
+  if [ -z "$now" ]; then
+    record "$name" "FAIL	no window	$(tail -c 300 "$OUT/niri.log" | tr '\n\t' '  ')"
+    FAILED=1
+    for p in $(pgrep -x "$1"); do [[ "$old" == *" $p "* ]] || kill "$p" 2>/dev/null; done
+  else
+    sleep 1
+    dump_and_check "$name" "$providers" "$key" && demo "$name" "$key"
+    niri msg action close-window --id "$now" >/dev/null 2>&1
   fi
   sleep 0.5
 }
@@ -368,7 +403,16 @@ unset SWAYSOCK WAYLAND_DISPLAY
 # niri's binary has no headless mode (its headless backend is for its tests only); with DISPLAY set and no
 # WAYLAND_DISPLAY it runs as an X11 window, rendering through mesa's llvmpipe. The cases get niri's Wayland display,
 # not the Xvfb one. A named phase (niri-phase), so a run naming only other cases skips it.
-if wanted niri-phase; then
+# niri falls back to its built-in config when the file doesn't load: check the pinned one first. The cases and
+# keybind-find must read that file too, whatever the image's environment says.
+unset XDG_CONFIG_HOME NIRI_CONFIG
+if wanted niri-phase && ! command -v niri >/dev/null; then
+  record niri-phase "FAIL	niri is not installed"
+  FAILED=1
+elif wanted niri-phase && ! niri validate -c "$HOME/.config/niri/config.kdl" >"$OUT/niri-validate.log" 2>&1; then
+  record niri-phase "FAIL	niri rejects tests/e2e/home/.config/niri/config.kdl	$(tail -c 300 "$OUT/niri-validate.log" | tr '\n\t' '  ')"
+  FAILED=1
+elif wanted niri-phase; then
   Xvfb :78 -screen 0 1600x1000x24 -nolisten tcp >"$OUT/xvfb-niri.log" 2>&1 &
   XVFB=$!
   for _ in $(seq 100); do DISPLAY=:78 xprop -root >/dev/null 2>&1 && break; sleep 0.1; done

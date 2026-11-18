@@ -1,0 +1,4 @@
+// Included by config.kdl.
+binds {
+    Mod+T hotkey-overlay-title="Open a Terminal: foot" { spawn "foot"; }
+}
