@@ -14,9 +14,11 @@ waits DIALOG seconds, as a person reading the dialog would (past the 5 s every o
 org.freedesktop.portal.Session.Close on its path.
 
 The check: the calls of each pick in MODES' order, Start's parent window "", the session handle CreateSession returned
-in SelectDevices and Start, each SelectDevices' types 1, persist_mode 2 and restore_token (the mode's) with their D-Bus
-types, TOKEN_FILE (the token, mode 0600, or no file), each STDERR's last line, and no other `keybind-find: portal` line
-than the mode's. Prints `ok` or what differs; exits 1 when something does.
+in SelectDevices, Start and each NotifyKeyboardKeysym, the keysyms pressed and released (the mode's, in order, with no
+options), each SelectDevices' types 1, persist_mode 2 and restore_token (the mode's) with their D-Bus types, TOKEN_FILE
+(the token, mode 0600, or no file), each pick's exit status (STDERR with .rc for .err: 0 when its keys were sent),
+each STDERR's last line (a pick that sent has no `… yourself` line), and no other `keybind-find: portal` line than the
+mode's. Prints `ok` or what differs; exits 1 when something does.
 """
 import json
 import os
@@ -25,44 +27,55 @@ import sys
 KEYS = "ctrl+shift+k"
 TOKEN = "fake-1"
 DIALOG = 7
-ALL = ["AvailableDeviceTypes", "CreateSession", "SelectDevices", "Start", "Session.Close"]
-SENT = (f"keybind-find: can't send keys under GNOME on Wayland (no virtual-keyboard protocol for wtype): "
-        f"press {KEYS} yourself")
+HANDSHAKE = ["AvailableDeviceTypes", "CreateSession", "SelectDevices", "Start"]
+CTRL, SHIFT, K = 0xffe3, 0xffe1, 0x6b
+# KEYS as NotifyKeyboardKeysym's (keysym, state): modifiers pressed, the key pressed and released, modifiers released.
+PRESSED = [(CTRL, 1), (SHIFT, 1), (K, 1), (K, 0), (SHIFT, 0), (CTRL, 0)]
+NOTIFY = ["NotifyKeyboardKeysym"] * len(PRESSED)
+ALL = HANDSHAKE + NOTIFY + ["Session.Close"]
+SENT = None  # no `… yourself` line, exit 0
 REFUSED = f"keybind-find: the desktop refused keyboard control: press {KEYS} yourself"
 NO_KEYBOARD = f"keybind-find: portal AvailableDeviceTypes: the desktop offers no keyboard control (6): press {KEYS} yourself"
-# MODE: (picks, token stored first, each pick's calls, each pick's restore_token, last stderr line, token file after,
-# the one other `keybind-find: portal` line a pick prints, as a prefix). A last line ending in `…` is a prefix, the rest
-# of it the keys.
+# MODE: (picks, token stored first, each pick's calls, each pick's restore_token, last stderr line (SENT: none),
+# token file after, the one other `keybind-find: portal` line a pick prints, as a prefix, each pick's keysym events). A
+# last line ending in `…` is a prefix, the rest of it the keys.
 MODES = {
     # Approved with the dialog, then restored with its token.
-    "send": (2, None, ALL, [None, TOKEN], SENT, TOKEN, None),
+    "send": (2, None, ALL, [None, TOKEN], SENT, TOKEN, None, PRESSED),
     # The dialog cancelled: nothing stored.
-    "refused": (1, None, ALL, [None], REFUSED, None, None),
+    "refused": (1, None, HANDSHAKE + ["Session.Close"], [None], REFUSED, None, None, []),
     # A stored token the portal no longer honours (revoked, used up): as xdg-desktop-portal, it drops it and shows the
     # dialog, so Start runs past the 5 s a restored one gets. The token is deleted: the next pick gets the dialog's time.
-    "stale": (1, "stale_1", ALL[:4], ["stale_1"], f"keybind-find: portal Start: no answer within 5s: press {KEYS} yourself",
-              None, None),
+    "stale": (1, "stale_1", HANDSHAKE, ["stale_1"],
+              f"keybind-find: portal Start: no answer within 5s: press {KEYS} yourself", None, None, []),
     # CreateSession fails before the portal sees the stored token: it is kept.
     "early-fail": (1, "early_1", ["AvailableDeviceTypes", "CreateSession"], [], "keybind-find: portal CreateSession: …",
-                   "early_1", None),
+                   "early_1", None, []),
     # Started with no restore_token (not remembered): the stored one is deleted.
-    "no-token": (1, "old_1", ALL, ["old_1"], SENT, None, None),
+    "no-token": (1, "old_1", ALL, ["old_1"], SENT, None, None, PRESSED),
     # SelectDevices refused: the session is closed all the same.
     "select-refused": (1, None, ["AvailableDeviceTypes", "CreateSession", "SelectDevices", "Session.Close"], [None],
-                       REFUSED, None, None),
+                       REFUSED, None, None, []),
     # No keyboard among the device types (6: pointer and touchscreen).
-    "no-keyboard": (1, None, ["AvailableDeviceTypes"], [], NO_KEYBOARD, None, None),
+    "no-keyboard": (1, None, ["AvailableDeviceTypes"], [], NO_KEYBOARD, None, None, []),
     # No AvailableDeviceTypes property at all: Get fails before the fake sees it.
-    "no-property": (1, None, [], [], "keybind-find: portal AvailableDeviceTypes: …", None, None),
+    "no-property": (1, None, [], [], "keybind-find: portal AvailableDeviceTypes: …", None, None, []),
     # CreateSession's Request on another path than the predicted one: refused before any session.
     "other-path": (1, None, ["AvailableDeviceTypes", "CreateSession"], [],
-                   "keybind-find: portal CreateSession: the request is …", None, None),
+                   "keybind-find: portal CreateSession: the request is …", None, None, []),
     # Another client on the bus answers Start first, with a refusal: ignored, the portal's own answer counts.
-    "forged": (1, None, ALL[:4] + ["forged"] + ALL[4:], [None], SENT, TOKEN, None),
+    "forged": (1, None, HANDSHAKE + ["forged"] + ALL[4:], [None], SENT, TOKEN, None, PRESSED),
     # Session.Close fails: its own line, and the pick still ends with the usual one.
-    "close-fails": (1, None, ALL, [None], SENT, TOKEN, "keybind-find: portal Session.Close: "),
+    "close-fails": (1, None, ALL, [None], SENT, TOKEN, "keybind-find: portal Session.Close: ", PRESSED),
     # No portal on the bus at all, and none to start (the harness runs the pick on a bus with no services).
-    "absent": (1, None, [], [], "keybind-find: portal AvailableDeviceTypes: …", None, None),
+    "absent": (1, None, [], [], "keybind-find: portal AvailableDeviceTypes: …", None, None, []),
+    # Start grants no keyboard (devices 2, the pointer): refused before any key, the session closed.
+    "no-devices": (1, None, HANDSHAKE + ["Session.Close"], [None],
+                   f"keybind-find: portal Start: the desktop granted no keyboard control (2): press {KEYS} yourself",
+                   None, None, []),
+    # The key's press fails: shift and ctrl, still down, are released (in reverse) before Close.
+    "keysym-fails": (1, None, HANDSHAKE + NOTIFY[:5] + ["Session.Close"], [None],
+                     "keybind-find: portal NotifyKeyboardKeysym: …", TOKEN, None, PRESSED[:3] + [(SHIFT, 0), (CTRL, 0)]),
 }
 # SelectDevices' options and their D-Bus types.
 OPTION_TYPES = {"handle_token": "s", "types": "u", "persist_mode": "u", "restore_token": "s"}
@@ -109,6 +122,7 @@ def serve(log_path, mode):
     info = Gio.DBusNodeInfo.new_for_xml(XML.replace("PROPERTIES", props))
     remote, session_iface = info.interfaces
     restoring = {}  # session path: the restore_token SelectDevices got
+    notified = []  # the Notify calls so far
     loop = GLib.MainLoop()
 
     def log(entry):
@@ -155,6 +169,10 @@ def serve(log_path, mode):
         entry = {"method": method, "args": args}
         if method.startswith("Notify"):
             log(entry)
+            notified.append(method)
+            if mode == "keysym-fails" and len(notified) == 3:
+                invocation.return_dbus_error("org.freedesktop.DBus.Error.Failed", "fake keysym failure")
+                return
             invocation.return_value(None)
             return
         options = args[-1]
@@ -182,8 +200,11 @@ def serve(log_path, mode):
             restored = restoring.get(args[0])
             if mode == "refused":
                 code = 1
-            elif mode != "no-token":
-                results = {"devices": GLib.Variant("u", 1), "restore_token": GLib.Variant("s", TOKEN)}
+            elif mode == "no-token":
+                results = {"devices": GLib.Variant("u", 1)}
+            else:
+                devices = 2 if mode == "no-devices" else 1
+                results = {"devices": GLib.Variant("u", devices), "restore_token": GLib.Variant("s", TOKEN)}
             # The dialog: when nothing is restored, or the stored token isn't honoured.
             delay = 0 if (restored and mode != "stale") or code else DIALOG
         log(entry)
@@ -209,7 +230,7 @@ def serve(log_path, mode):
 
 
 def check(mode, log_path, token_file, stderrs):
-    _, _, order, restore, last, token_after, extra = MODES[mode]
+    _, _, order, restore, last, token_after, extra, keys = MODES[mode]
     problems = []
     try:
         calls = [json.loads(line) for line in open(log_path)]
@@ -220,10 +241,12 @@ def check(mode, log_path, token_file, stderrs):
         problems.append(f"calls {names}")
     session = None
     selects = []
+    pressed = []  # each pick's keysym events, a pick starting at its CreateSession
     for c in calls:
         if c["method"] == "CreateSession":
             session = c.get("session")
-        elif c["method"] in ("SelectDevices", "Start") and c["args"][0] != session:
+            pressed.append([])
+        elif c["method"] in ("SelectDevices", "Start", "NotifyKeyboardKeysym") and c["args"][0] != session:
             problems.append(f"{c['method']} on {c['args'][0]}, not {session}")
         if c["method"] == "SelectDevices":
             selects.append(c["args"][1])
@@ -232,6 +255,14 @@ def check(mode, log_path, token_file, stderrs):
                 problems.append(f"SelectDevices option types {wrong}")
         if c["method"] == "Start" and c["args"][1] != "":
             problems.append(f"Start's parent window {c['args'][1]!r}")
+        if c["method"] == "NotifyKeyboardKeysym":
+            if c["args"][1] != {}:
+                problems.append(f"NotifyKeyboardKeysym options {c['args'][1]}")
+            if pressed:
+                pressed[-1].append(tuple(c["args"][2:]))
+    for i, got in enumerate(pressed):
+        if got != keys:
+            problems.append(f"pick {i + 1}'s keysyms {[(hex(k), s) for k, s in got]}")
     for i, options in enumerate(selects):
         want = {"types": 1, "persist_mode": 2}
         if i < len(restore) and restore[i]:
@@ -254,11 +285,22 @@ def check(mode, log_path, token_file, stderrs):
         # The last line: providers that can't run here (GNOME's other schemas) say so first.
         lines = open(path).read().strip().splitlines() or [""]
         end = lines[-1]
-        ok = (end.startswith(last[:-1]) and end.endswith(f": press {KEYS} yourself")) if last.endswith("…") \
-            else end == last
+        try:
+            rc = open(path[:-len(".err")] + ".rc").read().strip()
+        except OSError as e:
+            rc = str(e)
+        if rc != ("0" if last is SENT else "1"):
+            problems.append(f"{os.path.basename(path)}: exit {rc}")
+        if last is SENT:
+            ok = not any(line.endswith(" yourself") for line in lines)
+            end = None
+        elif last.endswith("…"):
+            ok = end.startswith(last[:-1]) and end.endswith(f": press {KEYS} yourself")
+        else:
+            ok = end == last
         if not ok:
-            problems.append(f"{os.path.basename(path)}: {end!r}")
-        portal = [line for line in lines[:-1] if line.startswith("keybind-find: portal")]
+            problems.append(f"{os.path.basename(path)}: {end or lines!r}")
+        portal = [line for line in lines[:-1 if end else None] if line.startswith("keybind-find: portal")]
         if not (portal == [] if extra is None else len(portal) == 1 and portal[0].startswith(extra)):
             problems.append(f"{os.path.basename(path)}: {portal!r}")
     print("ok\t" + " ".join(names[:len(order)]) if not problems else "FAIL\t" + "; ".join(problems))

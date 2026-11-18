@@ -188,8 +188,9 @@ fn wtype_modifier(m: &str) -> Option<&'static str> {
 }
 
 /// Refuses keys that can't be sent safely: anything outside the key notation (`+`-joined `[A-Za-z0-9_]` parts), an
-/// xdotool command name, or a modifier wtype doesn't have.
-fn check(e: &Entry, wayland: bool) -> anyhow::Result<()> {
+/// xdotool command name, or a modifier wtype doesn't have; through the `portal`, a modifier or key name it has no
+/// keysym for.
+fn check(e: &Entry, wayland: bool, portal: bool) -> anyhow::Result<()> {
     if let Some(program) = e.bind.run.first() {
         if program.trim().is_empty() {
             bail!("{:?} has no program to run", e.bind.desc);
@@ -215,7 +216,11 @@ fn check(e: &Entry, wayland: bool) -> anyhow::Result<()> {
             bail!("refusing to send {key:?}: {chord:?} is not a key in keybind-find's notation");
         }
         let mods = &parts[..parts.len() - 1];
-        if wayland {
+        if portal {
+            if let Some(m) = mods.iter().find(|m| crate::portal::modifier(m).is_none()) {
+                bail!("refusing to send {key:?}: the portal has no modifier {m:?}");
+            }
+        } else if wayland {
             if let Some(m) = mods.iter().find(|m| wtype_modifier(m).is_none()) {
                 bail!("refusing to send {key:?}: wtype has no modifier {m:?}");
             }
@@ -226,6 +231,9 @@ fn check(e: &Entry, wayland: bool) -> anyhow::Result<()> {
             // xdotool silently drops a modifier it has no key for (`mod3`), so a different binding would fire.
             bail!("refusing to send {key:?}: xdotool can't press modifier {m:?}");
         }
+    }
+    if portal {
+        crate::portal::events(e)?;
     }
     Ok(())
 }
@@ -259,32 +267,12 @@ fn send_with(
     session: Option<&str>,
     out: &mut dyn Write,
     run: &dyn Fn(&[Vec<String>]) -> anyhow::Result<()>,
-    portal: &dyn Fn(&Entry) -> anyhow::Result<()>,
+    send_portal: &dyn Fn(&Entry) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     // KWin and Mutter don't implement the virtual-keyboard protocol wtype needs: keys go through their RemoteDesktop
-    // portal instead. Said before `check`, whose reasons (a modifier wtype lacks) wouldn't matter there.
-    let desktop = match session {
-        Some("kde") => "KDE",
-        Some("gnome") => "GNOME",
-        _ => "",
-    };
-    if !dry_run && wayland && !desktop.is_empty() && !e.bind.key.trim().is_empty() {
-        // An espanso trigger is typed, not pressed.
-        let verb = if e.provider == "espanso" {
-            "type"
-        } else {
-            "press"
-        };
-        // A portal failure still names the keys. A `run` entry's key is only shown, so no session for it.
-        if e.bind.run.is_empty() {
-            portal(e).map_err(|err| anyhow::anyhow!("{err:#}: {verb} {} yourself", e.bind.key))?;
-        }
-        // No keys go through the session yet: the pick ends as it did before the portal.
-        bail!(
-            "can't send keys under {desktop} on Wayland (no virtual-keyboard protocol for wtype): {verb} {} yourself",
-            e.bind.key
-        );
-    }
+    // portal instead. A `run` entry's key is only shown, so no session for it.
+    let portal =
+        !dry_run && wayland && matches!(session, Some("kde" | "gnome")) && e.bind.run.is_empty();
     // niri's virtual keyboard hands a key straight to the focused window (smithay's virtual_keyboard_handle.rs), never
     // to niri's bind matching (src/input/mod.rs `find_configured_bind` at v26.04): its own binds can't be sent.
     if !dry_run && wayland && session == Some("niri") && e.provider == "niri" {
@@ -293,7 +281,17 @@ fn send_with(
             e.bind.key
         );
     }
-    check(e, wayland)?;
+    check(e, wayland, portal)?;
+    if portal {
+        // An espanso trigger is typed, not pressed. A portal failure still names the keys.
+        let verb = if e.provider == "espanso" {
+            "type"
+        } else {
+            "press"
+        };
+        return send_portal(e)
+            .map_err(|err| anyhow::anyhow!("{err:#}: {verb} {} yourself", e.bind.key));
+    }
     let cmds = commands(window, e, wayland);
     if dry_run {
         // A closed pipe (`--print | head`) is not an error.
@@ -530,10 +528,10 @@ mod tests {
             "ctrl++a",
             "ö",
         ] {
-            assert!(check(&entry("nvim", key), false).is_err(), "{key}");
+            assert!(check(&entry("nvim", key), false, false).is_err(), "{key}");
         }
-        assert!(check(&entry("espanso", "exec"), false).is_err());
-        assert!(check(&entry("espanso", "exec this"), false).is_ok());
+        assert!(check(&entry("espanso", "exec"), false, false).is_err());
+        assert!(check(&entry("espanso", "exec this"), false, false).is_ok());
         for key in [
             "super+shift+Return",
             "ctrl+b c",
@@ -541,13 +539,44 @@ mod tests {
             "XF86AudioRaiseVolume",
             "KP_7",
         ] {
-            assert!(check(&entry("x", key), false).is_ok(), "{key}");
+            assert!(check(&entry("x", key), false, false).is_ok(), "{key}");
         }
         // xdotool silently drops mod2..mod5; wtype has no mod3.
-        assert!(check(&entry("x", "mod3+a"), false).is_err());
-        assert!(check(&entry("x", "mod5+a"), false).is_err());
-        assert!(check(&entry("x", "mod3+a"), true).is_err());
-        assert!(check(&entry("x", "mod5+a"), true).is_ok());
+        assert!(check(&entry("x", "mod3+a"), false, false).is_err());
+        assert!(check(&entry("x", "mod5+a"), false, false).is_err());
+        assert!(check(&entry("x", "mod3+a"), true, false).is_err());
+        assert!(check(&entry("x", "mod5+a"), true, false).is_ok());
+    }
+
+    #[test]
+    fn the_portal_path_checks_its_modifiers_and_keysyms() {
+        let portal = |key: &str| check(&entry("x", key), true, true).map_err(|e| e.to_string());
+        for key in [
+            "super+mod4+ctrl+alt+mod1+shift+mod5+a",
+            "ctrl+b c",
+            "K",
+            "KP_7",
+            "ISO_Left_Tab",
+        ] {
+            assert_eq!(portal(key), Ok(()), "{key}");
+        }
+        for (key, why) in [
+            ("mod3+a", "the portal has no modifier \"mod3\""),
+            ("mod2+a", "the portal has no modifier \"mod2\""),
+            ("ctrl+Foo", "no keysym \"Foo\""),
+            ("a Kk", "no keysym \"Kk\""),
+        ] {
+            assert_eq!(
+                portal(key),
+                Err(format!("refusing to send {key:?}: {why}")),
+                "{key}"
+            );
+        }
+        // The notation and xdotool-command checks stay; espanso triggers type any character.
+        assert!(check(&entry("x", "a exec x"), true, true).is_err());
+        assert!(check(&entry("x", "ctrl+"), true, true).is_err());
+        assert!(check(&entry("espanso", "exec"), true, true).is_err());
+        assert!(check(&entry("espanso", "dé ж'"), true, true).is_ok());
     }
 
     #[test]
@@ -647,7 +676,7 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "xdotool windowactivate --sync 123\n/home/me/.config/macros/x11/login --fast\n"
         );
-        // Under KDE or GNOME on Wayland keys can't be sent, but a program can be run.
+        // Under KDE or GNOME on Wayland `--print` prints a `run` entry too.
         let mut out = Vec::new();
         send_with(
             None,
@@ -824,10 +853,10 @@ mod tests {
 
     #[test]
     fn kde_and_gnome_on_wayland_send_through_the_portal() {
-        for (session, name) in [("kde", "KDE"), ("gnome", "GNOME")] {
-            // The session opens and closes; until keys are sent through it, the pick ends with the line it had.
+        for session in ["kde", "gnome"] {
+            // The portal sends the keys, and the pick is done.
             let opened = RefCell::new(Vec::new());
-            let err = send_with(
+            send_with(
                 None,
                 &entry("x", "super+b"),
                 false,
@@ -840,12 +869,8 @@ mod tests {
                     Ok(())
                 },
             )
-            .unwrap_err();
+            .unwrap();
             assert_eq!(*opened.borrow(), ["super+b"], "{session}");
-            assert_eq!(
-                err.to_string(),
-                format!("can't send keys under {name} on Wayland (no virtual-keyboard protocol for wtype): press super+b yourself")
-            );
             // A portal failure is one line that still names the keys.
             let err = send_with(
                 None,
@@ -855,12 +880,12 @@ mod tests {
                 Some(session),
                 &mut Vec::new(),
                 &never_run,
-                &|_| Err(anyhow::anyhow!("no answer").context("portal Start")),
+                &|_| Err(anyhow::anyhow!("no answer").context("portal NotifyKeyboardKeysym")),
             )
             .unwrap_err();
             assert_eq!(
                 format!("{err:#}"),
-                "portal Start: no answer: press super+b yourself"
+                "portal NotifyKeyboardKeysym: no answer: press super+b yourself"
             );
             let err = send_with(
                 None,
@@ -894,25 +919,49 @@ mod tests {
                 String::from_utf8(out).unwrap(),
                 "wtype -M logo -k b -m logo\n"
             );
-            // A `run` entry with a key fails as before, with no session.
-            let err = send_with(
+            // A `run` entry with a key starts its program, with no session.
+            let ran = RefCell::new(0);
+            send_with(
                 None,
-                &macro_entry("super+l", &["login"]),
+                &macro_entry("super+l", &["true"]),
                 false,
                 true,
                 Some(session),
                 &mut Vec::new(),
-                &never_run,
+                &|_| {
+                    *ran.borrow_mut() += 1;
+                    Ok(())
+                },
                 &no_portal,
             )
-            .unwrap_err();
-            assert!(
-                err.to_string().starts_with("can't send keys under"),
-                "{err}"
-            );
+            .unwrap();
+            assert_eq!(*ran.borrow(), 1, "{session}");
+            // Keys the portal can't send are refused before it is asked.
+            for (key, why) in [
+                ("mod3+x", "the portal has no modifier \"mod3\""),
+                ("ctrl+Foo", "no keysym \"Foo\""),
+                (
+                    "a exec x",
+                    "\"exec\" is not a key in keybind-find's notation",
+                ),
+            ] {
+                let err = send_with(
+                    None,
+                    &entry("x", key),
+                    false,
+                    true,
+                    Some(session),
+                    &mut Vec::new(),
+                    &never_run,
+                    &no_portal,
+                )
+                .unwrap_err();
+                assert_eq!(err.to_string(), format!("refusing to send {key:?}: {why}"));
+            }
         }
-        // An espanso trigger is to be typed.
-        let err = send_with(
+        // An espanso trigger is typed through the portal; a failure says to type it.
+        let typed = RefCell::new(Vec::new());
+        send_with(
             None,
             &entry("espanso", ":date"),
             false,
@@ -920,10 +969,13 @@ mod tests {
             Some("kde"),
             &mut Vec::new(),
             &never_run,
-            &|_| Ok(()),
+            &|e| {
+                typed.borrow_mut().push(e.bind.key.clone());
+                Ok(())
+            },
         )
-        .unwrap_err();
-        assert!(err.to_string().ends_with(": type :date yourself"), "{err}");
+        .unwrap();
+        assert_eq!(*typed.borrow(), [":date"]);
         let err = send_with(
             None,
             &entry("espanso", ":date"),
@@ -938,22 +990,6 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "the desktop refused keyboard control: type :date yourself"
-        );
-        // A modifier wtype lacks: the desktop is the reason given, not wtype.
-        let err = send_with(
-            None,
-            &entry("x", "mod3+x"),
-            false,
-            true,
-            Some("gnome"),
-            &mut Vec::new(),
-            &never_run,
-            &|_| Ok(()),
-        )
-        .unwrap_err();
-        assert!(
-            err.to_string().starts_with("can't send keys under GNOME"),
-            "{err}"
         );
         // KDE and GNOME on X11, and every other session, send as before, with no portal.
         for (session, wayland) in [

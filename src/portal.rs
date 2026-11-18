@@ -4,7 +4,9 @@
 //!
 //! The handshake (xdg-desktop-portal's `org.freedesktop.portal.RemoteDesktop`, interface version 2) runs on one
 //! connection, since a session belongs to the connection that created it: `AvailableDeviceTypes`, `CreateSession`,
-//! `SelectDevices` (keyboard only, kept until revoked, with the stored token), `Start`, then `Session.Close`.
+//! `SelectDevices` (keyboard only, kept until revoked, with the stored token), `Start`, a `NotifyKeyboardKeysym` for
+//! each key pressed or released, then `Session.Close`. Keys go as X keysyms (data/keysyms, from xorgproto's
+//! keysymdef.h), which the desktop maps through its live keymap.
 
 use crate::sheet::Entry;
 use anyhow::{bail, Context as _};
@@ -30,15 +32,126 @@ const STEP: Duration = Duration::from_secs(5);
 /// `Start` with no stored token shows a dialog, which a person reads.
 const DIALOG: Duration = Duration::from_secs(120);
 
-/// Sends `e`'s keys through the portal. For now it opens the session and closes it again; the caller then says to press
-/// the keys by hand.
-pub fn send(_e: &Entry) -> anyhow::Result<()> {
+/// Sends `e`'s keys through the portal: its chords pressed, or its espanso trigger typed (`events`), on a session
+/// opened for them and closed after. An entry with a key the table lacks is refused before the portal is asked.
+pub fn send(e: &Entry) -> anyhow::Result<()> {
+    let events = events(e)?;
     let token_file = token_path_from(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"));
     let session = open(token_file.as_deref())?;
-    // The keys go here, on `session`, before it closes.
+    let sent = press(&events, |keysym, state| session.notify(keysym, state))
+        .context("portal NotifyKeyboardKeysym");
     // A session that won't close ends with keybind-find anyway: said, not the pick's error.
     if let Err(e) = session.close() {
         eprintln!("keybind-find: {e:#}");
+    }
+    sent
+}
+
+/// keysymdef.h's names and values, `name 0xvalue` per line.
+const KEYSYMS: &str = include_str!("../data/keysyms/xorgproto-2026.1.txt");
+/// `NotifyKeyboardKeysym`'s state.
+const PRESS: u32 = 1;
+const RELEASE: u32 = 0;
+
+/// The keysym named `name` (case matters: `k` and `K` are two).
+fn keysym(name: &str) -> Option<u32> {
+    // ponytail: a scan of ~2100 lines per name, a few names per pick; a map if a pick ever has hundreds.
+    KEYSYMS.lines().find_map(|line| {
+        let (n, v) = line.split_once(' ')?;
+        if n != name || n.starts_with('#') {
+            return None;
+        }
+        u32::from_str_radix(v.strip_prefix("0x")?, 16).ok()
+    })
+}
+
+/// Our modifier names (and xmonad's mod1, mod4, mod5) as the keysyms pressed for them.
+pub fn modifier(m: &str) -> Option<&'static str> {
+    Some(match m {
+        "super" | "mod4" => "Super_L",
+        "ctrl" => "Control_L",
+        "alt" | "mod1" => "Alt_L",
+        "shift" => "Shift_L",
+        "mod5" => "ISO_Level3_Shift",
+        _ => return None,
+    })
+}
+
+/// `e`'s key as (keysym, state) events, in order. Each chord (space-separated) presses its modifiers, presses and
+/// releases its key, then releases the modifiers in reverse; a single uppercase letter is shift + the letter, as
+/// wtype is given it. An espanso trigger is typed: each character pressed and released as its keysym.
+pub fn events(e: &Entry) -> anyhow::Result<Vec<(u32, u32)>> {
+    let key = e.bind.key.as_str();
+    if e.provider == "espanso" {
+        return Ok(key
+            .chars()
+            .flat_map(|c| [(char_keysym(c), PRESS), (char_keysym(c), RELEASE)])
+            .collect());
+    }
+    let sym = |name: &str| {
+        keysym(name).with_context(|| format!("refusing to send {key:?}: no keysym {name:?}"))
+    };
+    let mut events = Vec::new();
+    for chord in key.split_whitespace() {
+        let mut parts: Vec<&str> = chord.split('+').collect();
+        let name = parts.pop().unwrap_or_default();
+        let mut mods = parts
+            .into_iter()
+            .map(|m| {
+                modifier(m).with_context(|| format!("refusing to send {key:?}: no modifier {m:?}"))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let lower = name.to_ascii_lowercase();
+        let name = if name.len() == 1 && name.as_bytes()[0].is_ascii_uppercase() {
+            if !mods.contains(&"Shift_L") {
+                mods.push("Shift_L");
+            }
+            lower.as_str()
+        } else {
+            name
+        };
+        let mods = mods
+            .into_iter()
+            .map(sym)
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let k = sym(name)?;
+        events.extend(mods.iter().map(|&m| (m, PRESS)));
+        events.extend([(k, PRESS), (k, RELEASE)]);
+        events.extend(mods.iter().rev().map(|&m| (m, RELEASE)));
+    }
+    Ok(events)
+}
+
+/// A character's keysym (keysymdef.h): Latin-1's printable characters are their own code, any other is
+/// 0x01000000 + its code point.
+fn char_keysym(c: char) -> u32 {
+    let cp = u32::from(c);
+    if matches!(cp, 0x20..=0x7e | 0xa0..=0xff) {
+        cp
+    } else {
+        0x0100_0000 + cp
+    }
+}
+
+/// Sends `events` through `notify` in order. When one fails, the keys still down are released, last pressed first,
+/// so no modifier stays held, and that failure is the result.
+fn press(
+    events: &[(u32, u32)],
+    mut notify: impl FnMut(u32, u32) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let mut down = Vec::new();
+    for &(keysym, state) in events {
+        if let Err(e) = notify(keysym, state) {
+            for &k in down.iter().rev() {
+                let _ = notify(k, RELEASE);
+            }
+            return Err(e);
+        }
+        if state == PRESS {
+            down.push(keysym);
+        } else if let Some(i) = down.iter().rposition(|&k| k == keysym) {
+            down.remove(i);
+        }
     }
     Ok(())
 }
@@ -66,6 +179,21 @@ impl Session {
             .await
             .map_err(flat)
             .context("portal Session.Close")?;
+        Ok(())
+    }
+
+    /// One `NotifyKeyboardKeysym` (`(o a{sv} i u)`): `keysym` pressed (state 1) or released (0).
+    fn notify(&self, keysym: u32, state: u32) -> anyhow::Result<()> {
+        let keysym = i32::try_from(keysym).with_context(|| format!("keysym {keysym:#x}"))?;
+        let no_options = HashMap::<&str, Variant>::new();
+        zbus::block_on(self.conn.call_method(
+            Some(DESKTOP),
+            DESKTOP_PATH,
+            Some(REMOTE_DESKTOP),
+            "NotifyKeyboardKeysym",
+            &(self.handle.as_ref(), no_options, keysym, state),
+        ))
+        .map_err(flat)?;
         Ok(())
     }
 }
@@ -267,13 +395,25 @@ async fn start(
     .await?;
     let _ = tx.send(Ok(None));
     let token = handle_token("start");
-    let mut results = request(
+    let results = request(
         &session.conn,
         "Start",
         &token,
         &(handle, "", options([], &token)),
     )
     .await?;
+    started(results)
+}
+
+/// `Start`'s restore token, once its `devices` include the keyboard: the portal refuses key events otherwise.
+fn started(mut results: HashMap<String, OwnedVariant>) -> anyhow::Result<Option<String>> {
+    let devices = results
+        .remove("devices")
+        .and_then(|v| u32::try_from(v).ok())
+        .unwrap_or(0);
+    if !offers_keyboard(devices) {
+        bail!("portal Start: the desktop granted no keyboard control ({devices})");
+    }
     Ok(results
         .remove("restore_token")
         .and_then(|v| String::try_from(v).ok()))
@@ -376,7 +516,7 @@ fn flat(e: zbus::Error) -> anyhow::Error {
     anyhow::anyhow!("{e}")
 }
 
-/// `AvailableDeviceTypes` has the KEYBOARD bit.
+/// `AvailableDeviceTypes` (or `Start`'s `devices`) has the KEYBOARD bit.
 fn offers_keyboard(types: u32) -> bool {
     types & KEYBOARD != 0
 }
@@ -475,6 +615,7 @@ fn temp_path(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
@@ -765,5 +906,235 @@ mod tests {
         assert!(session_handle(bad).is_none());
         let num = OwnedVariant::try_from(Variant::from(7u32)).unwrap();
         assert!(session_handle(num).is_none());
+    }
+
+    fn entry(provider: &str, key: &str) -> Entry {
+        Entry {
+            provider: provider.into(),
+            category: "c".into(),
+            bind: crate::sheet::Bind {
+                key: key.into(),
+                desc: "d".into(),
+                action: String::new(),
+                when: Default::default(),
+                run: Vec::new(),
+            },
+        }
+    }
+
+    fn evs(provider: &str, key: &str) -> Result<Vec<(u32, u32)>, String> {
+        events(&entry(provider, key)).map_err(|e| e.to_string())
+    }
+
+    const CTRL: u32 = 0xffe3;
+    const SHIFT: u32 = 0xffe1;
+    const SUPER: u32 = 0xffeb;
+    const ALT: u32 = 0xffe9;
+    const LEVEL3: u32 = 0xfe03;
+
+    #[test]
+    fn the_keysym_table() {
+        let names = KEYSYMS.lines().filter(|l| !l.starts_with('#')).count();
+        assert_eq!(names, 2114);
+        for (name, value) in [
+            ("k", 0x6b),
+            ("K", 0x4b),
+            ("Return", 0xff0d),
+            ("KP_7", 0xffb7),
+            ("Super_L", SUPER),
+            ("ISO_Level3_Shift", LEVEL3),
+            ("EuroSign", 0x20ac),
+        ] {
+            assert_eq!(keysym(name), Some(value), "{name}");
+        }
+        for name in ["", "#", "kk", "Foo", "XK_k", "return"] {
+            assert_eq!(keysym(name), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn chords_as_keysym_events() {
+        // Modifiers in order, the key pressed and released, the modifiers released in reverse.
+        assert_eq!(
+            evs("x", "ctrl+shift+k"),
+            Ok(vec![
+                (CTRL, 1),
+                (SHIFT, 1),
+                (0x6b, 1),
+                (0x6b, 0),
+                (SHIFT, 0),
+                (CTRL, 0)
+            ])
+        );
+        // Every modifier name, xmonad's included.
+        for (m, sym) in [
+            ("super", SUPER),
+            ("mod4", SUPER),
+            ("ctrl", CTRL),
+            ("alt", ALT),
+            ("mod1", ALT),
+            ("shift", SHIFT),
+            ("mod5", LEVEL3),
+        ] {
+            assert_eq!(
+                evs("x", &format!("{m}+Return")),
+                Ok(vec![(sym, 1), (0xff0d, 1), (0xff0d, 0), (sym, 0)]),
+                "{m}"
+            );
+        }
+        // An uppercase letter is shift + the letter, after the chord's own modifiers; never shift twice.
+        assert_eq!(
+            evs("x", "K"),
+            Ok(vec![(SHIFT, 1), (0x6b, 1), (0x6b, 0), (SHIFT, 0)])
+        );
+        assert_eq!(evs("x", "ctrl+K"), evs("x", "ctrl+shift+k"),);
+        assert_eq!(
+            evs("x", "shift+ctrl+K"),
+            Ok(vec![
+                (SHIFT, 1),
+                (CTRL, 1),
+                (0x6b, 1),
+                (0x6b, 0),
+                (CTRL, 0),
+                (SHIFT, 0)
+            ])
+        );
+        // Not a single letter: the name as it is.
+        assert_eq!(evs("x", "F5"), Ok(vec![(0xffc2, 1), (0xffc2, 0)]));
+        // A key of three chords, one after another (extra spaces between them don't count).
+        assert_eq!(
+            evs("x", "ctrl+b  c super+mod5+x"),
+            Ok(vec![
+                (CTRL, 1),
+                (0x62, 1),
+                (0x62, 0),
+                (CTRL, 0),
+                (0x63, 1),
+                (0x63, 0),
+                (SUPER, 1),
+                (LEVEL3, 1),
+                (0x78, 1),
+                (0x78, 0),
+                (LEVEL3, 0),
+                (SUPER, 0)
+            ])
+        );
+        // A name the table lacks is refused, whichever chord it is in.
+        assert_eq!(
+            evs("x", "a ctrl+Foo"),
+            Err(r#"refusing to send "a ctrl+Foo": no keysym "Foo""#.into())
+        );
+        assert_eq!(
+            evs("x", "mod3+a"),
+            Err(r#"refusing to send "mod3+a": no modifier "mod3""#.into())
+        );
+    }
+
+    #[test]
+    fn espanso_text_as_keysym_events() {
+        let typed = |text: &str| -> Vec<u32> {
+            let e = evs("espanso", text).unwrap();
+            // Each character pressed then released.
+            for pair in e.chunks(2) {
+                assert_eq!(
+                    (pair[0].0, pair[0].1, pair[1].1),
+                    (pair[1].0, 1, 0),
+                    "{text}"
+                );
+            }
+            e.iter().step_by(2).map(|&(k, _)| k).collect()
+        };
+        // ASCII is its own code, space and `'` included; the ends of the ranges too.
+        assert_eq!(
+            typed(":it's K~"),
+            [0x3a, 0x69, 0x74, 0x27, 0x73, 0x20, 0x4b, 0x7e]
+        );
+        // Latin-1: U+00A0..U+00FF are their own code.
+        assert_eq!(typed("\u{a0}é\u{ff}"), [0xa0, 0xe9, 0xff]);
+        // Anything else: 0x01000000 + the code point (DEL, the C1 controls and a newline included).
+        assert_eq!(
+            typed("ж€\u{7f}\u{9f}\n🙂"),
+            [
+                0x0100_0436,
+                0x0100_20ac,
+                0x0100_007f,
+                0x0100_009f,
+                0x0100_000a,
+                0x0101_f642
+            ]
+        );
+        // Typed as written: no chord or table lookup.
+        assert_eq!(
+            typed("ctrl+Foo"),
+            "ctrl+Foo".bytes().map(u32::from).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_failed_event_releases_what_is_down() {
+        let run = |fail_at: usize| {
+            let sent = RefCell::new(Vec::new());
+            let result = press(&evs("x", "ctrl+shift+k a").unwrap(), |k, s| {
+                sent.borrow_mut().push((k, s));
+                if sent.borrow().len() == fail_at {
+                    bail!("refused");
+                }
+                Ok(())
+            });
+            (result.map_err(|e| e.to_string()), sent.into_inner())
+        };
+        // All sent.
+        let (result, sent) = run(0);
+        assert_eq!(result, Ok(()));
+        assert_eq!(sent, evs("x", "ctrl+shift+k a").unwrap());
+        // The key's press fails: shift, then ctrl, are released (the key never went down).
+        let (result, sent) = run(3);
+        assert_eq!(result, Err("refused".into()));
+        assert_eq!(
+            sent,
+            [(CTRL, 1), (SHIFT, 1), (0x6b, 1), (SHIFT, 0), (CTRL, 0)]
+        );
+        // The key's release fails: it is still down, released first.
+        let (_, sent) = run(4);
+        assert_eq!(sent[4..], [(0x6b, 0), (SHIFT, 0), (CTRL, 0)]);
+        // Shift already released: only ctrl is left.
+        let (_, sent) = run(6);
+        assert_eq!(sent[6..], [(CTRL, 0)]);
+        // The first chord all released: nothing is down when the next one fails.
+        let (_, sent) = run(7);
+        assert_eq!(sent.len(), 7);
+        // A failure on the first event releases nothing.
+        let (_, sent) = run(1);
+        assert_eq!(sent, [(CTRL, 1)]);
+    }
+
+    #[test]
+    fn start_must_grant_the_keyboard() {
+        let results = |devices: Option<u32>, token: Option<&str>| {
+            let mut r = HashMap::new();
+            if let Some(d) = devices {
+                r.insert(
+                    "devices".to_string(),
+                    OwnedVariant::try_from(Variant::from(d)).unwrap(),
+                );
+            }
+            if let Some(t) = token {
+                r.insert(
+                    "restore_token".to_string(),
+                    OwnedVariant::try_from(Variant::from(t)).unwrap(),
+                );
+            }
+            started(r).map_err(|e| e.to_string())
+        };
+        assert_eq!(results(Some(1), Some("t1")), Ok(Some("t1".into())));
+        assert_eq!(results(Some(7), None), Ok(None));
+        for (devices, shown) in [(Some(2), 2), (Some(6), 6), (None, 0)] {
+            assert_eq!(
+                results(devices, Some("t1")),
+                Err(format!(
+                    "portal Start: the desktop granted no keyboard control ({shown})"
+                ))
+            );
+        }
     }
 }

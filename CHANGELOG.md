@@ -13,6 +13,7 @@ All notable changes to keybind-find are listed here. The format follows
 - Konsole: its shortcuts, Konsole 26.08.2's defaults built in with your Configure Keyboard Shortcuts changes (`konsoleui.rc`, `sessionui.rc`), shortcut scheme and profile shortcuts on top, and the default keytab's scrolling keys ([#47](https://github.com/Benjmhart/keybind-find/issues/47)).
 - awesome: its hotkeys from the running awesome over D-Bus (what its hotkeys popup reads), with each key's description and group; nothing to set up for the stock config, an `rc.lua` must load `awful` ([#50](https://github.com/Benjmhart/keybind-find/issues/50)).
 - niri: its binds from the `config.kdl` niri reads (KDL 1 as niri 26.04 reads it, `include`s merged as niri merges them), each with its `hotkey-overlay-title` or else its action, and the focused window from `niri msg --json focused-window`, so the focused app's keys are listed under niri too; niri's own binds are listed but not sent (wtype's keys reach the window, not niri) ([#53](https://github.com/Benjmhart/keybind-find/issues/53)).
+- KDE Plasma and GNOME on Wayland: a pick is sent through the desktop's RemoteDesktop portal (keys pressed as X keysyms, espanso triggers typed), after you allow it once; the approval is kept in `~/.local/state/keybind-find/portal-token`.
 
 ## [1.1.2] - 2026-11-10
 

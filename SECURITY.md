@@ -8,7 +8,10 @@ Please report security problems privately, through GitHub's private vulnerabilit
 ## What keybind-find does that matters for security
 
 - **It sends keystrokes to the focused window.** The binding you pick is sent with `xdotool` (X11) or `wtype`
-  (Wayland). Keys come from the sheets it read, so a sheet decides what can be sent; keys outside keybind-find's key
+  (Wayland), and under KDE Plasma and GNOME on Wayland through the desktop's RemoteDesktop portal
+  (`org.freedesktop.portal.RemoteDesktop` on the session bus, keyboard only). The desktop asks you once; the approval
+  is kept as a restore token in `~/.local/state/keybind-find/portal-token` (`$XDG_STATE_HOME/keybind-find/`, mode
+  0600), which lets keybind-find press keys without asking again until you delete that file. Keys come from the sheets it read, so a sheet decides what can be sent; keys outside keybind-find's key
   notation are refused, except espanso triggers, which are typed as written.
 - **It runs executables from your sheets folder.** An executable file in `~/.config/keybind-find/sheets/` named after
   the focused window's class is run to print a sheet. It is run only if it is owned by you and not writable by group
