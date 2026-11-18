@@ -21,6 +21,8 @@ RUN echo "Server = https://archive.archlinux.org/repos/${SNAPSHOT}/\$repo/os/\$a
       helix vim neovim nano micro mc ranger ncmpcpp yazi emacs-nox \
       zathura mpv code obsidian zed xfconf glib2 \
  && pacman -Scc --noconfirm
+# PyGObject for tests/e2e/fake_portal.py, from the same snapshot (its own layer, so the one above stays cached).
+RUN pacman -S --noconfirm --needed python-gobject && pacman -Scc --noconfirm
 # sway ships with cap_sys_nice, which a container's capability set doesn't allow: its exec fails with EPERM.
 RUN setcap -r /usr/bin/sway
 # zellij 0.46.0, newer than the snapshot (which has 0.45.1): its keybinding presets are what keybind-find reads now; 0.45

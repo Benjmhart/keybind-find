@@ -268,6 +268,43 @@ w() {
   sleep 0.5
 }
 
+# p NAME RESPONSE: a send through the RemoteDesktop portal under a faked GNOME session on sway's display (no SWAYSOCK,
+# XDG_CURRENT_DESKTOP=GNOME and a process named gnome-shell: a copy of sleep), the portal being tests/e2e/fake_portal.py
+# on this session bus with Start answering RESPONSE. The pick is GNOME's `minimize`, set to ctrl+shift+k (under GNOME on
+# Wayland no window is read, so a sheet can't apply), picked by a dmenu-style grep: two picks when RESPONSE is 0, one
+# when it is a refusal. fake_portal.py --check checks the calls, the token file and each pick's last stderr line.
+p() {
+  local name=$1 response=$2 state=/tmp/$1-state picks=2 i line errs=()
+  wanted "$name" || return 0
+  [ "$response" = 0 ] || picks=1
+  rm -rf "$state" "$OUT/$name.calls"
+  mkdir -p /tmp/portal-bin && cp "$(command -v sleep)" /tmp/portal-bin/gnome-shell
+  PATH=/tmp/portal-bin:$PATH gnome-shell 300 &
+  local shell=$!
+  gsettings set org.gnome.desktop.wm.keybindings minimize "['<Control><Shift>k']"
+  FAKE_PORTAL_START=$response python3 -I "$E/fake_portal.py" "$OUT/$name.calls" >"$OUT/$name.fake.log" 2>&1 &
+  local fake=$!
+  if ! gdbus wait --session --timeout 10 org.freedesktop.portal.Desktop >/dev/null 2>&1; then
+    record "$name" "FAIL	the fake portal didn't start	$(tail -c 300 "$OUT/$name.fake.log" | tr '\n\t' '  ')"
+    FAILED=1
+  else
+    for i in $(seq "$picks"); do
+      env -u SWAYSOCK XDG_CURRENT_DESKTOP=GNOME XDG_STATE_HOME="$state" KEYBIND_FIND_PICKER='grep -m1 minimize' \
+        timeout 30 "$KBF" >/dev/null 2>"$OUT/$name.$i.err"
+      errs+=("$OUT/$name.$i.err")
+    done
+    if line=$(FAKE_PORTAL_START=$response python3 -I "$E/fake_portal.py" --check "$OUT/$name.calls" \
+         "$state/keybind-find/portal-token" "${errs[@]}" 2>&1); then
+      record "$name" "$line"
+    else
+      record "$name" "FAIL	${line#FAIL	}"
+      FAILED=1
+    fi
+  fi
+  gsettings reset org.gnome.desktop.wm.keybindings minimize
+  kill "$fake" "$shell" 2>/dev/null; wait "$fake" "$shell" 2>/dev/null
+}
+
 # n NAME "PROVIDERS" "PROVIDER|KEY|DESC" -- COMMAND...: a case under niri (its phase), the program started through
 # niri (`niri msg action spawn`), its focus read through niri's IPC as keybind-find reads it.
 # niri double-forks what it spawns (src/utils/spawning.rs:178, and :275 on its systemd path, at v26.04), so the

@@ -18,6 +18,12 @@ pub fn path() -> Option<PathBuf> {
 
 /// `$XDG_STATE_HOME/keybind-find/usage.tsv`, or under `$HOME/.local/state` when it is unset or relative.
 fn path_from(xdg_state_home: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
+    Some(state_dir_from(xdg_state_home, home)?.join("usage.tsv"))
+}
+
+/// keybind-find's state directory: `$XDG_STATE_HOME/keybind-find`, or under `$HOME/.local/state` when it is unset or
+/// relative.
+pub fn state_dir_from(xdg_state_home: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
     let state = match xdg_state_home
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
@@ -25,7 +31,7 @@ fn path_from(xdg_state_home: Option<OsString>, home: Option<OsString>) -> Option
         Some(dir) => dir,
         None => PathBuf::from(home.filter(|v| !v.is_empty())?).join(".local/state"),
     };
-    Some(state.join("keybind-find/usage.tsv"))
+    Some(state.join("keybind-find"))
 }
 
 /// The counts from the log. Missing is empty; an unreadable log is one stderr line and empty.
