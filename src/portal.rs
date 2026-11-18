@@ -56,9 +56,10 @@ const KEYSYMS: &str = include_str!("../data/keysyms/xorgproto-2026.1.txt");
 const PRESS: u32 = 1;
 const RELEASE: u32 = 0;
 
-/// The keysym named `name`: exactly, else ignoring case, as wtype and xkbcommon find one (`return`, `page_up`); of
-/// several names that differ only in case, the one with the fewest capitals (`agrave` for `AGRAVE`). A one-letter
-/// name always matches exactly: keysymdef.h has every ASCII letter in both cases.
+/// The keysym named `name`: exactly, else ignoring case as xkbcommon does (`return`, `page_up`); unlike wtype an exact
+/// name wins (`Agrave` is À, wtype gives à). Of several names that differ only in case, the one with the fewest
+/// capitals (`agrave` for `AGRAVE`). A one-letter name always matches exactly: keysymdef.h has every ASCII letter in
+/// both cases.
 fn keysym(name: &str) -> Option<u32> {
     // ponytail: a scan of ~3300 lines per name, a few names per pick; a map if a pick ever has hundreds.
     let value = |line: &str, matches: &dyn Fn(&str) -> bool| {
@@ -134,11 +135,13 @@ pub fn events(e: &Entry) -> anyhow::Result<Vec<(u32, u32)>> {
         } else {
             name
         };
-        let mods = mods
+        let mut mods = mods
             .into_iter()
             .map(sym)
             .collect::<anyhow::Result<Vec<_>>>()?;
         let k = sym(name)?;
+        // A key that is one of its modifiers (`super+Super_L`) is pressed once, as the key.
+        mods.retain(|&m| m != k);
         events.extend(mods.iter().map(|&m| (m, PRESS)));
         events.extend([(k, PRESS), (k, RELEASE)]);
         events.extend(mods.iter().rev().map(|&m| (m, RELEASE)));
@@ -1080,6 +1083,12 @@ mod tests {
             ])
         );
         assert_eq!(evs("x", "alt+mod1+shift+A"), evs("x", "alt+shift+a"));
+        // A key that is one of its own modifiers is pressed once, as the key.
+        assert_eq!(evs("x", "super+Super_L"), Ok(vec![(SUPER, 1), (SUPER, 0)]));
+        assert_eq!(
+            evs("x", "ctrl+shift+Shift_L"),
+            Ok(vec![(CTRL, 1), (SHIFT, 1), (SHIFT, 0), (CTRL, 0)])
+        );
         // A key of three chords, one after another (extra spaces between them don't count).
         assert_eq!(
             evs("x", "ctrl+b  c super+mod5+x"),
@@ -1147,6 +1156,7 @@ mod tests {
         assert_eq!(typed("\u{a0}é\u{ff}"), [0xa0, 0xe9, 0xff]);
         // Anything else: the named keysym keysymdef.h gives for it (Cyrillic_zhe, EuroSign, Lstroke, Tab, Delete) …
         assert_eq!(typed("ж€Ł\t\u{7f}"), [0x6d6, 0x20ac, 0x1a3, 0xff09, 0xffff]);
+        assert_eq!(typed("∂√"), [0x8ef, 0x8d6]);
         // … else 0x01000000 + the code point (a C1 control, an emoji, a letter with no name); a newline too, not
         // Linefeed.
         assert_eq!(
