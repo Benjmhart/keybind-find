@@ -295,18 +295,32 @@ p() {
       --method org.freedesktop.DBus.NameHasOwner org.freedesktop.portal.Desktop 2>/dev/null | grep -q true || break
     sleep 0.1
   done
-  FAKE_PORTAL=$mode python3 -I "$E/fake_portal.py" "$OUT/$name.calls" >"$OUT/$name.fake.log" 2>&1 &
-  local fake=$!
-  gdbus wait --session --timeout 10 org.freedesktop.portal.Desktop >/dev/null 2>&1
-  # The name is the fake's once it says so (it quits if another owner keeps it).
-  for _ in $(seq 100); do grep -qx ready "$OUT/$name.fake.log" 2>/dev/null && break; sleep 0.1; done
+  # `absent`: no fake, and the pick runs on a bus of its own with no services, so no real portal can be started either.
+  local fake="" bus=()
+  if [ "$mode" = absent ]; then
+    printf '%s\n' '<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth>' \
+      '<policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/>' \
+      '<allow own="*"/></policy></busconfig>' >/tmp/portal-bare-bus.conf
+    bus=(dbus-run-session --config-file=/tmp/portal-bare-bus.conf --)
+    echo ready >"$OUT/$name.fake.log"
+  else
+    FAKE_PORTAL=$mode python3 -I "$E/fake_portal.py" "$OUT/$name.calls" >"$OUT/$name.fake.log" 2>&1 &
+    fake=$!
+    gdbus wait --session --timeout 10 org.freedesktop.portal.Desktop >/dev/null 2>&1
+    # The name is the fake's once it says so (it quits if another owner keeps it).
+    for _ in $(seq 100); do
+      grep -qx ready "$OUT/$name.fake.log" 2>/dev/null && break
+      kill -0 "$fake" 2>/dev/null || break
+      sleep 0.1
+    done
+  fi
   if ! grep -qx ready "$OUT/$name.fake.log" 2>/dev/null; then
     record "$name" "FAIL	the fake portal didn't get the name	$(tail -c 300 "$OUT/$name.fake.log" | tr '\n\t' '  ')"
     FAILED=1
   else
     for i in $(seq "$picks"); do
-      env -u SWAYSOCK XDG_CURRENT_DESKTOP=GNOME XDG_STATE_HOME="$state" KEYBIND_FIND_PICKER='grep -m1 minimize' \
-        timeout 30 "$KBF" >/dev/null 2>"$OUT/$name.$i.err"
+      ${bus[@]+"${bus[@]}"} env -u SWAYSOCK XDG_CURRENT_DESKTOP=GNOME XDG_STATE_HOME="$state" \
+        KEYBIND_FIND_PICKER='grep -m1 minimize' timeout 30 "$KBF" >/dev/null 2>"$OUT/$name.$i.err"
       errs+=("$OUT/$name.$i.err")
     done
     if line=$(python3 -I "$E/fake_portal.py" --check "$mode" "$OUT/$name.calls" \
@@ -318,7 +332,7 @@ p() {
     fi
   fi
   gsettings reset org.gnome.desktop.wm.keybindings minimize
-  kill "$fake" "$shell" 2>/dev/null; wait "$fake" "$shell" 2>/dev/null
+  kill $fake "$shell" 2>/dev/null; wait $fake "$shell" 2>/dev/null
 }
 
 # n NAME "PROVIDERS" "PROVIDER|KEY|DESC" -- COMMAND...: a case under niri (its phase), the program started through

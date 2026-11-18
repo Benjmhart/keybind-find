@@ -9,13 +9,14 @@ usage: fake_portal.py LOG              serve on the session bus as FAKE_PORTAL (
 Owns org.freedesktop.portal.Desktop and exports /org/freedesktop/portal/desktop with
 org.freedesktop.portal.RemoteDesktop (version 2, AvailableDeviceTypes 7). Each Request is answered by a Response on
 its predicted path (/org/freedesktop/portal/desktop/request/SENDER/TOKEN), sent to the caller. Start answers 0 with the
-restore_token `fake-1`; when no restore_token was selected it first waits DIALOG seconds, as a person reading the
-dialog would (past the 5 s every other step gets). A session has org.freedesktop.portal.Session.Close on its path.
+restore_token `fake-1`; when no restore_token was selected (or, in the stale mode, one it doesn't honour) it first
+waits DIALOG seconds, as a person reading the dialog would (past the 5 s every other step gets). A session has
+org.freedesktop.portal.Session.Close on its path.
 
 The check: the calls of each pick in MODES' order, Start's parent window "", the session handle CreateSession returned
-in SelectDevices and Start, each SelectDevices' types 1, persist_mode 2 and restore_token (the mode's), TOKEN_FILE (the
-token, mode 0600, or no file), each STDERR's last line, and, where the pick succeeds, no other `keybind-find: portal`
-line. Prints `ok` or what differs; exits 1 when something does.
+in SelectDevices and Start, each SelectDevices' types 1, persist_mode 2 and restore_token (the mode's) with their D-Bus
+types, TOKEN_FILE (the token, mode 0600, or no file), each STDERR's last line, and no other `keybind-find: portal` line
+than the mode's. Prints `ok` or what differs; exits 1 when something does.
 """
 import json
 import os
@@ -37,8 +38,13 @@ MODES = {
     "send": (2, None, ALL, [None, TOKEN], SENT, TOKEN, None),
     # The dialog cancelled: nothing stored.
     "refused": (1, None, ALL, [None], REFUSED, None, None),
-    # A stored token the portal no longer honours (it answers Start 2): deleted, so the next pick gets the dialog.
-    "stale": (1, "stale_1", ALL, ["stale_1"], REFUSED, None, None),
+    # A stored token the portal no longer honours (revoked, used up): as xdg-desktop-portal, it drops it and shows the
+    # dialog, so Start runs past the 5 s a restored one gets. The token is deleted: the next pick gets the dialog's time.
+    "stale": (1, "stale_1", ALL[:4], ["stale_1"], f"keybind-find: portal Start: no answer within 5s: press {KEYS} yourself",
+              None, None),
+    # CreateSession fails before the portal sees the stored token: it is kept.
+    "early-fail": (1, "early_1", ["AvailableDeviceTypes", "CreateSession"], [], "keybind-find: portal CreateSession: …",
+                   "early_1", None),
     # Started with no restore_token (not remembered): the stored one is deleted.
     "no-token": (1, "old_1", ALL, ["old_1"], SENT, None, None),
     # SelectDevices refused: the session is closed all the same.
@@ -52,10 +58,15 @@ MODES = {
     "other-path": (1, None, ["AvailableDeviceTypes", "CreateSession"], [],
                    "keybind-find: portal CreateSession: the request is …", None, None),
     # Another client on the bus answers Start first, with a refusal: ignored, the portal's own answer counts.
-    "forged": (1, None, ALL, [None], SENT, TOKEN, None),
+    "forged": (1, None, ALL[:4] + ["forged"] + ALL[4:], [None], SENT, TOKEN, None),
     # Session.Close fails: its own line, and the pick still ends with the usual one.
     "close-fails": (1, None, ALL, [None], SENT, TOKEN, "keybind-find: portal Session.Close: "),
+    # No portal on the bus at all, and none to start (the harness runs the pick on a bus with no services).
+    "absent": (1, None, [], [], "keybind-find: portal AvailableDeviceTypes: …", None, None),
 }
+# SelectDevices' options and their D-Bus types.
+OPTION_TYPES = {"handle_token": "s", "types": "u", "persist_mode": "u", "restore_token": "s"}
+FORGER = None  # the forged mode's second connection, kept open while the fake runs
 
 XML = """
 <node>
@@ -116,12 +127,15 @@ def serve(log_path, mode):
             return False
 
         if forge:
-            # A second connection: another client, not the portal.
-            other = Gio.DBusConnection.new_for_address_sync(
+            # A second connection: another client, not the portal. Its Response is on the bus before the portal's.
+            global FORGER
+            FORGER = FORGER or Gio.DBusConnection.new_for_address_sync(
                 Gio.dbus_address_get_for_bus_sync(Gio.BusType.SESSION, None),
                 Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
                 None, None)
-            GLib.timeout_add(0, emit, other, 1)
+            emit(FORGER, 1)
+            FORGER.flush_sync(None)
+            log({"method": "forged"})
             delay_ms = 500
         else:
             delay_ms = delay * 1000
@@ -146,6 +160,10 @@ def serve(log_path, mode):
         options = args[-1]
         token = options.get("handle_token", "t")
         code, results, delay = 0, {}, 0
+        if method == "CreateSession" and mode == "early-fail":
+            log(entry)
+            invocation.return_dbus_error("org.freedesktop.DBus.Error.Failed", "fake failure")
+            return
         if method == "CreateSession":
             if mode == "other-path":
                 token = "not_the_predicted_one"
@@ -155,14 +173,19 @@ def serve(log_path, mode):
             entry["session"] = session
         elif method == "SelectDevices":
             restoring[args[0]] = options.get("restore_token")
+            dict_ = params.get_child_value(1)
+            entry["types"] = {dict_.get_child_value(i).get_child_value(0).get_string():
+                              dict_.get_child_value(i).get_child_value(1).get_variant().get_type_string()
+                              for i in range(dict_.n_children())}
             code = 2 if mode == "select-refused" else 0
         elif method == "Start":
             restored = restoring.get(args[0])
-            if mode == "refused" or (mode == "stale" and restored):
-                code = 1 if mode == "refused" else 2
+            if mode == "refused":
+                code = 1
             elif mode != "no-token":
                 results = {"devices": GLib.Variant("u", 1), "restore_token": GLib.Variant("s", TOKEN)}
-            delay = 0 if restored or code else DIALOG
+            # The dialog: when nothing is restored, or the stored token isn't honoured.
+            delay = 0 if (restored and mode != "stale") or code else DIALOG
         log(entry)
         forge = mode == "forged" and method == "Start"
         invocation.return_value(GLib.Variant("(o)", (respond(conn, sender, token, code, results, delay, forge),)))
@@ -199,11 +222,14 @@ def check(mode, log_path, token_file, stderrs):
     selects = []
     for c in calls:
         if c["method"] == "CreateSession":
-            session = c["session"]
+            session = c.get("session")
         elif c["method"] in ("SelectDevices", "Start") and c["args"][0] != session:
             problems.append(f"{c['method']} on {c['args'][0]}, not {session}")
         if c["method"] == "SelectDevices":
             selects.append(c["args"][1])
+            wrong = {k: t for k, t in c["types"].items() if OPTION_TYPES.get(k) != t}
+            if wrong:
+                problems.append(f"SelectDevices option types {wrong}")
         if c["method"] == "Start" and c["args"][1] != "":
             problems.append(f"Start's parent window {c['args'][1]!r}")
     for i, options in enumerate(selects):
@@ -232,10 +258,9 @@ def check(mode, log_path, token_file, stderrs):
             else end == last
         if not ok:
             problems.append(f"{os.path.basename(path)}: {end!r}")
-        if last == SENT:
-            portal = [line for line in lines[:-1] if line.startswith("keybind-find: portal")]
-            if not (portal == [] if extra is None else len(portal) == 1 and portal[0].startswith(extra)):
-                problems.append(f"{os.path.basename(path)}: {portal!r}")
+        portal = [line for line in lines[:-1] if line.startswith("keybind-find: portal")]
+        if not (portal == [] if extra is None else len(portal) == 1 and portal[0].startswith(extra)):
+            problems.append(f"{os.path.basename(path)}: {portal!r}")
     print("ok\t" + " ".join(names[:len(order)]) if not problems else "FAIL\t" + "; ".join(problems))
     return 1 if problems else 0
 

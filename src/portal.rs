@@ -78,29 +78,29 @@ type Report<T> = anyhow::Result<Option<T>>;
 fn open(token_file: Option<&Path>) -> anyhow::Result<Session> {
     let token = token_file.and_then(read_token);
     let steps = steps(token.is_some());
-    let sent = token.is_some();
+    let sent = token.clone();
     let (tx, rx) = mpsc::channel();
     // zbus has no timer of its own to offer (its runtime is crate-private), so the handshake runs on a thread and each
     // step is waited for here. On a timeout keybind-find stops; its exit drops the connection, and the portal closes a
     // session whose peer is gone.
-    std::thread::spawn(move || {
-        let report = zbus::block_on(handshake(token, &tx)).map(Some);
-        let _ = tx.send(report);
-    });
+    std::thread::spawn(move || zbus::block_on(handshake(token, &tx)));
     let started = wait(&rx, &steps);
-    let new_token = started.as_ref().ok().map(|(_, t)| t.as_deref());
+    let outcome = match &started {
+        Ok((_, t)) => Ok(t.as_deref()),
+        Err((step, _)) => Err(*step),
+    };
     if let Some(file) = token_file {
-        let saved = match token_after(sent, new_token) {
+        let saved = match token_after(sent.is_some(), outcome) {
             TokenFile::Keep => Ok(()),
-            TokenFile::Write(t) => save_token(file, Some(t)),
-            TokenFile::Delete => save_token(file, None),
+            TokenFile::Write(t) => save_token(file, t),
+            TokenFile::Delete => remove_token(file, sent.as_deref()),
         };
         // A token that can't be kept costs only a dialog next time.
         if let Err(e) = saved {
             eprintln!("keybind-find: portal token {}: {e}", file.display());
         }
     }
-    started.map(|(session, _)| session)
+    started.map(|(session, _)| session).map_err(|(_, e)| e)
 }
 
 #[derive(Debug, PartialEq)]
@@ -110,40 +110,47 @@ enum TokenFile<'a> {
     Delete,
 }
 
-/// The token file after a handshake that `sent` the stored token and `started` (with `Start`'s restore token) or
-/// failed (`None`). A token is kept only when it has a token's shape. A failure after sending one deletes it: the portal
-/// may no longer honour it (revoked, used up, another app id), and then shows its dialog, which the 5 s a restored
-/// `Start` gets can't cover; without the token the next pick gets the dialog's 2 minutes.
-fn token_after(sent: bool, started: Option<Option<&str>>) -> TokenFile<'_> {
-    match started {
-        Some(Some(t)) if shaped(t) => TokenFile::Write(t),
-        Some(_) => TokenFile::Delete,
-        None if sent => TokenFile::Delete,
-        None => TokenFile::Keep,
+/// The token file after a handshake that `sent` the stored token and started (with `Start`'s restore token) or failed
+/// at a step. A token is kept only when it has a token's shape. A failure at `SelectDevices` or `Start` after sending
+/// one deletes it: the portal used it up there (xdg-desktop-portal consumes it on SelectDevices), may no longer honour
+/// it (revoked, another app id) and then shows its dialog, which the 5 s a restored `Start` gets can't cover; without
+/// it the next pick gets the dialog's 2 minutes. A failure before SelectDevices leaves it: the portal never saw it.
+fn token_after<'a>(sent: bool, outcome: Result<Option<&'a str>, &str>) -> TokenFile<'a> {
+    match outcome {
+        Ok(Some(t)) if shaped(t) => TokenFile::Write(t),
+        Ok(_) => TokenFile::Delete,
+        Err("SelectDevices" | "Start") if sent => TokenFile::Delete,
+        Err(_) => TokenFile::Keep,
     }
 }
 
-/// Waits for each of `steps` in turn, as long as it may take, and returns what the last one reported.
+/// Waits for each of `steps` in turn, as long as it may take, and returns what the last one reported, or the step it
+/// failed at with the error. After an error the handshake reports, it gets up to 5 s more to close its session.
 fn wait<T>(
     rx: &mpsc::Receiver<Report<T>>,
     steps: &[(&'static str, Duration)],
-) -> anyhow::Result<T> {
+) -> Result<T, (&'static str, anyhow::Error)> {
     for (i, &(step, wait)) in steps.iter().enumerate() {
         let last = i + 1 == steps.len();
-        match rx.recv_timeout(wait) {
-            Ok(Ok(None)) if !last => {}
+        let error = match rx.recv_timeout(wait) {
+            Ok(Ok(None)) if !last => continue,
             Ok(Ok(Some(done))) if last => return Ok(done),
-            Ok(Ok(_)) => bail!("portal {step}: the handshake is out of step"),
-            Ok(Err(e)) => return Err(e),
+            Ok(Ok(_)) => anyhow::anyhow!("portal {step}: the handshake is out of step"),
+            Ok(Err(e)) => {
+                // The thread ends (disconnecting) once its Close is done.
+                let _ = rx.recv_timeout(STEP);
+                e
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                bail!("portal {step}: no answer within {wait:?}")
+                anyhow::anyhow!("portal {step}: no answer within {wait:?}")
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                bail!("portal {step}: the handshake stopped")
+                anyhow::anyhow!("portal {step}: the handshake stopped")
             }
-        }
+        };
+        return Err((step, error));
     }
-    bail!("portal: no steps")
+    Err(("connect", anyhow::anyhow!("portal: no steps")))
 }
 
 /// The handshake's steps, each with how long it may take: 5 s, but up to 120 s for a `Start` that shows the dialog (no
@@ -158,10 +165,31 @@ fn steps(restoring: bool) -> [(&'static str, Duration); 5] {
     ]
 }
 
-async fn handshake(
-    restore: Option<String>,
-    tx: &mpsc::Sender<Report<(Session, Option<String>)>>,
-) -> anyhow::Result<(Session, Option<String>)> {
+type Started = (Session, Option<String>);
+
+/// The whole handshake, reported step by step on `tx`. An error after CreateSession is reported before the session is
+/// closed, so a slow Close can't turn it into a timeout.
+async fn handshake(restore: Option<String>, tx: &mpsc::Sender<Report<Started>>) {
+    let session = match create(tx).await {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = tx.send(Err(e));
+            return;
+        }
+    };
+    match start(&session, restore, tx).await {
+        Ok(token) => {
+            let _ = tx.send(Ok(Some((session, token))));
+        }
+        Err(e) => {
+            let _ = tx.send(Err(e));
+            let _ = session.close_async().await;
+        }
+    }
+}
+
+/// Connects, checks `AvailableDeviceTypes` and creates the session.
+async fn create(tx: &mpsc::Sender<Report<Started>>) -> anyhow::Result<Session> {
     let conn = zbus::connection::Builder::session()
         .method_timeout(STEP)
         .build()
@@ -203,14 +231,7 @@ async fn handshake(
         .and_then(session_handle)
         .context("portal CreateSession: no session_handle")?;
     let _ = tx.send(Ok(None));
-    let session = Session { conn, handle };
-    match start(&session, restore, tx).await {
-        Ok(token) => Ok((session, token)),
-        Err(e) => {
-            let _ = session.close_async().await;
-            Err(e)
-        }
-    }
+    Ok(Session { conn, handle })
 }
 
 /// CreateSession's `session_handle`: a string "for backwards compatibility", or an object path.
@@ -226,7 +247,7 @@ fn session_handle(v: OwnedVariant) -> Option<OwnedObjectPath> {
 async fn start(
     session: &Session,
     restore: Option<String>,
-    tx: &mpsc::Sender<Report<(Session, Option<String>)>>,
+    tx: &mpsc::Sender<Report<Started>>,
 ) -> anyhow::Result<Option<String>> {
     let token = handle_token("select");
     let mut select = vec![
@@ -318,12 +339,15 @@ where
             bail!("the request is {}, not {path}", handle.as_str());
         }
         let portal = sender(&reply);
+        // ponytail: more Responses forged on this path than the stream queues (64) can stall zbus's reader until the
+        // method timeout, and a portal restarted mid-request is waited out to the step's end; track
+        // NameOwnerChanged and size the queue if either matters.
         loop {
             let msg = std::future::poll_fn(|cx| std::pin::Pin::new(&mut stream).poll_next(cx))
                 .await
                 .context("the bus closed")?
                 .map_err(flat)?;
-            if portal.is_some() && sender(&msg) == portal {
+            if from_portal(portal.as_deref(), sender(&msg).as_deref())? {
                 return msg
                     .body()
                     .deserialize::<(u32, HashMap<String, OwnedVariant>)>()
@@ -338,6 +362,13 @@ where
 
 fn sender(msg: &zbus::Message) -> Option<String> {
     msg.header().sender().map(|s| s.to_string())
+}
+
+/// Whether a Response sent by `response` comes from `portal`, the sender of the call's reply. A reply has a sender on
+/// any bus; one without is an error, not a wait for a Response that can never match.
+fn from_portal(portal: Option<&str>, response: Option<&str>) -> anyhow::Result<bool> {
+    let portal = portal.context("the reply has no sender")?;
+    Ok(response == Some(portal))
 }
 
 /// A zbus error as its own text: its source (the D-Bus or I/O error inside) would say the same again.
@@ -383,11 +414,15 @@ fn shaped(token: &str) -> bool {
 /// The stored token: a regular file of at most 4 KiB with a token's shape; anything else is sent as no token.
 fn read_token(path: &Path) -> Option<String> {
     use std::io::Read as _;
-    // Checked before opening: opening a FIFO would wait for a writer.
-    if !std::fs::metadata(path).ok()?.is_file() {
+    // O_NONBLOCK: opening a FIFO doesn't wait for a writer; the type is then checked on what was opened.
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(0o4000)
+        .open(path)
+        .ok()?;
+    if !file.metadata().ok()?.is_file() {
         return None;
     }
-    let file = std::fs::File::open(path).ok()?;
     let mut text = String::new();
     file.take(4097).read_to_string(&mut text).ok()?;
     let token = text.trim();
@@ -397,26 +432,37 @@ fn read_token(path: &Path) -> Option<String> {
     shaped(token).then(|| token.to_string())
 }
 
-/// Replaces the stored token with `token` (mode 0600, through a new file of this process's renamed over it), or
-/// deletes it for `None`.
-fn save_token(path: &Path, token: Option<&str>) -> std::io::Result<()> {
-    let Some(token) = token else {
-        return match std::fs::remove_file(path) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            r => r,
-        };
-    };
+/// Replaces the stored token with `token` (mode 0600, through a new file of this process's renamed over it).
+fn save_token(path: &Path, token: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
     let new = temp_path(path);
-    std::fs::OpenOptions::new()
+    // The name has this process's pid: one left there is a dead run's of the same pid.
+    let _ = std::fs::remove_file(&new);
+    let written = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
-        .open(&new)?
-        .write_all(token.as_bytes())?;
-    std::fs::rename(&new, path)
+        .open(&new)
+        .and_then(|mut f| f.write_all(token.as_bytes()))
+        .and_then(|()| std::fs::rename(&new, path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&new);
+    }
+    written
+}
+
+/// Deletes the stored token if it is still `sent` (no token for `None`): another run may have stored a new one since.
+// ponytail: compare, then remove; a run storing between the two loses its token, which costs one dialog.
+fn remove_token(path: &Path, sent: Option<&str>) -> std::io::Result<()> {
+    if read_token(path).as_deref() != sent {
+        return Ok(());
+    }
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        r => r,
+    }
 }
 
 /// `<file>.new.<pid>`: two runs at once each write their own.
@@ -512,14 +558,14 @@ mod tests {
         let file = token_path_from(Some(dir.clone().into()), None).unwrap();
         assert_eq!(read_token(&file), None);
         // Deleting a token that isn't there is fine.
-        save_token(&file, None).unwrap();
-        save_token(&file, Some("abc_DEF-1")).unwrap();
+        remove_token(&file, None).unwrap();
+        save_token(&file, "abc_DEF-1").unwrap();
         assert_eq!(read_token(&file).as_deref(), Some("abc_DEF-1"));
         let mode = std::fs::metadata(&file).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
         // A token file someone made world-readable is replaced by a private one.
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
-        save_token(&file, Some("second")).unwrap();
+        save_token(&file, "second").unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "second");
         let mode = std::fs::metadata(&file).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
@@ -527,7 +573,27 @@ mod tests {
         assert!(temp_path(&file)
             .to_string_lossy()
             .ends_with(&format!("portal-token.new.{}", std::process::id())));
-        save_token(&file, None).unwrap();
+        // A temp file of this pid left by a dead run doesn't stop a write.
+        std::fs::write(temp_path(&file), "left").unwrap();
+        save_token(&file, "third").unwrap();
+        assert_eq!(read_token(&file).as_deref(), Some("third"));
+        assert!(!temp_path(&file).exists());
+        // A write that fails leaves no temp file: here the rename, over a directory.
+        let blocked = dir.join("blocked");
+        std::fs::create_dir_all(blocked.join("inside")).unwrap();
+        assert!(save_token(&blocked, "x").is_err());
+        assert!(!temp_path(&blocked).exists());
+        // Deleted only while it is still the token that was sent: another run's newer one stays.
+        remove_token(&file, Some("other")).unwrap();
+        assert!(file.exists());
+        remove_token(&file, Some("third")).unwrap();
+        assert!(!file.exists());
+        std::fs::write(&file, "two words").unwrap();
+        save_token(&file, "fourth").unwrap();
+        remove_token(&file, None).unwrap();
+        assert!(file.exists());
+        std::fs::write(&file, "two words").unwrap();
+        remove_token(&file, None).unwrap();
         assert!(!file.exists());
         // A garbage file is no token.
         for garbage in ["", "  \n", "two words", "a/b", "tok\nen", "\u{fffd}x"] {
@@ -563,14 +629,24 @@ mod tests {
         use TokenFile::*;
         // Started: Start's token replaces the stored one; none (or an empty or misshapen one) deletes it.
         for sent in [false, true] {
-            assert_eq!(token_after(sent, Some(Some("fake-1"))), Write("fake-1"));
-            assert_eq!(token_after(sent, Some(None)), Delete);
-            assert_eq!(token_after(sent, Some(Some(""))), Delete);
-            assert_eq!(token_after(sent, Some(Some("a b"))), Delete);
+            assert_eq!(token_after(sent, Ok(Some("fake-1"))), Write("fake-1"));
+            assert_eq!(token_after(sent, Ok(None)), Delete);
+            assert_eq!(token_after(sent, Ok(Some(""))), Delete);
+            assert_eq!(token_after(sent, Ok(Some("a b"))), Delete);
         }
-        // Failed: a token sent is one the portal may no longer honour; with none sent there is nothing to change.
-        assert_eq!(token_after(true, None), Delete);
-        assert_eq!(token_after(false, None), Keep);
+        // Failed: a token sent is deleted once SelectDevices had it; before that the portal never saw it, and with
+        // none sent there is nothing to change.
+        for (step, sent_deletes) in [
+            ("connect", false),
+            ("AvailableDeviceTypes", false),
+            ("CreateSession", false),
+            ("SelectDevices", true),
+            ("Start", true),
+        ] {
+            let want = if sent_deletes { Delete } else { Keep };
+            assert_eq!(token_after(true, Err(step)), want, "{step}");
+            assert_eq!(token_after(false, Err(step)), Keep, "{step}");
+        }
     }
 
     #[test]
@@ -583,16 +659,22 @@ mod tests {
             ("SelectDevices", ms(50)),
             ("Start", ms(80)),
         ];
+        let failed = |r: Result<&str, (&str, anyhow::Error)>| {
+            let (step, e) = r.unwrap_err();
+            (step.to_string(), e.to_string())
+        };
         // A handshake that stops reporting after n steps times out on step n, with that step's wait.
         for (n, (step, wait)) in short.iter().enumerate() {
             let (tx, rx) = mpsc::channel::<Report<&str>>();
             for _ in 0..n {
                 tx.send(Ok(None)).unwrap();
             }
-            let err = super::wait(&rx, &short).unwrap_err();
             assert_eq!(
-                err.to_string(),
-                format!("portal {step}: no answer within {wait:?}")
+                failed(super::wait(&rx, &short)),
+                (
+                    step.to_string(),
+                    format!("portal {step}: no answer within {wait:?}")
+                )
             );
             drop(tx);
         }
@@ -601,26 +683,45 @@ mod tests {
         tx.send(Ok(None)).unwrap();
         tx.send(Ok(None)).unwrap();
         drop(tx);
-        let err = super::wait(&rx, &steps(true)).unwrap_err();
         assert_eq!(
-            err.to_string(),
-            "portal CreateSession: the handshake stopped"
+            failed(super::wait(&rx, &steps(true))),
+            (
+                "CreateSession".into(),
+                "portal CreateSession: the handshake stopped".into()
+            )
         );
-        // The last report is the result; an error is passed on as it is.
+        // The last report is the result; an error is passed on as it is, at the step it came in.
         let (tx, rx) = mpsc::channel::<Report<&str>>();
         for _ in 0..4 {
             tx.send(Ok(None)).unwrap();
         }
         tx.send(Ok(Some("started"))).unwrap();
-        assert_eq!(super::wait(&rx, &steps(false)).unwrap(), "started");
+        assert_eq!(super::wait(&rx, &steps(false)).ok(), Some("started"));
         let (tx, rx) = mpsc::channel::<Report<&str>>();
-        tx.send(Ok(None)).unwrap();
+        for _ in 0..3 {
+            tx.send(Ok(None)).unwrap();
+        }
         tx.send(Err(anyhow::anyhow!("the desktop refused keyboard control")))
             .unwrap();
+        drop(tx);
         assert_eq!(
-            super::wait(&rx, &steps(false)).unwrap_err().to_string(),
-            "the desktop refused keyboard control"
+            failed(super::wait(&rx, &steps(false))),
+            (
+                "SelectDevices".into(),
+                "the desktop refused keyboard control".into()
+            )
         );
+        // After a reported error the handshake's Close gets its time, but not forever.
+        let (tx, rx) = mpsc::channel::<Report<&str>>();
+        tx.send(Err(anyhow::anyhow!("refused"))).unwrap();
+        let closing = std::thread::spawn(move || {
+            std::thread::sleep(ms(100));
+            drop(tx);
+        });
+        let started = std::time::Instant::now();
+        assert_eq!(failed(super::wait(&rx, &steps(false))).0, "connect");
+        assert!(started.elapsed() >= ms(100));
+        closing.join().unwrap();
         // Out of step: a result before Start, or a step report where the result belongs.
         let (tx, rx) = mpsc::channel::<Report<&str>>();
         for _ in 0..3 {
@@ -628,7 +729,7 @@ mod tests {
         }
         tx.send(Ok(Some("early"))).unwrap();
         assert_eq!(
-            super::wait(&rx, &steps(false)).unwrap_err().to_string(),
+            failed(super::wait(&rx, &steps(false))).1,
             "portal SelectDevices: the handshake is out of step"
         );
         let (tx, rx) = mpsc::channel::<Report<&str>>();
@@ -636,8 +737,19 @@ mod tests {
             tx.send(Ok(None)).unwrap();
         }
         assert_eq!(
-            super::wait(&rx, &steps(false)).unwrap_err().to_string(),
+            failed(super::wait(&rx, &steps(false))).1,
             "portal Start: the handshake is out of step"
+        );
+    }
+
+    #[test]
+    fn only_the_portal_answers() {
+        assert!(from_portal(Some(":1.5"), Some(":1.5")).unwrap());
+        assert!(!from_portal(Some(":1.5"), Some(":1.9")).unwrap());
+        assert!(!from_portal(Some(":1.5"), None).unwrap());
+        assert_eq!(
+            from_portal(None, Some(":1.5")).unwrap_err().to_string(),
+            "the reply has no sender"
         );
     }
 
