@@ -241,6 +241,7 @@ pub fn send(window: Option<&str>, e: &Entry, dry_run: bool) -> anyhow::Result<()
         crate::context::window().wm.as_deref(),
         &mut std::io::stdout().lock(),
         &run_all,
+        &crate::portal::send,
     )
 }
 
@@ -248,7 +249,8 @@ fn is_wayland(wayland_display: Option<&std::ffi::OsStr>) -> bool {
     wayland_display.is_some_and(|v| !v.is_empty())
 }
 
-/// `send` with the session (`kde`, `gnome`, … from `context::detect`) and the runner as parameters.
+/// `send` with the session (`kde`, `gnome`, … from `context::detect`), the runner and the portal sender as parameters.
+#[allow(clippy::too_many_arguments)]
 fn send_with(
     window: Option<&str>,
     e: &Entry,
@@ -257,9 +259,10 @@ fn send_with(
     session: Option<&str>,
     out: &mut dyn Write,
     run: &dyn Fn(&[Vec<String>]) -> anyhow::Result<()>,
+    portal: &dyn Fn(&Entry) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    // KWin and Mutter don't implement the virtual-keyboard protocol wtype needs, so a send there can only fail. Said
-    // before `check`, whose reasons (a modifier wtype lacks) wouldn't matter there.
+    // KWin and Mutter don't implement the virtual-keyboard protocol wtype needs: keys go through their RemoteDesktop
+    // portal instead. Said before `check`, whose reasons (a modifier wtype lacks) wouldn't matter there.
     let desktop = match session {
         Some("kde") => "KDE",
         Some("gnome") => "GNOME",
@@ -272,6 +275,11 @@ fn send_with(
         } else {
             "press"
         };
+        // A portal failure still names the keys. A `run` entry's key is only shown, so no session for it.
+        if e.bind.run.is_empty() {
+            portal(e).map_err(|err| anyhow::anyhow!("{err:#}: {verb} {} yourself", e.bind.key))?;
+        }
+        // No keys go through the session yet: the pick ends as it did before the portal.
         bail!(
             "can't send keys under {desktop} on Wayland (no virtual-keyboard protocol for wtype): {verb} {} yourself",
             e.bind.key
@@ -587,6 +595,10 @@ mod tests {
         panic!("a dry run must not run anything")
     }
 
+    fn no_portal(_: &Entry) -> anyhow::Result<()> {
+        panic!("only a real send under KDE or GNOME on Wayland opens a portal session")
+    }
+
     fn macro_entry(key: &str, run: &[&str]) -> Entry {
         let mut e = entry("sheets", key);
         e.bind.run = v(run);
@@ -620,14 +632,34 @@ mod tests {
         );
         // --print renders it like the xdotool lines.
         let mut out = Vec::new();
-        send_with(Some("123"), &m, true, false, None, &mut out, &never_run).unwrap();
+        send_with(
+            Some("123"),
+            &m,
+            true,
+            false,
+            None,
+            &mut out,
+            &never_run,
+            &no_portal,
+        )
+        .unwrap();
         assert_eq!(
             String::from_utf8(out).unwrap(),
             "xdotool windowactivate --sync 123\n/home/me/.config/macros/x11/login --fast\n"
         );
         // Under KDE or GNOME on Wayland keys can't be sent, but a program can be run.
         let mut out = Vec::new();
-        send_with(None, &m, true, true, Some("kde"), &mut out, &never_run).unwrap();
+        send_with(
+            None,
+            &m,
+            true,
+            true,
+            Some("kde"),
+            &mut out,
+            &never_run,
+            &no_portal,
+        )
+        .unwrap();
         // A real send runs the focus command through the runner and starts the program without waiting for it.
         let ran = RefCell::new(Vec::new());
         let record = |cmds: &[Vec<String>]| {
@@ -644,6 +676,7 @@ mod tests {
             None,
             &mut Vec::new(),
             &record,
+            &no_portal,
         )
         .unwrap();
         assert!(started.elapsed() < Duration::from_secs(1));
@@ -653,8 +686,17 @@ mod tests {
         );
         // A program that can't start is an error naming it; an empty one is refused before anything runs.
         let missing = macro_entry("", &["/nonexistent-kbf/macro"]);
-        let err =
-            send_with(None, &missing, false, false, None, &mut Vec::new(), &record).unwrap_err();
+        let err = send_with(
+            None,
+            &missing,
+            false,
+            false,
+            None,
+            &mut Vec::new(),
+            &record,
+            &no_portal,
+        )
+        .unwrap_err();
         assert!(
             format!("{err:#}").contains("running /nonexistent-kbf/macro"),
             "{err:#}"
@@ -667,6 +709,7 @@ mod tests {
             None,
             &mut Vec::new(),
             &never_run,
+            &no_portal,
         )
         .unwrap_err();
         assert!(err.to_string().contains("no program to run"), "{err}");
@@ -683,6 +726,7 @@ mod tests {
             None,
             &mut out,
             &never_run,
+            &no_portal,
         )
         .unwrap();
         assert_eq!(
@@ -699,6 +743,7 @@ mod tests {
             None,
             &mut out,
             &never_run,
+            &no_portal,
         )
         .unwrap();
         assert_eq!(
@@ -726,9 +771,19 @@ mod tests {
     fn dry_run_into_a_closed_pipe() {
         let e = entry("x", "a");
         let mut closed = Broken(std::io::ErrorKind::BrokenPipe);
-        assert!(send_with(None, &e, true, false, None, &mut closed, &never_run).is_ok());
+        assert!(send_with(
+            None,
+            &e,
+            true,
+            false,
+            None,
+            &mut closed,
+            &never_run,
+            &no_portal
+        )
+        .is_ok());
         let mut full = Broken(std::io::ErrorKind::StorageFull);
-        assert!(send_with(None, &e, true, false, None, &mut full, &never_run).is_err());
+        assert!(send_with(None, &e, true, false, None, &mut full, &never_run, &no_portal).is_err());
     }
 
     #[test]
@@ -746,6 +801,7 @@ mod tests {
             None,
             &mut Vec::new(),
             &record,
+            &no_portal,
         )
         .unwrap();
         assert_eq!(
@@ -760,14 +816,17 @@ mod tests {
             false,
             None,
             &mut Vec::new(),
-            &never_run
+            &never_run,
+            &no_portal
         )
         .is_err());
     }
 
     #[test]
-    fn kde_and_gnome_on_wayland_refuse_a_real_send() {
+    fn kde_and_gnome_on_wayland_send_through_the_portal() {
         for (session, name) in [("kde", "KDE"), ("gnome", "GNOME")] {
+            // The session opens and closes; until keys are sent through it, the pick ends with the line it had.
+            let opened = RefCell::new(Vec::new());
             let err = send_with(
                 None,
                 &entry("x", "super+b"),
@@ -776,13 +835,49 @@ mod tests {
                 Some(session),
                 &mut Vec::new(),
                 &never_run,
+                &|e| {
+                    opened.borrow_mut().push(e.bind.key.clone());
+                    Ok(())
+                },
             )
             .unwrap_err();
+            assert_eq!(*opened.borrow(), ["super+b"], "{session}");
             assert_eq!(
                 err.to_string(),
                 format!("can't send keys under {name} on Wayland (no virtual-keyboard protocol for wtype): press super+b yourself")
             );
-            // `--print` still prints.
+            // A portal failure is one line that still names the keys.
+            let err = send_with(
+                None,
+                &entry("x", "super+b"),
+                false,
+                true,
+                Some(session),
+                &mut Vec::new(),
+                &never_run,
+                &|_| Err(anyhow::anyhow!("no answer").context("portal Start")),
+            )
+            .unwrap_err();
+            assert_eq!(
+                format!("{err:#}"),
+                "portal Start: no answer: press super+b yourself"
+            );
+            let err = send_with(
+                None,
+                &entry("x", "super+b"),
+                false,
+                true,
+                Some(session),
+                &mut Vec::new(),
+                &never_run,
+                &|_| Err(anyhow::anyhow!("the desktop refused keyboard control")),
+            )
+            .unwrap_err();
+            assert_eq!(
+                format!("{err:#}"),
+                "the desktop refused keyboard control: press super+b yourself"
+            );
+            // `--print` still prints, and opens no session.
             let mut out = Vec::new();
             send_with(
                 None,
@@ -792,11 +887,28 @@ mod tests {
                 Some(session),
                 &mut out,
                 &never_run,
+                &no_portal,
             )
             .unwrap();
             assert_eq!(
                 String::from_utf8(out).unwrap(),
                 "wtype -M logo -k b -m logo\n"
+            );
+            // A `run` entry with a key fails as before, with no session.
+            let err = send_with(
+                None,
+                &macro_entry("super+l", &["login"]),
+                false,
+                true,
+                Some(session),
+                &mut Vec::new(),
+                &never_run,
+                &no_portal,
+            )
+            .unwrap_err();
+            assert!(
+                err.to_string().starts_with("can't send keys under"),
+                "{err}"
             );
         }
         // An espanso trigger is to be typed.
@@ -808,9 +920,25 @@ mod tests {
             Some("kde"),
             &mut Vec::new(),
             &never_run,
+            &|_| Ok(()),
         )
         .unwrap_err();
         assert!(err.to_string().ends_with(": type :date yourself"), "{err}");
+        let err = send_with(
+            None,
+            &entry("espanso", ":date"),
+            false,
+            true,
+            Some("kde"),
+            &mut Vec::new(),
+            &never_run,
+            &|_| Err(anyhow::anyhow!("the desktop refused keyboard control")),
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "the desktop refused keyboard control: type :date yourself"
+        );
         // A modifier wtype lacks: the desktop is the reason given, not wtype.
         let err = send_with(
             None,
@@ -820,29 +948,39 @@ mod tests {
             Some("gnome"),
             &mut Vec::new(),
             &never_run,
+            &|_| Ok(()),
         )
         .unwrap_err();
         assert!(
             err.to_string().starts_with("can't send keys under GNOME"),
             "{err}"
         );
-        // KDE on X11 and sway under Wayland send as before.
-        for (session, wayland) in [("kde", false), ("sway", true)] {
+        // KDE and GNOME on X11, and every other session, send as before, with no portal.
+        for (session, wayland) in [
+            (Some("kde"), false),
+            (Some("gnome"), false),
+            (Some("sway"), true),
+            (Some("hyprland"), true),
+            (Some("niri"), true),
+            (None, true),
+            (None, false),
+        ] {
             let ran = RefCell::new(0);
             send_with(
                 Some("9"),
                 &entry("x", "super+b"),
                 false,
                 wayland,
-                Some(session),
+                session,
                 &mut Vec::new(),
                 &|_| {
                     *ran.borrow_mut() += 1;
                     Ok(())
                 },
+                &no_portal,
             )
             .unwrap();
-            assert_eq!(*ran.borrow(), 1, "{session}");
+            assert_eq!(*ran.borrow(), 1, "{session:?}");
         }
     }
 
@@ -856,6 +994,7 @@ mod tests {
             Some("niri"),
             &mut Vec::new(),
             &never_run,
+            &no_portal,
         )
         .unwrap_err();
         assert_eq!(
@@ -875,6 +1014,7 @@ mod tests {
                 ran.borrow_mut().extend_from_slice(c);
                 Ok(())
             },
+            &no_portal,
         )
         .unwrap();
         assert_eq!(
@@ -897,6 +1037,7 @@ mod tests {
                     *ran.borrow_mut() += 1;
                     Ok(())
                 },
+                &no_portal,
             )
             .unwrap();
             assert_eq!(*ran.borrow(), 1, "{session}");
@@ -911,6 +1052,7 @@ mod tests {
             Some("niri"),
             &mut out,
             &never_run,
+            &no_portal,
         )
         .unwrap();
         assert_eq!(

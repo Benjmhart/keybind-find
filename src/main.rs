@@ -2,6 +2,7 @@ mod capture;
 mod config;
 mod context;
 mod picker;
+mod portal;
 mod providers;
 mod run;
 mod scope;

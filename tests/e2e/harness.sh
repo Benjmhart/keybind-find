@@ -268,6 +268,73 @@ w() {
   sleep 0.5
 }
 
+# p NAME MODE: picks sent through the RemoteDesktop portal under a faked GNOME session on sway's display (no SWAYSOCK,
+# XDG_CURRENT_DESKTOP=GNOME and a process named gnome-shell: a copy of sleep), the portal being tests/e2e/fake_portal.py
+# on this session bus, answering as its MODE says (`fake_portal.py --plan MODE`: how many picks, and the token stored
+# before them). fake_portal.py --check checks the calls, the token file and each pick's stderr.
+# The pick is GNOME's `minimize`, set to ctrl+shift+k, not a global sheet's entry: under GNOME on Wayland keybind-find
+# reads no focused window, so it has no class and runs no sheets provider (context.rs `providers_for`), and a sheet
+# can't apply. Picked by a dmenu-style grep.
+p() {
+  local name=$1 mode=$2 state=/tmp/$1-state picks seed i line errs=()
+  wanted "$name" || return 0
+  read -r picks seed < <(python3 -I "$E/fake_portal.py" --plan "$mode")
+  rm -rf "$state" "$OUT/$name.calls"
+  if [ "$seed" != - ]; then
+    mkdir -p "$state/keybind-find" && (umask 077 && printf %s "$seed" >"$state/keybind-find/portal-token")
+  fi
+  mkdir -p /tmp/portal-bin && cp "$(command -v sleep)" /tmp/portal-bin/gnome-shell
+  PATH=/tmp/portal-bin:$PATH gnome-shell 300 &
+  local shell=$!
+  gsettings set org.gnome.desktop.wm.keybindings minimize "['<Control><Shift>k']"
+  # The image's real xdg-desktop-portal, if an earlier case's program started it on demand, owns the name and doesn't
+  # let it be replaced: stopped (with its backends) and its name gone before the fake takes it.
+  pkill -f '^/usr/lib/xdg-desktop-portal' 2>/dev/null
+  for _ in $(seq 50); do
+    gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+      --method org.freedesktop.DBus.NameHasOwner org.freedesktop.portal.Desktop 2>/dev/null | grep -q true || break
+    sleep 0.1
+  done
+  # `absent`: no fake, and the pick runs on a bus of its own with no services, so no real portal can be started either.
+  local fake="" bus=()
+  if [ "$mode" = absent ]; then
+    printf '%s\n' '<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth>' \
+      '<policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/>' \
+      '<allow own="*"/></policy></busconfig>' >/tmp/portal-bare-bus.conf
+    bus=(dbus-run-session --config-file=/tmp/portal-bare-bus.conf --)
+    echo ready >"$OUT/$name.fake.log"
+  else
+    FAKE_PORTAL=$mode python3 -I "$E/fake_portal.py" "$OUT/$name.calls" >"$OUT/$name.fake.log" 2>&1 &
+    fake=$!
+    gdbus wait --session --timeout 10 org.freedesktop.portal.Desktop >/dev/null 2>&1
+    # The name is the fake's once it says so (it quits if another owner keeps it).
+    for _ in $(seq 100); do
+      grep -qx ready "$OUT/$name.fake.log" 2>/dev/null && break
+      kill -0 "$fake" 2>/dev/null || break
+      sleep 0.1
+    done
+  fi
+  if ! grep -qx ready "$OUT/$name.fake.log" 2>/dev/null; then
+    record "$name" "FAIL	the fake portal didn't get the name	$(tail -c 300 "$OUT/$name.fake.log" | tr '\n\t' '  ')"
+    FAILED=1
+  else
+    for i in $(seq "$picks"); do
+      ${bus[@]+"${bus[@]}"} env -u SWAYSOCK XDG_CURRENT_DESKTOP=GNOME XDG_STATE_HOME="$state" \
+        KEYBIND_FIND_PICKER='grep -m1 minimize' timeout 30 "$KBF" >/dev/null 2>"$OUT/$name.$i.err"
+      errs+=("$OUT/$name.$i.err")
+    done
+    if line=$(python3 -I "$E/fake_portal.py" --check "$mode" "$OUT/$name.calls" \
+         "$state/keybind-find/portal-token" "${errs[@]}" 2>&1); then
+      record "$name" "$line"
+    else
+      record "$name" "FAIL	${line#FAIL	}"
+      FAILED=1
+    fi
+  fi
+  gsettings reset org.gnome.desktop.wm.keybindings minimize
+  kill $fake "$shell" 2>/dev/null; wait $fake "$shell" 2>/dev/null
+}
+
 # n NAME "PROVIDERS" "PROVIDER|KEY|DESC" -- COMMAND...: a case under niri (its phase), the program started through
 # niri (`niri msg action spawn`), its focus read through niri's IPC as keybind-find reads it.
 # niri double-forks what it spawns (src/utils/spawning.rs:178, and :275 on its systemd path, at v26.04), so the
