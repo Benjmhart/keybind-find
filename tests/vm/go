@@ -28,7 +28,10 @@ EOF
   # nothing (which keybind-find takes as a cancel).
   cat >"$out/pick" <<'EOF' || exit 1
 #!/bin/sh
-grep -m1 vm-check || { echo 'no vm-check entry in the list' >&2; exit 1; }
+grep -m1 vm-check && exit 0
+# 1: no match; 2: grep's own error, already printed.
+[ $? = 1 ] && echo 'no vm-check entry in the list' >&2
+exit 1
 EOF
   chmod +x "$out/pick" || exit 1
   command -v "$editor" >/dev/null || { echo "go: $editor is not installed"; exit 1; }
@@ -48,7 +51,7 @@ EOF
     echo "desktop: ${XDG_CURRENT_DESKTOP:-?} (${XDG_SESSION_TYPE:-?})"
     # shellcheck disable=SC2086 # one word per package
     rpm -q $pkgs
-    rpm -qf "$(command -v "$compositor")"
+    rpm -qf "$(command -v "$compositor")" 2>/dev/null || echo "$compositor: not found"
     for n in 1 2; do
       echo "pick $n: exit $(cat "$out/pick$n.rc")"
       sed 's/^/  stderr: /' "$out/pick$n.err"

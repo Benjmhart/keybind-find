@@ -30,10 +30,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if len(data) != n:
             self.send_error(400, "the body is shorter than its Content-Length")
             return
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(REPORT), prefix=".report.")
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        os.replace(tmp, REPORT)
+        tmp = None
+        try:
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(REPORT), prefix=".report.")
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            os.replace(tmp, REPORT)
+        except OSError as e:
+            if tmp:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+            self.send_error(500, f"can't save the report: {e.strerror}")
+            return
         self.send_response(201)
         self.send_header("Content-Length", "0")
         self.end_headers()
