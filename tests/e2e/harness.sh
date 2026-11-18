@@ -282,6 +282,14 @@ p() {
   PATH=/tmp/portal-bin:$PATH gnome-shell 300 &
   local shell=$!
   gsettings set org.gnome.desktop.wm.keybindings minimize "['<Control><Shift>k']"
+  # The image's real xdg-desktop-portal, if an earlier case's program started it on demand, owns the name: stopped (with
+  # its backends) and its name gone before the fake takes it.
+  pkill -f '^/usr/lib/xdg-desktop-portal' 2>/dev/null
+  for _ in $(seq 50); do
+    gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+      --method org.freedesktop.DBus.NameHasOwner org.freedesktop.portal.Desktop 2>/dev/null | grep -q true || break
+    sleep 0.1
+  done
   FAKE_PORTAL_START=$response python3 -I "$E/fake_portal.py" "$OUT/$name.calls" >"$OUT/$name.fake.log" 2>&1 &
   local fake=$!
   if ! gdbus wait --session --timeout 10 org.freedesktop.portal.Desktop >/dev/null 2>&1; then
