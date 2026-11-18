@@ -686,9 +686,19 @@ first pick shows Plasma's dialog asking to allow remote control: allow it and ti
 later picks are sent without asking (without it ticked the dialog shows on every pick). The approval is kept as a
 restore token in `~/.local/state/keybind-find/portal-token` (`$XDG_STATE_HOME/keybind-find/portal-token`); delete
 that file to revoke it, and the next pick asks again. Plasma shows a "Remote Control Started" notification, and a tray
-item while the keys are sent, on every pick. Keys go as X keysyms through your current layout. A refused dialog, or a
-key the portal can't send, ends with an error naming the keys to press (`press super+e yourself`). `--print` prints
-as anywhere else. The list shows with fuzzel, which works on KWin.
+item while the keys are sent, on every pick. A refused dialog, or a key name keybind-find doesn't know, ends with an
+error naming the keys to press (`press super+e yourself`). `--print` prints as anywhere else. The list shows with
+fuzzel, which works on KWin.
+
+Keys go as X keysyms, which the desktop looks up in your current layout (here and on [GNOME](#gnome)):
+
+- A key or character your layout lacks, in a chord as in an espanso trigger: GNOME drops it with no error; KWin
+  types it through a keymap of its own for that key, and drops it with no error if it can't.
+- `mod5` needs a layout with AltGr (Level3), and KWin lets go of it at once, so on KDE a `mod5` chord arrives without
+  it.
+- With Caps Lock on, an espanso trigger is typed with its letters' case swapped.
+- Mutter can't reach a key's fourth level or above (AltGr+Shift: `Ł` on a Polish layout) and types that key's
+  plain character instead.
 
 ### i3
 
@@ -776,8 +786,7 @@ an extension), so the list has GNOME's shortcuts and espanso. Mutter doesn't off
 `wtype` needs, so a pick there is sent through the RemoteDesktop portal (`xdg-desktop-portal` with its GNOME backend,
 which GNOME installs), as on [KDE](#kde-plasma): the first pick asks to allow remote control; tick the option to
 remember it and later picks are sent without asking. The token is the same file, and deleting it revokes the
-approval. Mutter presses only keys on your current layout, so an espanso trigger with a character the layout lacks
-isn't fully typed. `--print` prints as anywhere else. The list opens in fzf in alacritty, an ordinary window
+approval. Keys are looked up in your layout as [on KDE](#kde-plasma). `--print` prints as anywhere else. The list opens in fzf in alacritty, an ordinary window
 (fuzzel needs layer-shell, which Mutter lacks), with key search off as on any Wayland; without fzf or alacritty it
 falls back to fuzzel, with one line saying to install them or set `[picker]` ([docs/picker.md](docs/picker.md)).
 

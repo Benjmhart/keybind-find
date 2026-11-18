@@ -38,6 +38,8 @@ pub fn send(e: &Entry) -> anyhow::Result<()> {
     let events = events(e)?;
     let token_file = token_path_from(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"));
     let session = open(token_file.as_deref())?;
+    // ponytail: no deadline for the whole send, only 5 s per NotifyKeyboardKeysym (xdg-desktop-portal answers each at
+    // once and passes it on unwaited); a long espanso trigger on a stalled portal could take keys × 5 s.
     let sent = press(&events, |keysym, state| session.notify(keysym, state))
         .context("portal NotifyKeyboardKeysym");
     // A session that won't close ends with keybind-find anyway: said, not the pick's error.
@@ -47,22 +49,38 @@ pub fn send(e: &Entry) -> anyhow::Result<()> {
     sent
 }
 
-/// keysymdef.h's names and values, `name 0xvalue` per line.
+/// xorgproto's keysyms: `name 0xvalue` (keysymdef.h, then XF86keysym.h), then `U+XXXX 0xvalue`, the named keysym
+/// for a code point.
 const KEYSYMS: &str = include_str!("../data/keysyms/xorgproto-2026.1.txt");
 /// `NotifyKeyboardKeysym`'s state.
 const PRESS: u32 = 1;
 const RELEASE: u32 = 0;
 
-/// The keysym named `name` (case matters: `k` and `K` are two).
+/// The keysym named `name`: exactly, else ignoring case, as wtype and xkbcommon find one (`return`, `page_up`); of
+/// several names that differ only in case, the one with the fewest capitals (`agrave` for `AGRAVE`). A one-letter
+/// name always matches exactly: keysymdef.h has every ASCII letter in both cases.
 fn keysym(name: &str) -> Option<u32> {
-    // ponytail: a scan of ~2100 lines per name, a few names per pick; a map if a pick ever has hundreds.
-    KEYSYMS.lines().find_map(|line| {
+    // ponytail: a scan of ~3300 lines per name, a few names per pick; a map if a pick ever has hundreds.
+    let value = |line: &str, matches: &dyn Fn(&str) -> bool| {
         let (n, v) = line.split_once(' ')?;
-        if n != name || n.starts_with('#') {
-            return None;
-        }
-        u32::from_str_radix(v.strip_prefix("0x")?, 16).ok()
-    })
+        matches(n).then(|| u32::from_str_radix(v.strip_prefix("0x")?, 16).ok())?
+    };
+    if let Some(k) = KEYSYMS.lines().find_map(|l| value(l, &|n| n == name)) {
+        return Some(k);
+    }
+    KEYSYMS
+        .lines()
+        .filter_map(|l| {
+            let caps = l
+                .split(' ')
+                .next()?
+                .chars()
+                .filter(char::is_ascii_uppercase)
+                .count();
+            Some((caps, value(l, &|n| n.eq_ignore_ascii_case(name))?))
+        })
+        .min_by_key(|&(caps, _)| caps)
+        .map(|(_, k)| k)
 }
 
 /// Our modifier names (and xmonad's mod1, mod4, mod5) as the keysyms pressed for them.
@@ -95,12 +113,18 @@ pub fn events(e: &Entry) -> anyhow::Result<Vec<(u32, u32)>> {
     for chord in key.split_whitespace() {
         let mut parts: Vec<&str> = chord.split('+').collect();
         let name = parts.pop().unwrap_or_default();
-        let mut mods = parts
-            .into_iter()
-            .map(|m| {
-                modifier(m).with_context(|| format!("refusing to send {key:?}: no modifier {m:?}"))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        if modifier(name).is_some() {
+            bail!("refusing to send {key:?}: {chord:?} is a modifier alone");
+        }
+        // Each modifier once, where it first comes (`super+mod4+a` presses Super_L once).
+        let mut mods = Vec::new();
+        for m in parts {
+            let m = modifier(m)
+                .with_context(|| format!("refusing to send {key:?}: no modifier {m:?}"))?;
+            if !mods.contains(&m) {
+                mods.push(m);
+            }
+        }
         let lower = name.to_ascii_lowercase();
         let name = if name.len() == 1 && name.as_bytes()[0].is_ascii_uppercase() {
             if !mods.contains(&"Shift_L") {
@@ -122,19 +146,25 @@ pub fn events(e: &Entry) -> anyhow::Result<Vec<(u32, u32)>> {
     Ok(events)
 }
 
-/// A character's keysym (keysymdef.h): Latin-1's printable characters are their own code, any other is
-/// 0x01000000 + its code point.
+/// A character's keysym, as xkbcommon's `xkb_utf32_to_keysym` gives it: Latin-1's printable characters are their own
+/// code, any other is the named keysym keysymdef.h gives for it (`Cyrillic_zhe`, which layouts carry and Mutter
+/// matches), else 0x01000000 + its code point. A newline stays 0x0100000a (not Linefeed): planning's choice.
 fn char_keysym(c: char) -> u32 {
     let cp = u32::from(c);
     if matches!(cp, 0x20..=0x7e | 0xa0..=0xff) {
-        cp
-    } else {
-        0x0100_0000 + cp
+        return cp;
     }
+    let prefix = format!("U+{cp:04X} 0x");
+    KEYSYMS
+        .lines()
+        .find_map(|l| u32::from_str_radix(l.strip_prefix(&prefix)?, 16).ok())
+        .filter(|_| c != '\n')
+        .unwrap_or(0x0100_0000 + cp)
 }
 
 /// Sends `events` through `notify` in order. When one fails, the keys still down are released, last pressed first,
-/// so no modifier stays held, and that failure is the result.
+/// so no modifier stays held, and that failure is the result. A press that failed (or timed out) may still have reached
+/// the desktop, so its key is released too: releasing a key that is up does nothing.
 fn press(
     events: &[(u32, u32)],
     mut notify: impl FnMut(u32, u32) -> anyhow::Result<()>,
@@ -142,6 +172,9 @@ fn press(
     let mut down = Vec::new();
     for &(keysym, state) in events {
         if let Err(e) = notify(keysym, state) {
+            if state == PRESS {
+                down.push(keysym);
+            }
             for &k in down.iter().rev() {
                 let _ = notify(k, RELEASE);
             }
@@ -934,8 +967,16 @@ mod tests {
 
     #[test]
     fn the_keysym_table() {
-        let names = KEYSYMS.lines().filter(|l| !l.starts_with('#')).count();
-        assert_eq!(names, 2114);
+        let count = |prefix: &str| {
+            KEYSYMS
+                .lines()
+                .filter(|l| !l.starts_with('#') && l.starts_with(prefix))
+                .count()
+        };
+        // keysymdef.h's 2114 names, XF86keysym.h's 398, and 729 code points with a named keysym.
+        assert_eq!(count(""), 2114 + 398 + 729);
+        assert_eq!(count("XF86"), 398);
+        assert_eq!(count("U+"), 729);
         for (name, value) in [
             ("k", 0x6b),
             ("K", 0x4b),
@@ -944,10 +985,24 @@ mod tests {
             ("Super_L", SUPER),
             ("ISO_Level3_Shift", LEVEL3),
             ("EuroSign", 0x20ac),
+            ("XF86AudioRaiseVolume", 0x1008ff13),
+            // XF86keysym.h's _EVDEVK(0x0a4): 0x10081000 + 0x0a4.
+            ("XF86MediaPlayPause", 0x100810a4),
+            // Not exact: ignoring case, as wtype and xkbcommon find it.
+            ("return", 0xff0d),
+            ("page_up", 0xff55),
+            ("xf86audioraisevolume", 0x1008ff13),
+            // Several names that differ only in case: the one with the fewest capitals.
+            ("AGRAVE", 0xe0),
+            ("CYRILLIC_ZHE", 0x6d6),
+            // Exact first.
+            ("Agrave", 0xc0),
         ] {
             assert_eq!(keysym(name), Some(value), "{name}");
         }
-        for name in ["", "#", "kk", "Foo", "XK_k", "return"] {
+        // Case is folded for ASCII only; the header is
+        // not names (and the code-point section can't be asked for: a chord's parts have no `+`).
+        for name in ["", "#", "kk", "Foo", "XK_k", "XF86XK_AudioMute", "Ж"] {
             assert_eq!(keysym(name), None, "{name}");
         }
     }
@@ -999,8 +1054,32 @@ mod tests {
                 (SHIFT, 0)
             ])
         );
-        // Not a single letter: the name as it is.
+        // Not a single letter: the name as it is, or ignoring case.
         assert_eq!(evs("x", "F5"), Ok(vec![(0xffc2, 1), (0xffc2, 0)]));
+        assert_eq!(
+            evs("x", "super+return XF86AudioRaiseVolume"),
+            Ok(vec![
+                (SUPER, 1),
+                (0xff0d, 1),
+                (0xff0d, 0),
+                (SUPER, 0),
+                (0x1008ff13, 1),
+                (0x1008ff13, 0)
+            ])
+        );
+        // Each modifier once, where it first comes.
+        assert_eq!(
+            evs("x", "super+ctrl+mod4+ctrl+a"),
+            Ok(vec![
+                (SUPER, 1),
+                (CTRL, 1),
+                (0x61, 1),
+                (0x61, 0),
+                (CTRL, 0),
+                (SUPER, 0)
+            ])
+        );
+        assert_eq!(evs("x", "alt+mod1+shift+A"), evs("x", "alt+shift+a"));
         // A key of three chords, one after another (extra spaces between them don't count).
         assert_eq!(
             evs("x", "ctrl+b  c super+mod5+x"),
@@ -1028,6 +1107,21 @@ mod tests {
             evs("x", "mod3+a"),
             Err(r#"refusing to send "mod3+a": no modifier "mod3""#.into())
         );
+        // A chord of modifiers only.
+        for (key, chord) in [
+            ("ctrl+shift", "ctrl+shift"),
+            ("a super", "super"),
+            ("mod1+mod5", "mod1+mod5"),
+        ] {
+            assert_eq!(
+                evs("x", key),
+                Err(format!(
+                    "refusing to send {key:?}: {chord:?} is a modifier alone"
+                ))
+            );
+        }
+        // A modifier's keysym is a key like any other.
+        assert_eq!(evs("x", "Super_L"), Ok(vec![(SUPER, 1), (SUPER, 0)]));
     }
 
     #[test]
@@ -1051,17 +1145,13 @@ mod tests {
         );
         // Latin-1: U+00A0..U+00FF are their own code.
         assert_eq!(typed("\u{a0}é\u{ff}"), [0xa0, 0xe9, 0xff]);
-        // Anything else: 0x01000000 + the code point (DEL, the C1 controls and a newline included).
+        // Anything else: the named keysym keysymdef.h gives for it (Cyrillic_zhe, EuroSign, Lstroke, Tab, Delete) …
+        assert_eq!(typed("ж€Ł\t\u{7f}"), [0x6d6, 0x20ac, 0x1a3, 0xff09, 0xffff]);
+        // … else 0x01000000 + the code point (a C1 control, an emoji, a letter with no name); a newline too, not
+        // Linefeed.
         assert_eq!(
-            typed("ж€\u{7f}\u{9f}\n🙂"),
-            [
-                0x0100_0436,
-                0x0100_20ac,
-                0x0100_007f,
-                0x0100_009f,
-                0x0100_000a,
-                0x0101_f642
-            ]
+            typed("\u{9f}🙂\u{1e9e}\n"),
+            [0x0100_009f, 0x0101_f642, 0x0100_1e9e, 0x0100_000a]
         );
         // Typed as written: no chord or table lookup.
         assert_eq!(
@@ -1087,12 +1177,19 @@ mod tests {
         let (result, sent) = run(0);
         assert_eq!(result, Ok(()));
         assert_eq!(sent, evs("x", "ctrl+shift+k a").unwrap());
-        // The key's press fails: shift, then ctrl, are released (the key never went down).
+        // The key's press fails: it may have gone down all the same, so it is released, then shift, then ctrl.
         let (result, sent) = run(3);
         assert_eq!(result, Err("refused".into()));
         assert_eq!(
             sent,
-            [(CTRL, 1), (SHIFT, 1), (0x6b, 1), (SHIFT, 0), (CTRL, 0)]
+            [
+                (CTRL, 1),
+                (SHIFT, 1),
+                (0x6b, 1),
+                (0x6b, 0),
+                (SHIFT, 0),
+                (CTRL, 0)
+            ]
         );
         // The key's release fails: it is still down, released first.
         let (_, sent) = run(4);
@@ -1100,12 +1197,15 @@ mod tests {
         // Shift already released: only ctrl is left.
         let (_, sent) = run(6);
         assert_eq!(sent[6..], [(CTRL, 0)]);
-        // The first chord all released: nothing is down when the next one fails.
+        // The first chord all released: only the next key, whose press failed, is released.
         let (_, sent) = run(7);
-        assert_eq!(sent.len(), 7);
-        // A failure on the first event releases nothing.
+        assert_eq!(sent[6..], [(0x61, 1), (0x61, 0)]);
+        // The first press fails: only that key is released.
         let (_, sent) = run(1);
-        assert_eq!(sent, [(CTRL, 1)]);
+        assert_eq!(sent, [(CTRL, 1), (CTRL, 0)]);
+        // The last release fails: that key is still down, released once more.
+        let (_, sent) = run(8);
+        assert_eq!(sent[6..], [(0x61, 1), (0x61, 0), (0x61, 0)]);
     }
 
     #[test]

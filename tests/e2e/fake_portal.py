@@ -73,9 +73,9 @@ MODES = {
     "no-devices": (1, None, HANDSHAKE + ["Session.Close"], [None],
                    f"keybind-find: portal Start: the desktop granted no keyboard control (2): press {KEYS} yourself",
                    None, None, []),
-    # The key's press fails: shift and ctrl, still down, are released (in reverse) before Close.
-    "keysym-fails": (1, None, HANDSHAKE + NOTIFY[:5] + ["Session.Close"], [None],
-                     "keybind-find: portal NotifyKeyboardKeysym: …", TOKEN, None, PRESSED[:3] + [(SHIFT, 0), (CTRL, 0)]),
+    # The key's press fails: it may have gone down all the same, so it, shift and ctrl are released (in reverse) before
+    # Close.
+    "keysym-fails": (1, None, ALL, [None], "keybind-find: portal NotifyKeyboardKeysym: …", TOKEN, None, PRESSED),
 }
 # SelectDevices' options and their D-Bus types.
 OPTION_TYPES = {"handle_token": "s", "types": "u", "persist_mode": "u", "restore_token": "s"}

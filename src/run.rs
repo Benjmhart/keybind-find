@@ -557,6 +557,8 @@ mod tests {
             "K",
             "KP_7",
             "ISO_Left_Tab",
+            "XF86AudioRaiseVolume",
+            "super+return",
         ] {
             assert_eq!(portal(key), Ok(()), "{key}");
         }
@@ -565,6 +567,7 @@ mod tests {
             ("mod2+a", "the portal has no modifier \"mod2\""),
             ("ctrl+Foo", "no keysym \"Foo\""),
             ("a Kk", "no keysym \"Kk\""),
+            ("ctrl+shift", "\"ctrl+shift\" is a modifier alone"),
         ] {
             assert_eq!(
                 portal(key),
@@ -919,23 +922,31 @@ mod tests {
                 String::from_utf8(out).unwrap(),
                 "wtype -M logo -k b -m logo\n"
             );
-            // A `run` entry with a key starts its program, with no session.
-            let ran = RefCell::new(0);
+            // A `run` entry with a key starts its program (no focus command on Wayland), with no session.
+            let marker =
+                crate::test_tmp().join(format!("kbf-run-{}-{session}", std::process::id()));
+            let _ = std::fs::remove_file(&marker);
+            let ran = RefCell::new(Vec::new());
             send_with(
                 None,
-                &macro_entry("super+l", &["true"]),
+                &macro_entry("super+l", &["touch", marker.to_str().unwrap()]),
                 false,
                 true,
                 Some(session),
                 &mut Vec::new(),
-                &|_| {
-                    *ran.borrow_mut() += 1;
+                &|c| {
+                    ran.borrow_mut().extend_from_slice(c);
                     Ok(())
                 },
                 &no_portal,
             )
             .unwrap();
-            assert_eq!(*ran.borrow(), 1, "{session}");
+            assert!(ran.borrow().is_empty(), "{session}");
+            let started = Instant::now();
+            while !marker.exists() && started.elapsed() < Duration::from_secs(5) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert!(marker.exists(), "{session}: the program didn't run");
             // Keys the portal can't send are refused before it is asked.
             for (key, why) in [
                 ("mod3+x", "the portal has no modifier \"mod3\""),
