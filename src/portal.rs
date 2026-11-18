@@ -31,6 +31,9 @@ const UNTIL_REVOKED: u32 = 2;
 const STEP: Duration = Duration::from_secs(5);
 /// `Start` with no stored token shows a dialog, which a person reads.
 const DIALOG: Duration = Duration::from_secs(120);
+/// After that dialog closes the compositor gives focus back to the window the keys are for a moment later; keys sent
+/// before that are lost (GNOME 51 dropped a pick's first chord).
+const SETTLE: Duration = Duration::from_millis(500);
 
 /// Sends `e`'s keys through the portal: its chords pressed, or its espanso trigger typed (`events`), on a session
 /// opened for them and closed after. An entry with a key the table lacks is refused before the portal is asked.
@@ -38,6 +41,10 @@ pub fn send(e: &Entry) -> anyhow::Result<()> {
     let events = events(e)?;
     let token_file = token_path_from(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"));
     let session = open(token_file.as_deref())?;
+    // ponytail: a fixed wait, not a wait for focus (the portal says nothing about it); only after a dialog.
+    if session.asked {
+        std::thread::sleep(SETTLE);
+    }
     // ponytail: no deadline for the whole send, only 5 s per NotifyKeyboardKeysym (xdg-desktop-portal answers each at
     // once and passes it on unwaited); a long espanso trigger on a stalled portal could take keys × 5 s.
     let sent = press(&events, |keysym, state| session.notify(keysym, state))
@@ -196,6 +203,8 @@ fn press(
 pub struct Session {
     conn: Connection,
     handle: OwnedObjectPath,
+    /// Started without a stored token, so the portal showed its dialog.
+    asked: bool,
 }
 
 impl Session {
@@ -264,7 +273,12 @@ fn open(token_file: Option<&Path>) -> anyhow::Result<Session> {
             eprintln!("keybind-find: portal token {}: {e}", file.display());
         }
     }
-    started.map(|(session, _)| session).map_err(|(_, e)| e)
+    started
+        .map(|(session, _)| Session {
+            asked: sent.is_none(),
+            ..session
+        })
+        .map_err(|(_, e)| e)
 }
 
 #[derive(Debug, PartialEq)]
@@ -395,7 +409,11 @@ async fn create(tx: &mpsc::Sender<Report<Started>>) -> anyhow::Result<Session> {
         .and_then(session_handle)
         .context("portal CreateSession: no session_handle")?;
     let _ = tx.send(Ok(None));
-    Ok(Session { conn, handle })
+    Ok(Session {
+        conn,
+        handle,
+        asked: false,
+    })
 }
 
 /// CreateSession's `session_handle`: a string "for backwards compatibility", or an object path.

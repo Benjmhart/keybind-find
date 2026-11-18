@@ -784,10 +784,11 @@ mutter's `Above_Tab` (the key above Tab, whatever it is on your layout) and a sh
 without GNOME's keys.
 
 On X11 the focused window is read as on any X11 window manager. On Wayland GNOME offers no way to read it (without
-an extension), so the list has GNOME's shortcuts and espanso. Mutter doesn't offer the virtual-keyboard protocol that
+an extension), so the list has GNOME's shortcuts, espanso and your global sheets. Mutter doesn't offer the virtual-keyboard protocol that
 `wtype` needs, so a pick there is sent through the RemoteDesktop portal (`xdg-desktop-portal` with its GNOME backend,
-which GNOME installs), as on [KDE](#kde-plasma): the first pick asks to allow remote control; tick the option to
-remember it and later picks are sent without asking. The token is the same file, and deleting it revokes the
+which GNOME installs), as on [KDE](#kde-plasma): the first pick shows a "Remote Desktop" dialog; switch on "Allow
+Remote Interaction" (Share stays off until you do), keep "Remember This Selection" ticked, and later picks are sent
+without asking. The token is the same file, and deleting it revokes the
 approval. Keys are looked up in your layout as [on KDE](#kde-plasma). `--print` prints as anywhere else. The list opens in fzf in alacritty, an ordinary window
 (fuzzel needs layer-shell, which Mutter lacks), with key search off as on any Wayland; without fzf or alacritty it
 falls back to fuzzel, with one line saying to install them or set `[picker]` ([docs/picker.md](docs/picker.md)).
