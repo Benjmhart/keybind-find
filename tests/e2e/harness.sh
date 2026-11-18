@@ -273,9 +273,9 @@ w() {
 # on this session bus, answering as its MODE says (`fake_portal.py --plan MODE`: how many picks, and the token stored
 # before them). fake_portal.py --check checks the calls (the keys pressed among them), the token file and each pick's
 # exit status and stderr.
-# The pick is GNOME's `minimize`, set to ctrl+shift+k, not a global sheet's entry: under GNOME on Wayland keybind-find
-# reads no focused window, so it has no class and runs no sheets provider (context.rs `providers_for`), and a sheet
-# can't apply. Picked by a dmenu-style grep.
+# The pick is GNOME's `minimize`, set to ctrl+shift+k: under GNOME on Wayland keybind-find reads no focused window, so
+# it has no class and only a global sheet could apply (context.rs `providers_for`); none is set up here. Picked by a
+# dmenu-style grep.
 p() {
   local name=$1 mode=$2 state=/tmp/$1-state picks seed i line errs=()
   wanted "$name" || return 0

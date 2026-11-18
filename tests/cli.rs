@@ -106,6 +106,24 @@ fn a_cancelled_pick_sends_nothing() {
 }
 
 #[test]
+fn a_global_sheet_is_listed_with_no_window() {
+    // No keymap, no display: xmonad and espanso fail and no class is read, so only the `*` sheet can apply.
+    let home = dir("global-sheet");
+    let sheets = home.join(".config/keybind-find/sheets");
+    std::fs::create_dir_all(&sheets).unwrap();
+    std::fs::write(
+        sheets.join("vm-check.json"),
+        r#"{"title": "VM check", "provider": "*", "binds": {"vm": [{"key": "shift+k b f", "desc": "vm-check: type Kbf"}]}}"#,
+    )
+    .unwrap();
+    let out = run(&home, &tool("true"), &["dump"]);
+    let (stdout, stderr) = (text(&out.stdout), text(&out.stderr));
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    assert!(stdout.contains("vm-check: type Kbf"), "{stdout}");
+    assert!(stdout.contains("shift+k b f"), "{stdout}");
+}
+
+#[test]
 fn nothing_to_show_is_an_error() {
     let out = run(
         &dir("no-keymap"),

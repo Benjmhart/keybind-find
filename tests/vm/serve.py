@@ -9,20 +9,29 @@ import functools
 import http.server
 import os
 import sys
+import tempfile
 
 PORT = 8765
 MAX = 1 << 20  # a report is a few KB
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    timeout = 30  # a guest that stops mid-request doesn't hold a thread forever
+
     def do_PUT(self):
-        n = int(self.headers.get("Content-Length") or -1)
+        try:
+            n = int(self.headers.get("Content-Length", ""))
+        except ValueError:
+            n = -1
         if self.path != "/report" or not 0 <= n <= MAX:
             self.send_error(400, "PUT /report, with a Content-Length of at most 1 MiB")
             return
         data = self.rfile.read(n)
-        tmp = REPORT + ".part"
-        with open(tmp, "wb") as f:
+        if len(data) != n:
+            self.send_error(400, "the body is shorter than its Content-Length")
+            return
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(REPORT), prefix=".report.")
+        with os.fdopen(fd, "wb") as f:
             f.write(data)
         os.replace(tmp, REPORT)
         self.send_response(201)

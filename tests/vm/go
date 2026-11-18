@@ -10,20 +10,27 @@ main() {
   bin=$HOME/.local/bin
   sheets=${XDG_CONFIG_HOME:-$HOME/.config}/keybind-find/sheets
   token=${XDG_STATE_HOME:-$HOME/.local/state}/keybind-find/portal-token
-  out=$(mktemp -d)
+  out=$(mktemp -d) || exit 1
   mkdir -p "$bin" "$sheets" || exit 1
   if ! { curl -sSf -o "$bin/keybind-find" "$host/keybind-find" && chmod +x "$bin/keybind-find"; }; then
     echo "go: could not download keybind-find from $host"; exit 1
   fi
   PATH=$bin:$PATH
-  cat >"$sheets/vm-check.json" <<'EOF'
+  cat >"$sheets/vm-check.json" <<'EOF' || exit 1
 {"title": "VM check", "provider": "*", "binds": {"vm": [{"key": "shift+k b f", "desc": "vm-check: type Kbf"}]}}
 EOF
 
   case ${XDG_CURRENT_DESKTOP:-} in
-    *KDE*) editor=kwrite; pkgs="xdg-desktop-portal xdg-desktop-portal-kde kwin" ;;
-    *) editor=gnome-text-editor; pkgs="xdg-desktop-portal xdg-desktop-portal-gnome gnome-shell" ;;
+    *KDE*) editor=kwrite; pkgs="xdg-desktop-portal xdg-desktop-portal-kde" compositor=kwin_wayland ;;
+    *) editor=gnome-text-editor; pkgs="xdg-desktop-portal xdg-desktop-portal-gnome" compositor=gnome-shell ;;
   esac
+  # The picker is `grep -m1 vm-check`, wrapped so that a list without the entry is an error naming it, not a pick of
+  # nothing (which keybind-find takes as a cancel).
+  cat >"$out/pick" <<'EOF' || exit 1
+#!/bin/sh
+grep -m1 vm-check || { echo 'no vm-check entry in the list' >&2; exit 1; }
+EOF
+  chmod +x "$out/pick" || exit 1
   command -v "$editor" >/dev/null || { echo "go: $editor is not installed"; exit 1; }
   : >"$out/vm-check.txt"
   "$editor" "$out/vm-check.txt" >/dev/null 2>&1 &
@@ -31,7 +38,7 @@ EOF
   for n in 1 2; do
     echo "go: pick $n: click into the editor's text now; keybind-find types Kbf in 8 s"
     sleep 8
-    KEYBIND_FIND_PICKER='grep -m1 vm-check' keybind-find 2>"$out/pick$n.err"
+    KEYBIND_FIND_PICKER=$out/pick keybind-find 2>"$out/pick$n.err"
     echo $? >"$out/pick$n.rc"
     cat "$out/pick$n.err"
     if [ "$n" = 1 ]; then if [ -f "$token" ]; then echo yes; else echo no; fi >"$out/token"; fi
@@ -41,6 +48,7 @@ EOF
     echo "desktop: ${XDG_CURRENT_DESKTOP:-?} (${XDG_SESSION_TYPE:-?})"
     # shellcheck disable=SC2086 # one word per package
     rpm -q $pkgs
+    rpm -qf "$(command -v "$compositor")"
     for n in 1 2; do
       echo "pick $n: exit $(cat "$out/pick$n.rc")"
       sed 's/^/  stderr: /' "$out/pick$n.err"
