@@ -104,6 +104,10 @@ installed on your machine and nothing shows on your screen. Run it after changin
 runs it before tagging. The cases are in `tests/e2e/cases`. To test newer programs, move `SNAPSHOT` (and `BASE`) in
 the Dockerfile to a later date.
 
+`tests/vm/run gnome|kde BINARY` checks what the container can't: sending through the RemoteDesktop portal on real
+GNOME and KDE Plasma Wayland sessions, in a Fedora live VM where you approve the portal once and watch two picks type
+into an editor (it needs a display and KVM; see the script's header).
+
 Where a program can print its own effective keys, an **oracle case** (`o` in `cases`) checks keybind-find's whole
 list against it, not just one remapped key: it runs the program's report on the same synthetic config, runs
 `keybind-find dump PROVIDER`, and fails on any key only one side has. kitty has one (`kitty-oracle`). The known

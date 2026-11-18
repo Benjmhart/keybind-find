@@ -243,7 +243,7 @@ the stock ones, from each release's `config.def.h`
 [tabbed.json](data/sheets/tabbed.json), [dwm.json](data/sheets/dwm.json)). st's apply in a window of class
 `st-256color` or `St` (or that instance, as with `st -c scratchpad`), surf's in `Surf`, tabbed's in `tabbed`; a surf or st embedded in tabbed is part of tabbed's
 window, so only tabbed's keys show there. dwm's apply in a dwm session (by its `_NET_WM_NAME`, or the `dwm` process when `wmname` changed that), beside the focused
-window's, and only when a window has focus: on an empty desktop nothing is listed. If you patched `config.h`, copy the built-in sheet into
+window's, and on an empty desktop too. If you patched `config.h`, copy the built-in sheet into
 your sheets folder under the same name (`st.json`, `dwm.json`, …) and edit it ([docs/sheets.md](docs/sheets.md)): it
 replaces the built-in one and applies where it did, whatever its `provider`. For st, surf and tabbed a parser named
 after the window class (`st-256color`, by class only) that reads your `config.h` works too; it adds to the built-in sheet, so
@@ -784,10 +784,11 @@ mutter's `Above_Tab` (the key above Tab, whatever it is on your layout) and a sh
 without GNOME's keys.
 
 On X11 the focused window is read as on any X11 window manager. On Wayland GNOME offers no way to read it (without
-an extension), so the list has GNOME's shortcuts and espanso. Mutter doesn't offer the virtual-keyboard protocol that
+an extension), so the list has GNOME's shortcuts, espanso and your global sheets. Mutter doesn't offer the virtual-keyboard protocol that
 `wtype` needs, so a pick there is sent through the RemoteDesktop portal (`xdg-desktop-portal` with its GNOME backend,
-which GNOME installs), as on [KDE](#kde-plasma): the first pick asks to allow remote control; tick the option to
-remember it and later picks are sent without asking. The token is the same file, and deleting it revokes the
+which GNOME installs), as on [KDE](#kde-plasma): the first pick shows a "Remote Desktop" dialog; switch on "Allow
+Remote Interaction" (Share stays off until you do), keep "Remember This Selection" ticked, and later picks are sent
+without asking. The token is the same file, and deleting it revokes the
 approval. Keys are looked up in your layout as [on KDE](#kde-plasma). `--print` prints as anywhere else. The list opens in fzf in alacritty, an ordinary window
 (fuzzel needs layer-shell, which Mutter lacks), with key search off as on any Wayland; without fzf or alacritty it
 falls back to fuzzel, with one line saying to install them or set `[picker]` ([docs/picker.md](docs/picker.md)).

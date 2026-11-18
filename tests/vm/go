@@ -1,0 +1,68 @@
+#!/bin/sh
+# Runs in tests/vm/run's live session, from its terminal:  curl -s 10.0.2.2:8765/go | sh
+# Installs keybind-find to ~/.local/bin, writes a global sheet whose one entry types `Kbf`, opens the desktop's
+# editor and picks that entry twice (no picker window: grep picks the line). The first pick asks for the portal's
+# approval; the second should not. Then it uploads a report to the host.
+host=http://10.0.2.2:8765
+
+# All in a function, so the whole script is read before anything runs, and nothing it starts reads the pipe it came in.
+main() {
+  bin=$HOME/.local/bin
+  sheets=${XDG_CONFIG_HOME:-$HOME/.config}/keybind-find/sheets
+  token=${XDG_STATE_HOME:-$HOME/.local/state}/keybind-find/portal-token
+  out=$(mktemp -d) || exit 1
+  mkdir -p "$bin" "$sheets" || exit 1
+  if ! { curl -sSf -o "$bin/keybind-find" "$host/keybind-find" && chmod +x "$bin/keybind-find"; }; then
+    echo "go: could not download keybind-find from $host"; exit 1
+  fi
+  PATH=$bin:$PATH
+  cat >"$sheets/vm-check.json" <<'EOF' || exit 1
+{"title": "VM check", "provider": "*", "binds": {"vm": [{"key": "shift+k b f", "desc": "vm-check: type Kbf"}]}}
+EOF
+
+  case ${XDG_CURRENT_DESKTOP:-} in
+    *KDE*) editor=kwrite; pkgs="xdg-desktop-portal xdg-desktop-portal-kde" compositor=kwin_wayland ;;
+    *) editor=gnome-text-editor; pkgs="xdg-desktop-portal xdg-desktop-portal-gnome" compositor=gnome-shell ;;
+  esac
+  # The picker is `grep -m1 vm-check`, wrapped so that a list without the entry is an error naming it, not a pick of
+  # nothing (which keybind-find takes as a cancel).
+  cat >"$out/pick" <<'EOF' || exit 1
+#!/bin/sh
+grep -m1 vm-check && exit 0
+# 1: no match; 2: grep's own error, already printed.
+[ $? = 1 ] && echo 'no vm-check entry in the list' >&2
+exit 1
+EOF
+  chmod +x "$out/pick" || exit 1
+  command -v "$editor" >/dev/null || { echo "go: $editor is not installed"; exit 1; }
+  : >"$out/vm-check.txt"
+  "$editor" "$out/vm-check.txt" >/dev/null 2>&1 &
+
+  for n in 1 2; do
+    echo "go: pick $n: click into the editor's text now; keybind-find types Kbf in 8 s"
+    sleep 8
+    KEYBIND_FIND_PICKER=$out/pick keybind-find 2>"$out/pick$n.err"
+    echo $? >"$out/pick$n.rc"
+    cat "$out/pick$n.err"
+    if [ "$n" = 1 ]; then if [ -f "$token" ]; then echo yes; else echo no; fi >"$out/token"; fi
+  done
+
+  {
+    echo "desktop: ${XDG_CURRENT_DESKTOP:-?} (${XDG_SESSION_TYPE:-?})"
+    # shellcheck disable=SC2086 # one word per package
+    rpm -q $pkgs
+    rpm -qf "$(command -v "$compositor")" 2>/dev/null || echo "$compositor: not found"
+    for n in 1 2; do
+      echo "pick $n: exit $(cat "$out/pick$n.rc")"
+      sed 's/^/  stderr: /' "$out/pick$n.err"
+    done
+    echo "portal-token after pick 1: $(cat "$out/token")"
+  } >"$out/report" 2>&1
+  cat "$out/report"
+  if curl -sSf -T "$out/report" "$host/report"; then
+    echo "go: report sent. Check the editor shows KbfKbf, then close the VM's window."
+  else
+    echo "go: could not send the report to $host"
+  fi
+}
+main </dev/null

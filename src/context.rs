@@ -865,15 +865,14 @@ fn providers_for(
     if class.is_some_and(is_emacs_window) {
         providers.push("emacs");
     }
-    // Static sheets and custom parsers are matched by class inside the provider; with no class nothing can match,
-    // and leaving it out keeps "every provider failed" reachable when the real providers all fail.
-    if let Some(class) = class {
-        // Vimium acts on the page, so a web app's sheet stays innermost (last).
-        if crate::providers::is_browser(class) {
-            providers.push("vimium");
-        }
-        providers.push("sheets");
+    // Vimium acts on the page, so a web app's sheet stays innermost (last).
+    if class.is_some_and(crate::providers::is_browser) {
+        providers.push("vimium");
     }
+    // Static sheets and custom parsers are matched by class inside the provider. With no class (GNOME on Wayland)
+    // only global sheets (`*`, `global`) and session sheets can apply; `collect` doesn't count an empty one as a
+    // provider that worked, so "every provider failed" stays reachable.
+    providers.push("sheets");
     providers
 }
 
@@ -1843,7 +1842,7 @@ mod tests {
         );
         assert_eq!(
             providers_for(wm_provider(Some("gnome")), None, None, &[]),
-            ["gnome", "espanso"]
+            ["gnome", "espanso", "sheets"]
         );
         // ghostty's own keys, in any case of its class, then the program inside it.
         for class in [
@@ -1939,8 +1938,8 @@ mod tests {
         let browser = ["xmonad", "espanso", "vimium", "sheets"];
         assert_eq!(x(Some("Vivaldi"), None), browser);
         assert_eq!(x(Some("Vivaldi-stable"), Some("nvim")), browser);
-        // No class: nothing for `sheets` to match.
-        assert_eq!(x(None, None), ["xmonad", "espanso"]);
+        // No class: `sheets` still runs, for global sheets.
+        assert_eq!(x(None, None), ["xmonad", "espanso", "sheets"]);
         // Under sway, sway replaces xmonad and nothing else changes.
         let sway = |c, p| providers_for(Some("sway"), c, p, &[]);
         assert_eq!(
@@ -1959,7 +1958,7 @@ mod tests {
             sway(Some("firefox"), Some("nvim")),
             ["sway", "espanso", "vimium", "sheets"]
         );
-        assert_eq!(sway(None, None), ["sway", "espanso"]);
+        assert_eq!(sway(None, None), ["sway", "espanso", "sheets"]);
         // Hyprland takes sway's place; nothing else changes.
         let hypr = |c, p| providers_for(wm_provider(Some("hyprland")), c, p, &[]);
         assert_eq!(
@@ -1970,20 +1969,20 @@ mod tests {
             hypr(Some("Alacritty"), Some("tmux: client")),
             ["hyprland", "espanso", "alacritty", "tmux", "sheets"]
         );
-        assert_eq!(hypr(None, None), ["hyprland", "espanso"]);
+        assert_eq!(hypr(None, None), ["hyprland", "espanso", "sheets"]);
         // So does niri.
         let niri = |c, p| providers_for(wm_provider(Some("niri")), c, p, &[]);
         assert_eq!(
             niri(Some("foot"), Some("zsh")),
             ["niri", "espanso", "foot", "zsh", "sheets"]
         );
-        assert_eq!(niri(None, None), ["niri", "espanso"]);
+        assert_eq!(niri(None, None), ["niri", "espanso", "sheets"]);
         // No window-manager provider: the list starts with espanso.
         assert_eq!(
             providers_for(None, Some("Alacritty"), Some("nvim"), &[]),
             ["espanso", "alacritty", "nvim", "sheets"]
         );
-        assert_eq!(providers_for(None, None, None, &[]), ["espanso"]);
+        assert_eq!(providers_for(None, None, None, &[]), ["espanso", "sheets"]);
     }
 
     #[test]
@@ -2739,7 +2738,7 @@ mod tests {
         let mut ctx = empty_context();
         let focus = read_sway_focus(&mut ctx, "not json");
         settle(&mut ctx, Some("sway"), focus);
-        assert_eq!(ctx.providers, ["sway", "espanso"]);
+        assert_eq!(ctx.providers, ["sway", "espanso", "sheets"]);
         // An alacritty whose inner program can't be found still gets the alacritty provider.
         let mut ctx = empty_context();
         ctx.class = Some("Alacritty".into());
@@ -2811,7 +2810,7 @@ mod tests {
         assert!(matches!(focus, Ok(None)));
         settle(&mut ctx, Some("hyprland"), focus);
         assert_eq!((ctx.window_id, ctx.class, ctx.title), (None, None, None));
-        assert_eq!(ctx.providers, ["hyprland", "espanso"]);
+        assert_eq!(ctx.providers, ["hyprland", "espanso", "sheets"]);
         // No class yet: the initial class; pid 0 (XWayland without `_NET_WM_PID`) is no pid.
         let json =
             r#"{"address": "0x1", "class": "", "initialClass": "foot", "title": "t", "pid": 0}"#;
@@ -2827,7 +2826,7 @@ mod tests {
         let focus = read_hyprland_focus(&mut ctx, "not json");
         assert!(focus.is_err());
         settle(&mut ctx, Some("hyprland"), focus);
-        assert_eq!(ctx.providers, ["hyprland", "espanso"]);
+        assert_eq!(ctx.providers, ["hyprland", "espanso", "sheets"]);
     }
 
     #[test]
@@ -2845,7 +2844,7 @@ mod tests {
         assert_eq!(*asked.borrow(), ["hyprctl -j activewindow"]);
         assert_eq!(program, None);
         assert_eq!((ctx.window_id, ctx.class), (None, None));
-        assert_eq!(ctx.providers, ["hyprland", "espanso"]);
+        assert_eq!(ctx.providers, ["hyprland", "espanso", "sheets"]);
         // A working hyprctl fills the window in.
         let (ctx, _) = focus(
             Some("hyprland"),
@@ -2896,7 +2895,7 @@ mod tests {
         assert!(matches!(focus, Ok(None)));
         settle(&mut ctx, Some("niri"), focus);
         assert_eq!((ctx.window_id, ctx.class, ctx.title), (None, None, None));
-        assert_eq!(ctx.providers, ["niri", "espanso"]);
+        assert_eq!(ctx.providers, ["niri", "espanso", "sheets"]);
         // A portal window has a null pid: no program lookup, no warning.
         let mut ctx = empty_context();
         let focus = read_niri_focus(&mut ctx, &niri_window("xdg-desktop-portal-gnome", "null"));
@@ -2931,7 +2930,7 @@ mod tests {
         let focus = read_niri_focus(&mut ctx, "not json");
         assert!(focus.is_err());
         settle(&mut ctx, Some("niri"), focus);
-        assert_eq!(ctx.providers, ["niri", "espanso"]);
+        assert_eq!(ctx.providers, ["niri", "espanso", "sheets"]);
     }
 
     #[test]
@@ -2949,7 +2948,7 @@ mod tests {
         assert_eq!(*asked.borrow(), ["niri msg --json focused-window"]);
         assert_eq!(program, None);
         assert_eq!((ctx.window_id, ctx.class), (None, None));
-        assert_eq!(ctx.providers, ["niri", "espanso"]);
+        assert_eq!(ctx.providers, ["niri", "espanso", "sheets"]);
         let (ctx, _) = focus(
             Some("niri"),
             true,
@@ -3016,7 +3015,7 @@ mod tests {
         assert!(matches!(focus, Ok(None)));
         settle(&mut ctx, Some("kde"), focus);
         assert_eq!((ctx.class, ctx.title), (None, None));
-        assert_eq!(ctx.providers, ["kde", "espanso"]);
+        assert_eq!(ctx.providers, ["kde", "espanso", "sheets"]);
         // Half an answer is an error (one warning from `settle`); a terminal without a pid names it.
         let mut ctx = empty_context();
         assert!(read_kde_focus(&mut ctx, "42\n").is_err());
@@ -3046,7 +3045,7 @@ mod tests {
         );
         assert_eq!(program, None);
         assert_eq!((ctx.window_id, ctx.class), (None, None));
-        assert_eq!(ctx.providers, ["kde", "espanso"]);
+        assert_eq!(ctx.providers, ["kde", "espanso", "sheets"]);
         // A working kdotool fills the window in.
         let (ctx, _) = focus(
             Some("kde"),
@@ -3331,7 +3330,7 @@ mod tests {
             |p, _| panic!("{p} asked without a known compositor"),
         );
         assert_eq!(ctx.window_id, None);
-        assert_eq!(ctx.providers, ["espanso"]);
+        assert_eq!(ctx.providers, ["espanso", "sheets"]);
     }
 
     /// The session on X11 with the check window named `name` (`None`: unreadable) and processes `comms`.
@@ -3607,11 +3606,11 @@ mod tests {
                 |p, _| panic!("{p} asked outside sway, Hyprland, niri and KDE"),
             );
             assert_eq!((ctx.window_id, ctx.class, ctx.title), (None, None, None));
-            // GNOME's own shortcuts still apply.
+            // GNOME's own shortcuts still apply, and global sheets.
             let want: &[&str] = if session == Some("gnome") {
-                &["gnome", "espanso"]
+                &["gnome", "espanso", "sheets"]
             } else {
-                &["espanso"]
+                &["espanso", "sheets"]
             };
             assert_eq!(ctx.providers, want, "{session:?}");
         }

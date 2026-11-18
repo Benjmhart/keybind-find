@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+# Checks sending through the RemoteDesktop portal on a real desktop, which the e2e container can't run: boots the
+# Fedora live ISO for GNOME (Workstation) or KDE Plasma in QEMU, in a window on this display, and serves BINARY and
+# `go` to the guest at http://10.0.2.2:8765/ (QEMU's address for this host's loopback; nothing listens on the LAN).
+# In the live session's terminal, type `curl -s 10.0.2.2:8765/go | sh`: it installs keybind-find, opens the
+# desktop's editor and picks one entry twice, which types `Kbf` each time (the first pick asks for the portal's
+# approval: tick "remember"). Its report (versions, each pick's exit code and stderr) is saved on this host.
+#
+#   tests/vm/run gnome|kde BINARY [--record FILE.gif]
+#     BINARY   a static keybind-find (the live image has no Rust): cargo build --release --target x86_64-unknown-linux-musl
+#     --record also records the VM's window: the last 60 s, about 4 frames a second, 960 px wide; a GIF over 10 MB
+#              (GitHub's limit for one) is deleted, not cut down
+#   VM_REPORT=FILE   where the guest's report goes (default: next to the cached ISO, keybind-find-vm-DESKTOP.txt, so
+#                    it never lands in a checkout)
+#
+# Needs KVM, a display, qemu-system-x86_64 (with its GTK display), python3 and curl; ffmpeg for --record. No root,
+# no libvirt. The ISO (about 3 GB) is downloaded once to ${XDG_CACHE_HOME:-~/.cache}/keybind-find-vm/ and checked
+# against the SHA-256 below; the VM has no disk, so nothing else is left behind. Exits 0 only when the report came
+# back with both picks exiting 0 (whether `Kbf` appeared is for the person watching), 130 on Ctrl-C.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+die() { echo "vm: $*" >&2; exit 1; }
+usage="usage: tests/vm/run gnome|kde BINARY [--record FILE.gif]"
+[ $# -eq 2 ] || { [ $# -eq 4 ] && [ "$3" = --record ]; } || { echo "$usage" >&2; exit 2; }
+desktop=$1 bin=$2 gif=${4:-}
+
+# Fedora 45, from https://fedoraproject.org/releases.json and each ISO's signed CHECKSUM file. To move to a newer
+# release, change these two pairs.
+fedora=https://download.fedoraproject.org/pub/fedora/linux/releases/45
+case $desktop in
+  gnome) iso=Workstation/x86_64/iso/Fedora-Workstation-Live-45-1.4.x86_64.iso
+         sum=68338c6bfe4f0d64151f2e47efe9f44a8855ad05b460e56b844fb3fa2c9a3beb ;;
+  kde)   iso=KDE/x86_64/iso/Fedora-KDE-Desktop-Live-45-1.4.x86_64.iso
+         sum=79703d9f3b21a4f7873f2874ec129d6511cb00a08532d8f9b36daacaa96e97a5 ;;
+  *) echo "$usage" >&2; exit 2 ;;
+esac
+
+# Preflight: one line naming what is missing.
+command -v qemu-system-x86_64 >/dev/null || die "qemu-system-x86_64 is not installed"
+[ -r /dev/kvm ] && [ -w /dev/kvm ] || die "no read-write access to /dev/kvm (KVM)"
+[ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] || die "no display: neither WAYLAND_DISPLAY nor DISPLAY is set"
+command -v python3 >/dev/null || die "python3 is not installed"
+command -v curl >/dev/null || die "curl is not installed"
+[ -f "$bin" ] && [ -x "$bin" ] || die "$bin is not an executable file"
+if [ -n "$gif" ] && ! command -v ffmpeg >/dev/null; then
+  echo "vm: ffmpeg is not installed: running without --record" >&2; gif=""
+fi
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/keybind-find-vm
+mkdir -p "$cache"
+# Absolute, in a directory that exists; anything left from an earlier run is removed, so it can't pass for this one's.
+out_path() {
+  local p
+  case $1 in */) die "$1 is a directory" ;; esac
+  p=$(realpath -m -- "$1") || die "can't resolve $1"
+  [ ! -d "$p" ] || die "$p is a directory"
+  [ -d "$(dirname "$p")" ] || die "no directory $(dirname "$p") for $p"
+  rm -f "$p"
+  printf '%s\n' "$p"
+}
+report=$(out_path "${VM_REPORT:-$cache/keybind-find-vm-$desktop.txt}") || exit 1
+[ -z "$gif" ] || gif=$(out_path "$gif") || exit 1
+
+# The ISO: downloaded to .part (an interrupted download resumes), renamed only once its checksum matches. A cached
+# one is checked again on every run, which also catches a damaged cache.
+file=$cache/${iso##*/}
+matches() { echo "$sum  $1" | sha256sum --check --status; }
+if [ ! -f "$file" ] && [ -f "$file.part" ] && matches "$file.part"; then
+  mv "$file.part" "$file"
+elif [ ! -f "$file" ]; then
+  echo "vm: downloading $fedora/$iso" >&2
+  curl -fL --retry 3 -C - --progress-bar -o "$file.part" "$fedora/$iso" \
+    || die "the download of ${iso##*/} failed: run again to resume it (if resuming keeps failing, delete $file.part)"
+  matches "$file.part" || { rm -f "$file.part"; die "the downloaded ${iso##*/} does not match its pinned SHA-256: removed"; }
+  mv "$file.part" "$file"
+else
+  echo "vm: checking $file" >&2
+  matches "$file" || die "$file does not match its pinned SHA-256: delete it to download it again"
+fi
+
+tmp=$(mktemp -d)
+# The QMP socket's directory: under XDG_RUNTIME_DIR, so its path stays short (a unix socket's is at most 107 bytes).
+run_dir=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/keybind-find-vm.XXXXXX")
+server="" recorder="" vm=""
+cleanup() {
+  trap '' INT TERM
+  local p
+  for p in $server $recorder $vm; do
+    if kill -0 "$p" 2>/dev/null; then kill "$p" 2>/dev/null || true; fi
+  done
+  wait 2>/dev/null || true
+  rm -rf "$tmp" "$run_dir"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# What the guest fetches. The server binds 127.0.0.1 only; it is up when it serves our `go` (not another program on
+# the port).
+mkdir "$tmp/www"
+cp "$here/go" "$tmp/www/go"
+cp "$bin" "$tmp/www/keybind-find"
+python3 -I "$here/serve.py" "$tmp/www" "$report" &
+server=$!
+for _ in $(seq 50); do
+  kill -0 "$server" 2>/dev/null || die "the file server did not start (above)"
+  curl -sf http://127.0.0.1:8765/go 2>/dev/null | cmp -s - "$here/go" && break
+  sleep 0.1
+done
+curl -sf http://127.0.0.1:8765/go 2>/dev/null | cmp -s - "$here/go" || die "the file server on 127.0.0.1:8765 did not answer"
+
+# BIOS boot from the ISO, no disk: the live session runs from RAM and is gone at power-off. A screendump of a GL
+# scanout can come back blank, so --record uses the plain virtio-vga.
+# shellcheck disable=SC2054 # commas are QEMU option syntax
+qemu=(qemu-system-x86_64 -name "keybind-find vm: $desktop" -enable-kvm -machine q35 -cpu host -smp 4 -m 4096
+  -cdrom "$file" -boot d -nic user,model=virtio-net-pci -device qemu-xhci -device usb-tablet)
+if [ -n "$gif" ]; then
+  mkdir "$tmp/frames"
+  qemu+=(-qmp "unix:$run_dir/qmp.sock,server,wait=off")
+  # QMP screendump (PNG, QEMU 7.1+) about 4 times a second; only the last 60 s are kept, and of those only the frames
+  # QEMU confirmed, in the trailing run at the final screen size (it changes while the guest boots). At the end they
+  # are renumbered g00000.png on, and `meta` gets their count and real rate.
+  python3 -I - "$run_dir/qmp.sock" "$tmp/frames" <<'PY' &
+import collections, json, os, socket, sys, time
+sock_path, frames = sys.argv[1], sys.argv[2]
+for _ in range(100):
+    try:
+        s = socket.socket(socket.AF_UNIX); s.connect(sock_path); break
+    except OSError:
+        time.sleep(0.1)
+else:
+    sys.exit("vm: no QMP socket: nothing recorded")
+f = s.makefile("rw")
+def call(cmd, **args):
+    f.write(json.dumps({"execute": cmd, "arguments": args}) + "\n"); f.flush()
+    while True:
+        line = f.readline()
+        if not line:
+            raise EOFError
+        r = json.loads(line)
+        if "return" in r or "error" in r:
+            return r
+f.readline()  # greeting
+kept, i, tick, start = collections.deque(), 0, 0, time.monotonic()
+try:
+    call("qmp_capabilities")
+    while True:
+        name = os.path.join(frames, "f%05d.png" % i)
+        if "return" in call("screendump", filename=name, format="png"):
+            now = time.monotonic()
+            kept.append((now, i)); i += 1
+            while now - kept[0][0] > 60:
+                os.remove(os.path.join(frames, "f%05d.png" % kept.popleft()[1]))
+        tick += 1
+        time.sleep(max(0.0, start + tick * 0.25 - time.monotonic()))
+except (EOFError, OSError, ValueError):
+    pass
+try:
+    f.close()
+except OSError:
+    pass
+def size(i):  # the PNG's IHDR width and height
+    with open(os.path.join(frames, "f%05d.png" % i), "rb") as p:
+        return p.read(24)[16:]
+kept = list(kept)
+if kept:  # the trailing run at the final size
+    last, j = size(kept[-1][1]), len(kept) - 1
+    while j > 0 and size(kept[j - 1][1]) == last:
+        j -= 1
+    kept = kept[j:]
+if len(kept) > 1:
+    rate = (len(kept) - 1) / (kept[-1][0] - kept[0][0])
+    for n, (_, i) in enumerate(kept):
+        os.rename(os.path.join(frames, "f%05d.png" % i), os.path.join(frames, "g%05d.png" % n))
+    with open(os.path.join(frames, "meta"), "w") as m:
+        m.write("%d %.2f\n" % (len(kept), rate))
+PY
+  recorder=$!
+  display=(-device virtio-vga -display gtk)
+else
+  # shellcheck disable=SC2054
+  display=(-device virtio-vga-gl -display gtk,gl=on)
+fi
+# QEMU runs in the background, so a TERM to this script stops it (cleanup). On Ctrl-C QEMU quits by itself (it handles
+# INT, and exits 0 as if its window had been closed); the trap also kills it, and remembers: the run then ends with 130.
+interrupted=""
+# (`|| true`: a failing command in a trap would end the script under set -e.)
+trap 'interrupted=1; [ -z "$vm" ] || kill "$vm" 2>/dev/null || true' INT
+# vm_run ARGS...: QEMU until it exits (a trapped signal ends `wait` early); its status.
+vm_run() {
+  local rc
+  "${qemu[@]}" "$@" &
+  vm=$!
+  # A Ctrl-C before `vm` was set.
+  [ -z "$interrupted" ] || kill "$vm" 2>/dev/null || true
+  while :; do
+    rc=0; wait "$vm" || rc=$?
+    # Over 128: a trapped signal ended the wait, not QEMU.
+    if [ "$rc" -le 128 ] || ! kill -0 "$vm" 2>/dev/null; then break; fi
+  done
+  vm=""
+  return "$rc"
+}
+echo "vm: starting the $desktop VM; in its terminal type:  curl -s 10.0.2.2:8765/go | sh" >&2
+t0=$SECONDS
+if ! vm_run "${display[@]}" && [ -z "$interrupted" ] && [ -z "$gif" ] && [ $((SECONDS - t0)) -lt 15 ]; then
+  echo "vm: QEMU stopped at once with GL: starting it again without GL" >&2
+  vm_run -device virtio-vga -display gtk || true
+fi
+trap 'exit 130' INT
+
+if [ -f "$report" ]; then echo "vm: report: $report" >&2; else echo "vm: no report arrived from the guest" >&2; fi
+if [ -n "$gif" ]; then
+  wait "$recorder" || true
+  recorder=""
+  if read -r count rate 2>/dev/null <"$tmp/frames/meta"; then
+    # An interrupted ffmpeg leaves part of a GIF.
+    trap 'rm -f "$gif"; exit 130' INT
+    trap 'rm -f "$gif"; exit 143' TERM
+    # One palette pass, 960 px wide, as tests/e2e/harness.sh makes its GIFs.
+    if ! ffmpeg -loglevel error -framerate "$rate" -i "$tmp/frames/g%05d.png" -frames:v "$count" \
+        -vf "scale=960:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" \
+        -y "$gif" </dev/null; then
+      rm -f "$gif"; echo "vm: ffmpeg could not make the GIF" >&2
+    elif [ "$(stat -c %s "$gif")" -gt 10000000 ]; then
+      echo "vm: the GIF is $(stat -c %s "$gif") bytes, over GitHub's 10 MB for a GIF: deleted" >&2; rm -f "$gif"
+    else
+      echo "vm: recording: $gif ($(stat -c %s "$gif") bytes)" >&2
+    fi
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+  else
+    echo "vm: fewer than 2 frames at the final screen size: no GIF" >&2
+  fi
+fi
+[ -z "$interrupted" ] || { echo "vm: interrupted (Ctrl-C)" >&2; exit 130; }
+[ -f "$report" ] || exit 1
+for n in 1 2; do
+  grep -qx "pick $n: exit 0" "$report" || { echo "vm: pick $n did not exit 0 (see $report)" >&2; exit 1; }
+done
