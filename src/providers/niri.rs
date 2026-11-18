@@ -915,7 +915,8 @@ binds { Mod+T { spawn "foot"; }; }
         );
         // A file over the limit is skipped with a note.
         let big = d.0.join("big.kdl");
-        std::fs::write(&big, vec![b' '; MAX_FILE as usize + 1]).unwrap();
+        // Not UTF-8 either: the size is what's reported, from the metadata, before any reading.
+        std::fs::write(&big, vec![0xff; MAX_FILE as usize + 1]).unwrap();
         let config = write(&d.0, "c4.kdl", "include \"big.kdl\"\n");
         let (_, notes) = read(&config, &d.0).unwrap();
         assert!(notes[0].ends_with("bigger than 4 MiB"), "{notes:?}");
