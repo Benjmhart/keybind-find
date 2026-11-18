@@ -171,7 +171,7 @@ demo() {
     record "$name.gif" "FAIL	the capture hit its 20 s limit before the end"
     FAILED=1
   elif [ "${want%%$'\t'*}" = niri ] && [ -z "$sent" ] && [ "$status" != still ] &&
-    grep -q "can't send niri's own keys" "$OUT/$name.kbf.log"; then
+    grep -qF "press ${want#*$'\t'} yourself" "$OUT/$name.kbf.log"; then
     # A niri case's own key (the default query) is refused by design: wtype's keys reach the window, not niri. The
     # refusal is the demo's end; a QUERY for the program's key shows a send.
     record "$name.gif" "ok	$size bytes	query: $query, niri's own key refused (as designed)"
@@ -270,7 +270,8 @@ w() {
 
 # n NAME "PROVIDERS" "PROVIDER|KEY|DESC" -- COMMAND...: a case under niri (its phase), the program started through
 # niri (`niri msg action spawn`), its focus read through niri's IPC as keybind-find reads it.
-# niri double-forks what it spawns (src/utils/spawning.rs:178 at v26.04), so the program isn't niri's child: a window
+# niri double-forks what it spawns (src/utils/spawning.rs:178, and :275 on its systemd path, at v26.04), so the
+# program isn't niri's child: a window
 # that never appears is cleaned up by killing only the PROGRAM processes that weren't there before.
 n() {
   local name=$1 providers=$2 key=$3
@@ -402,8 +403,13 @@ unset SWAYSOCK WAYLAND_DISPLAY
 # niri's binary has no headless mode (its headless backend is for its tests only); with DISPLAY set and no
 # WAYLAND_DISPLAY it runs as an X11 window, rendering through mesa's llvmpipe. The cases get niri's Wayland display,
 # not the Xvfb one. A named phase (niri-phase), so a run naming only other cases skips it.
-# niri falls back to its built-in config when the file doesn't load: check the pinned one first.
-if wanted niri-phase && ! niri validate -c "$HOME/.config/niri/config.kdl" >"$OUT/niri-validate.log" 2>&1; then
+# niri falls back to its built-in config when the file doesn't load: check the pinned one first. The cases and
+# keybind-find must read that file too, whatever the image's environment says.
+unset XDG_CONFIG_HOME NIRI_CONFIG
+if wanted niri-phase && ! command -v niri >/dev/null; then
+  record niri-phase "FAIL	niri is not installed"
+  FAILED=1
+elif wanted niri-phase && ! niri validate -c "$HOME/.config/niri/config.kdl" >"$OUT/niri-validate.log" 2>&1; then
   record niri-phase "FAIL	niri rejects tests/e2e/home/.config/niri/config.kdl	$(tail -c 300 "$OUT/niri-validate.log" | tr '\n\t' '  ')"
   FAILED=1
 elif wanted niri-phase; then

@@ -2956,6 +2956,18 @@ mod tests {
             |_| panic!("X read under niri"),
             |_, _| Ok(niri_window("org.gnome.Nautilus", "1")),
         );
+        // niri on X11 (no WAYLAND_DISPLAY): the window comes from X, and niri is never asked.
+        let (x11, _) = focus(
+            Some("niri"),
+            false,
+            |ctx| {
+                ctx.class = Some("Gimp".into());
+                Ok(None)
+            },
+            |p, _| panic!("{p} asked on X11"),
+        );
+        assert_eq!(x11.class.as_deref(), Some("Gimp"));
+        assert_eq!(x11.providers, ["niri", "espanso", "sheets"]);
         assert_eq!(ctx.class.as_deref(), Some("org.gnome.Nautilus"));
         assert_eq!(ctx.providers, ["niri", "espanso", "sheets"]);
     }

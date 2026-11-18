@@ -99,4 +99,6 @@ elif [ "$PHASE" = niri ]; then
   # `niri msg --json focused-window`. No oracle: nothing in niri's IPC or CLI prints its binds (the hotkey overlay
   # is drawn, not printed).
   n niri-foot      "niri foot zsh"       "niri|super+t|Open a Terminal"     -- foot zsh
+  # A foot key picked by its description: its demo sends a key under niri (niri's own keys are refused by design).
+  n niri-foot-key  "niri foot zsh"       "foot|ctrl+shift+y|Spawns a new"   -- foot zsh
 fi

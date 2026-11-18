@@ -59,7 +59,8 @@ fn sheet_from(env: Env, system: &Path) -> anyhow::Result<(Sheet, Vec<String>)> {
         };
         // Two different niri keys can be one chord here (`Mod+T` and `Super+T` with mod-key Super). niri's
         // `find_configured_bind` (src/input/mod.rs:4443-4472) runs the first in its list: both are listed, and noted.
-        if !seen.insert(key.clone()) {
+        // Case-insensitively: niri reads key names that way (`Return` and `return` are one key).
+        if !seen.insert(key.to_ascii_lowercase()) {
             shadowed += 1;
         }
         sheet
@@ -118,16 +119,20 @@ struct State {
 /// A regular file's text (a FIFO or a device would block or never end), up to `MAX_FILE`.
 fn read_file(path: &Path) -> anyhow::Result<String> {
     use std::io::Read as _;
-    anyhow::ensure!(std::fs::metadata(path)?.is_file(), "not a regular file");
+    let md = std::fs::metadata(path)?;
+    anyhow::ensure!(md.is_file(), "not a regular file");
+    let too_big = || anyhow::anyhow!("bigger than {} MiB", MAX_FILE >> 20);
+    if md.len() > MAX_FILE {
+        return Err(too_big());
+    }
     let mut text = String::new();
+    // `take` still bounds a file that grows while it is read.
     std::fs::File::open(path)?
         .take(MAX_FILE + 1)
         .read_to_string(&mut text)?;
-    anyhow::ensure!(
-        text.len() as u64 <= MAX_FILE,
-        "bigger than {} MiB",
-        MAX_FILE >> 20
-    );
+    if text.len() as u64 > MAX_FILE {
+        return Err(too_big());
+    }
     Ok(text)
 }
 
@@ -238,6 +243,10 @@ fn include(
         ));
         return Ok(());
     }
+    if optional && std::fs::metadata(&file).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+    {
+        return Ok(());
+    }
     if state.includes >= MAX_INCLUDES {
         if state.includes == MAX_INCLUDES {
             state.notes.push(format!(
@@ -245,10 +254,6 @@ fn include(
             ));
             state.includes += 1;
         }
-        return Ok(());
-    }
-    if optional && std::fs::metadata(&file).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
-    {
         return Ok(());
     }
     state.includes += 1;
@@ -283,6 +288,13 @@ fn binds(
             notes.push(format!("{}: {name} has no action", label(b)));
             continue;
         };
+        // More than one action is an error in niri.
+        if b.children().is_some_and(|c| c.nodes().len() > 1) {
+            notes.push(format!(
+                "{}: {name} has more than one action (first shown)",
+                label(b)
+            ));
+        }
         let same = same_key(name);
         if out.iter().any(|o| o.same == same) {
             notes.push(format!(
@@ -305,7 +317,7 @@ fn binds(
             // A title that is empty once its markup is gone says nothing: the action instead.
             desc: title
                 .map(plain)
-                .filter(|t| !t.trim().is_empty())
+                .filter(|t| t.chars().any(|c| !c.is_whitespace() && !c.is_control()))
                 .unwrap_or_else(|| written(action)),
             action: action.name().value().to_string(),
         });
@@ -333,57 +345,63 @@ fn written(action: &KdlNode) -> String {
     parts.join(" ")
 }
 
-/// Pango markup as text: tags (`<b>`, `<span …>`) dropped, a `<` with no `>` after it kept as text, and entities
-/// decoded in one pass (the five XML ones, `&#N;`, `&#xN;`), so `&amp;lt;` stays `&lt;`; an unknown one is kept.
+/// Pango markup as text: known tags dropped and entities decoded (the five XML ones, `&#N;`, `&#xN;`). What Pango
+/// can't parse is shown whole, as written, as niri's overlay does (src/ui/hotkey_overlay.rs:143-146, 412-418).
 fn plain(markup: &str) -> String {
-    let mut stripped = String::new();
-    let mut rest = markup;
-    while let Some(at) = rest.find('<') {
-        stripped.push_str(&rest[..at]);
-        match rest[at..].find('>') {
-            Some(end) => rest = &rest[at + end + 1..],
-            None => {
-                rest = &rest[at..];
-                break;
-            }
-        }
-    }
-    stripped.push_str(rest);
+    markup_text(markup).unwrap_or_else(|| markup.to_string())
+}
+
+/// `markup` as Pango shows it, `None` where Pango would fail: an unclosed `<`, a tag it doesn't know, a bare `&`, an
+/// unknown or invalid entity. ponytail: tag nesting and attributes aren't checked.
+fn markup_text(markup: &str) -> Option<String> {
+    const TAGS: &[&str] = &[
+        "b", "big", "i", "s", "sub", "sup", "small", "tt", "u", "span",
+    ];
     let mut out = String::new();
-    let mut rest = stripped.as_str();
-    while let Some(at) = rest.find('&') {
+    let mut rest = markup;
+    while let Some(at) = rest.find(['<', '&']) {
         out.push_str(&rest[..at]);
         rest = &rest[at..];
-        let decoded = rest.find(';').and_then(|end| {
-            let c = match &rest[1..end] {
-                "lt" => '<',
-                "gt" => '>',
-                "quot" => '"',
-                "apos" => '\'',
-                "amp" => '&',
-                e => {
-                    let n = match e.strip_prefix("#x").or_else(|| e.strip_prefix("#X")) {
-                        Some(hex) => u32::from_str_radix(hex, 16).ok(),
-                        None => e.strip_prefix('#').and_then(|d| d.parse().ok()),
-                    };
-                    char::from_u32(n?)?
-                }
-            };
-            Some((c, end))
-        });
-        match decoded {
-            Some((c, end)) => {
-                out.push(c);
-                rest = &rest[end + 1..];
+        if rest.starts_with('<') {
+            let end = rest.find('>')?;
+            let tag = rest[1..end].trim_start_matches('/');
+            let name = tag.split([' ', '\t', '\n', '/']).next().unwrap_or("");
+            if !TAGS.contains(&name) {
+                return None;
             }
-            None => {
-                out.push('&');
-                rest = &rest[1..];
-            }
+            rest = &rest[end + 1..];
+        } else {
+            let end = rest.find(';')?;
+            out.push(entity(&rest[1..end])?);
+            rest = &rest[end + 1..];
         }
     }
     out.push_str(rest);
-    out
+    Some(out)
+}
+
+/// One entity's character, as GMarkup reads it: a lower-case `x` for hex, digits only, never NUL or a surrogate.
+fn entity(name: &str) -> Option<char> {
+    let named = match name {
+        "lt" => Some('<'),
+        "gt" => Some('>'),
+        "quot" => Some('"'),
+        "apos" => Some('\''),
+        "amp" => Some('&'),
+        _ => None,
+    };
+    if named.is_some() {
+        return named;
+    }
+    let number = name.strip_prefix('#')?;
+    let (digits, radix) = match number.strip_prefix('x') {
+        Some(hex) => (hex, 16),
+        None => (number, 10),
+    };
+    if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
+        return None;
+    }
+    char::from_u32(u32::from_str_radix(digits, radix).ok()?).filter(|&c| c != '\0')
 }
 
 fn first_string(node: &KdlNode) -> Option<&str> {
@@ -800,22 +818,48 @@ binds { Mod+T { spawn "foot"; }; }
 
     #[test]
     fn titles_as_text() {
-        assert_eq!(
-            plain("a &#65;&#x42;&#X43; &#0x; &nope; & b"),
-            "a ABC &#0x; &nope; & b"
-        );
-        assert_eq!(plain("&#xD800;"), "&#xD800;");
-        assert_eq!(plain("<b>x</b> 1 < 2"), "x 1 < 2");
-        assert_eq!(plain("&amp;lt;"), "&lt;");
-        let (sheet, _) = text(
+        assert_eq!(plain("a &#65;&#x42; b"), "a AB b");
+        assert_eq!(plain("<b>x</b> <span foreground='red'>y</span>"), "x y");
+        assert_eq!(plain("&amp;lt; &quot;&apos;&gt;"), "&lt; \"'>");
+        // What Pango can't parse is shown as written.
+        for raw in [
+            "&#X43;",
+            "&#0;",
+            "&#xD800;",
+            "&#+65;",
+            "&#;",
+            "&nope;",
+            "a & b",
+            "1 < 2",
+            "<foo>x</foo>",
+            "a &amp b",
+        ] {
+            assert_eq!(plain(raw), raw);
+        }
+        let (sheet, notes) = text(
             "titles",
-            "binds {\n    Mod+A hotkey-overlay-title=\"<b> </b>\" { spawn \"a\"; }\n    Mod+B hotkey-overlay-title=\"\" { spawn \"b\"; }\n    Mod+C { set-column-width 0.5 null; }\n}\n",
+            "binds {\n    Mod+A hotkey-overlay-title=\"<b> </b>\" { spawn \"a\"; }\n    Mod+B hotkey-overlay-title=\"\" { spawn \"b\"; }\n    Mod+C { set-column-width 0.5 null; }\n    Mod+D hotkey-overlay-title=\"\\u{7} \" { spawn \"d\"; }\n    Mod+Return { spawn \"r\"; }\n    Super+return { spawn \"s\"; }\n    Mod+E { spawn \"e1\"; spawn \"e2\"; }\n}\n",
         )
         .unwrap();
         // Blank once its markup is gone: the action instead.
         assert_eq!(desc(&sheet, "super+a"), ["spawn a"]);
         assert_eq!(desc(&sheet, "super+b"), ["spawn b"]);
         assert_eq!(desc(&sheet, "super+c"), ["set-column-width 0.5 null"]);
+        // Only control characters and spaces: blank too.
+        assert_eq!(desc(&sheet, "super+d"), ["spawn d"]);
+        // The first action is shown, and the others noted.
+        assert_eq!(desc(&sheet, "super+e"), ["spawn e1"]);
+        assert!(
+            notes[0].ends_with("Mod+E has more than one action (first shown)"),
+            "{notes:?}"
+        );
+        // `Return` and `return` are one key in niri: both listed, noted as sharing it.
+        assert_eq!(desc(&sheet, "super+Return"), ["spawn r"]);
+        assert_eq!(desc(&sheet, "super+return"), ["spawn s"]);
+        assert_eq!(
+            notes[1],
+            "1 bind(s) share a key with an earlier one; niri runs only the first"
+        );
     }
 
     #[test]
@@ -826,18 +870,23 @@ binds { Mod+T { spawn "foot"; }; }
         let config = write(
             &d.0,
             "config.kdl",
-            "include \"config.kdl\"\ninclude optional=true \"adir\"\ninclude\ninclude \"late.kdl\"\ninput { mod-key \"Alt\"; }\nbinds { Mod+T { spawn \"t\"; }; }\n",
+            "include \"config.kdl\"\ninclude optional=true \"adir\"\ninclude optional=true \"late.kdl/x\"\ninclude\ninclude \"late.kdl\"\ninput { mod-key \"Alt\"; }\nbinds { Mod+T { spawn \"t\"; }; }\n",
         );
         let (sheet, notes) = read(&config, &d.0).unwrap();
         // The last mod-key read wins, an included one included.
         assert_eq!(desc(&sheet, "alt+t"), ["spawn t"]);
-        assert_eq!(notes.len(), 3, "{notes:?}");
+        assert_eq!(notes.len(), 4, "{notes:?}");
         assert!(
             notes[0].ends_with("include config.kdl skipped: it includes itself"),
             "{notes:?}"
         );
         assert!(notes[1].ends_with("not a regular file"), "{notes:?}");
-        assert!(notes[2].ends_with("an include with no path"), "{notes:?}");
+        // Optional covers a missing file only: a path through a file (ENOTDIR) is noted.
+        assert!(
+            notes[2].contains("include late.kdl/x skipped: reading"),
+            "{notes:?}"
+        );
+        assert!(notes[3].ends_with("an include with no path"), "{notes:?}");
         // The included mod-key wins when it comes last.
         let config = write(
             &d.0,
