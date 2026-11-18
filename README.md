@@ -16,10 +16,10 @@ The lists are read from the programs' real configuration, your own bindings incl
 | xmonad | your keymap, with each binding's name, and xmonad's stock keys | a few lines in `xmonad.hs`, incl. `ewmh`: [docs/xmonad.md](docs/xmonad.md) |
 | sway | your `bindsym` lines (following `include` and `set $var`), and the focused window from sway's tree | none |
 | Hyprland | its binds from the running compositor (`hyprctl -j binds`), with each bind's description, and the focused window from `hyprctl` | none ([below](#hyprland)) |
-| KDE Plasma | its global shortcuts (`kglobalshortcutsrc`) and the launch shortcuts of `.desktop` files, and the focused window (on Wayland from `kdotool`) | on Wayland, `kdotool`; picks there are not sent ([below](#kde-plasma)) |
+| KDE Plasma | its global shortcuts (`kglobalshortcutsrc`) and the launch shortcuts of `.desktop` files, and the focused window (on Wayland from `kdotool`) | on Wayland, `kdotool`; picks there are sent through the desktop's portal, after one approval ([below](#kde-plasma)) |
 | i3 | the bindings of the config i3 has loaded (`i3-msg -t get_config`; from 4.20, includes followed and variables replaced by i3) | none ([below](#i3)) |
 | Xfce | xfwm4's window shortcuts and your application shortcuts, from `xfconf-query` (X11) | `xfconf-query` ([below](#xfce)) |
-| GNOME | its window, shell, mutter and media-key shortcuts, your custom shortcuts and the overlay key, from `gsettings`; on X11 also the focused window | `gsettings`; on Wayland picks are not sent and the list opens in fzf ([below](#gnome)) |
+| GNOME | its window, shell, mutter and media-key shortcuts, your custom shortcuts and the overlay key, from `gsettings`; on X11 also the focused window | `gsettings`; on Wayland picks are sent through the desktop's portal, after one approval, and the list opens in fzf ([below](#gnome)) |
 | sxhkd (bspwm, or any X11 window manager) | the hotkeys of your running sxhkd, from the config files it loaded, with each one's comment, `{a,b}` sequences expanded and chains as key sequences | none ([below](#sxhkd)) |
 | awesome | its keys from the running awesome over D-Bus (the hotkeys its own popup shows), with each key's description and group | none for the stock config; your `rc.lua` must `require("awful")` ([below](#awesome)) |
 | any other X11 window manager (openbox, qtile, dwm, …) | the focused window, so every app below works; not the window manager's own keys, but sxhkd's when it runs | an EWMH window manager (it sets `_NET_ACTIVE_WINDOW`) |
@@ -680,9 +680,27 @@ On X11 the focused window is read with `xdotool` as on any X11 window manager. O
 [`kdotool`](https://github.com/jinliu/kdotool) (Plasma 6; not in Arch's or Debian's repositories: AUR or
 `cargo install kdotool`); without it, that is one line and the list has only Plasma's shortcuts and espanso.
 
-On Wayland a pick is not sent: KWin doesn't offer the virtual-keyboard protocol that `wtype` needs, so keybind-find
-stops with an error naming the keys to press (`press super+e yourself`) instead. `--print` prints as anywhere else.
-The list shows with fuzzel, which works on KWin.
+On Wayland KWin doesn't offer the virtual-keyboard protocol that `wtype` needs, so a pick is sent through the
+desktop's RemoteDesktop portal (`xdg-desktop-portal` with its KDE backend, which Plasma installs), keyboard only. The
+first pick shows Plasma's dialog asking to allow remote control: allow it and tick the option to remember it, and
+later picks are sent without asking (without it ticked the dialog shows on every pick). The approval is kept as a
+restore token in `~/.local/state/keybind-find/portal-token` (`$XDG_STATE_HOME/keybind-find/portal-token`); delete
+that file to revoke it, and the next pick asks again. Plasma shows a "Remote Control Started" notification, and a tray
+item while the keys are sent, on every pick. A refused dialog or another portal failure ends with an error naming the
+keys to press (`press super+e yourself`); a key name keybind-find doesn't know is refused before that, naming it
+(`refusing to send "ctrl+Foo": no keysym "Foo"`). `--print` prints as anywhere else. The list shows with
+fuzzel, which works on KWin.
+
+Keys go as X keysyms, which the desktop looks up in your current layout (here and on [GNOME](#gnome)):
+
+- A key or character your layout lacks, in a chord as in an espanso trigger: GNOME drops it with no error, so a
+  `super+` chord with such a key (`super+XF86Launch0`) opens Activities instead; KWin types it through a keymap of
+  its own for that key, but without the chord's modifiers, which can then stay held until you press and release them
+  yourself.
+- KWin lets go of `mod5` at once, so on KDE a `mod5` chord arrives without it.
+- With Caps Lock on, an espanso trigger is typed with its letters' case swapped.
+- Mutter can't reach a key's fourth level or above (AltGr+Shift: `Ł` on a Polish layout) and types that key's
+  plain character instead.
 
 ### i3
 
@@ -766,9 +784,11 @@ mutter's `Above_Tab` (the key above Tab, whatever it is on your layout) and a sh
 without GNOME's keys.
 
 On X11 the focused window is read as on any X11 window manager. On Wayland GNOME offers no way to read it (without
-an extension), so the list has GNOME's shortcuts and espanso. A pick there is not sent: Mutter doesn't offer the
-virtual-keyboard protocol that `wtype` needs, so keybind-find stops with an error naming the keys to press, as on
-[KDE](#kde-plasma); `--print` prints as anywhere else. The list opens in fzf in alacritty, an ordinary window
+an extension), so the list has GNOME's shortcuts and espanso. Mutter doesn't offer the virtual-keyboard protocol that
+`wtype` needs, so a pick there is sent through the RemoteDesktop portal (`xdg-desktop-portal` with its GNOME backend,
+which GNOME installs), as on [KDE](#kde-plasma): the first pick asks to allow remote control; tick the option to
+remember it and later picks are sent without asking. The token is the same file, and deleting it revokes the
+approval. Keys are looked up in your layout as [on KDE](#kde-plasma). `--print` prints as anywhere else. The list opens in fzf in alacritty, an ordinary window
 (fuzzel needs layer-shell, which Mutter lacks), with key search off as on any Wayland; without fzf or alacritty it
 falls back to fuzzel, with one line saying to install them or set `[picker]` ([docs/picker.md](docs/picker.md)).
 
@@ -866,7 +886,8 @@ keybind-find keys            # grab the keyboard, print each key you press in bi
 | `xmodmap` | key search, and checking your `config.toml` keys | `xorg-xmodmap` | `x11-xserver-utils` |
 | `dmenu` | the list on X11 without fzf or alacritty (or with fzf older than 0.60, via `KEYBIND_FIND_PICKER`) | `dmenu` | `suckless-tools` |
 | `fuzzel` | the list on Wayland | `fuzzel` | `fuzzel` |
-| `wtype` | Wayland: sending keys | `wtype` | `wtype` |
+| `wtype` | Wayland: sending keys (not KDE Plasma or GNOME) | `wtype` | `wtype` |
+| `xdg-desktop-portal` | KDE Plasma and GNOME on Wayland: sending keys, with the desktop's backend (both desktops install it) | `xdg-desktop-portal` with `xdg-desktop-portal-kde` or `xdg-desktop-portal-gnome` | `xdg-desktop-portal` with `xdg-desktop-portal-kde` or `xdg-desktop-portal-gnome` |
 | `i3-msg` | i3: its config | `i3-wm` | `i3-wm` |
 | `swaymsg` | sway: the focused window | `sway` | `sway` |
 | `hyprctl` | Hyprland: its binds and the focused window | `hyprland` | `hyprland` |

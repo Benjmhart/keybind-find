@@ -271,7 +271,8 @@ w() {
 # p NAME MODE: picks sent through the RemoteDesktop portal under a faked GNOME session on sway's display (no SWAYSOCK,
 # XDG_CURRENT_DESKTOP=GNOME and a process named gnome-shell: a copy of sleep), the portal being tests/e2e/fake_portal.py
 # on this session bus, answering as its MODE says (`fake_portal.py --plan MODE`: how many picks, and the token stored
-# before them). fake_portal.py --check checks the calls, the token file and each pick's stderr.
+# before them). fake_portal.py --check checks the calls (the keys pressed among them), the token file and each pick's
+# exit status and stderr.
 # The pick is GNOME's `minimize`, set to ctrl+shift+k, not a global sheet's entry: under GNOME on Wayland keybind-find
 # reads no focused window, so it has no class and runs no sheets provider (context.rs `providers_for`), and a sheet
 # can't apply. Picked by a dmenu-style grep.
@@ -321,6 +322,7 @@ p() {
     for i in $(seq "$picks"); do
       ${bus[@]+"${bus[@]}"} env -u SWAYSOCK XDG_CURRENT_DESKTOP=GNOME XDG_STATE_HOME="$state" \
         KEYBIND_FIND_PICKER='grep -m1 minimize' timeout 30 "$KBF" >/dev/null 2>"$OUT/$name.$i.err"
+      echo $? >"$OUT/$name.$i.rc"
       errs+=("$OUT/$name.$i.err")
     done
     if line=$(python3 -I "$E/fake_portal.py" --check "$mode" "$OUT/$name.calls" \
