@@ -1,7 +1,7 @@
 # The e2e cases, sourced by harness.sh once per phase (PHASE=x11, awesome, wayland, then niri).
 # Each names its case, the providers that must answer (each with at least one bind), and one key from tests/e2e/home
 # that must be listed: "PROVIDER|KEY|part of its description[|scope=value,...]". x: under i3, or under awesome in its
-# phase (the focused window found through xdotool); w: under sway; p NAME RESPONSE: a send through a fake portal under a
+# phase (the focused window found through xdotool); w: under sway; p NAME MODE: picks through a fake portal under a
 # faked GNOME session on sway's display (harness.sh `p`); n: under niri; d: one provider dumped directly, after a setup
 # command (its desktop can't run here); o NAME PROVIDER -- COMMAND: the program's own key report (COMMAND) checked
 # against `keybind-find dump PROVIDER` by oracle.py. The niri phase runs only when its name is wanted: name
@@ -95,10 +95,20 @@ elif [ "$PHASE" = wayland ]; then
   w foot-helix     "sway foot helix"     "foot|ctrl+shift+y|Spawns a new"   -- foot helix /tmp/e2e.rs
   w alacritty-way  "sway alacritty zsh"  "alacritty|ctrl+shift+x|Quit"      -- alacritty -e zsh
   w kitty-way      "sway kitty zsh"      "kitty|ctrl+shift+x|close_window"  -- kitty zsh
-  # A pick under a faked GNOME session, through a fake RemoteDesktop portal: approved (twice, the second with the
-  # stored token), then refused.
-  p portal-send    0
-  p portal-refused 1
+  # Picks under a faked GNOME session, through a fake RemoteDesktop portal (tests/e2e/fake_portal.py MODES): approved
+  # (twice, the second with the stored token), refused, a stored token no longer honoured, a start that returns no
+  # token, SelectDevices refused, no keyboard among the device types, no AvailableDeviceTypes at all, a Request on
+  # another path, a Response forged by another client, a Close that fails.
+  p portal-send           send
+  p portal-refused        refused
+  p portal-stale          stale
+  p portal-no-token       no-token
+  p portal-select-refused select-refused
+  p portal-no-keyboard    no-keyboard
+  p portal-no-property    no-property
+  p portal-other-path     other-path
+  p portal-forged         forged
+  p portal-close-fails    close-fails
 elif [ "$PHASE" = niri ]; then
   # niri's binds from tests/e2e/home/.config/niri (Mod+T from its include) beside the terminal's, found through
   # `niri msg --json focused-window`. No oracle: nothing in niri's IPC or CLI prints its binds (the hotkey overlay

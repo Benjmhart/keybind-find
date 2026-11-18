@@ -36,7 +36,11 @@ pub fn send(_e: &Entry) -> anyhow::Result<()> {
     let token_file = token_path_from(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"));
     let session = open(token_file.as_deref())?;
     // The keys go here, on `session`, before it closes.
-    session.close()
+    // A session that won't close ends with keybind-find anyway: said, not the pick's error.
+    if let Err(e) = session.close() {
+        eprintln!("keybind-find: {e:#}");
+    }
+    Ok(())
 }
 
 /// An open RemoteDesktop session, alive as long as its connection: the portal closes it when keybind-find exits.
@@ -68,44 +72,78 @@ impl Session {
 
 /// What the handshake thread reports: `Ok(None)` after each step but the last, the started session (with `Start`'s
 /// restore token) after it, or the error that stopped it.
-type Report = anyhow::Result<Option<(Session, Option<String>)>>;
+type Report<T> = anyhow::Result<Option<T>>;
 
-/// Runs the handshake with the token stored in `token_file`, then stores the token `Start` returned there (or deletes
-/// the stored one when it returned none).
+/// Runs the handshake with the token stored in `token_file`, then keeps, replaces or deletes that token (`token_after`).
 fn open(token_file: Option<&Path>) -> anyhow::Result<Session> {
     let token = token_file.and_then(read_token);
     let steps = steps(token.is_some());
+    let sent = token.is_some();
     let (tx, rx) = mpsc::channel();
-    let restore = token.clone();
     // zbus has no timer of its own to offer (its runtime is crate-private), so the handshake runs on a thread and each
     // step is waited for here. On a timeout keybind-find stops; its exit drops the connection, and the portal closes a
     // session whose peer is gone.
     std::thread::spawn(move || {
-        let report = zbus::block_on(handshake(restore, &tx)).map(Some);
+        let report = zbus::block_on(handshake(token, &tx)).map(Some);
         let _ = tx.send(report);
     });
-    for (step, wait) in steps {
+    let started = wait(&rx, &steps);
+    let new_token = started.as_ref().ok().map(|(_, t)| t.as_deref());
+    if let Some(file) = token_file {
+        let saved = match token_after(sent, new_token) {
+            TokenFile::Keep => Ok(()),
+            TokenFile::Write(t) => save_token(file, Some(t)),
+            TokenFile::Delete => save_token(file, None),
+        };
+        // A token that can't be kept costs only a dialog next time.
+        if let Err(e) = saved {
+            eprintln!("keybind-find: portal token {}: {e}", file.display());
+        }
+    }
+    started.map(|(session, _)| session)
+}
+
+#[derive(Debug, PartialEq)]
+enum TokenFile<'a> {
+    Keep,
+    Write(&'a str),
+    Delete,
+}
+
+/// The token file after a handshake that `sent` the stored token and `started` (with `Start`'s restore token) or
+/// failed (`None`). A token is kept only when it has a token's shape. A failure after sending one deletes it: the portal
+/// may no longer honour it (revoked, used up, another app id), and then shows its dialog, which the 5 s a restored
+/// `Start` gets can't cover; without the token the next pick gets the dialog's 2 minutes.
+fn token_after(sent: bool, started: Option<Option<&str>>) -> TokenFile<'_> {
+    match started {
+        Some(Some(t)) if shaped(t) => TokenFile::Write(t),
+        Some(_) => TokenFile::Delete,
+        None if sent => TokenFile::Delete,
+        None => TokenFile::Keep,
+    }
+}
+
+/// Waits for each of `steps` in turn, as long as it may take, and returns what the last one reported.
+fn wait<T>(
+    rx: &mpsc::Receiver<Report<T>>,
+    steps: &[(&'static str, Duration)],
+) -> anyhow::Result<T> {
+    for (i, &(step, wait)) in steps.iter().enumerate() {
+        let last = i + 1 == steps.len();
         match rx.recv_timeout(wait) {
-            Ok(Ok(None)) => {}
-            Ok(Ok(Some((session, new_token)))) => {
-                if let Some(file) = token_file {
-                    // The session is open: a token that can't be kept costs only a dialog next time.
-                    if let Err(e) = save_token(file, new_token.as_deref()) {
-                        eprintln!("keybind-find: portal token {}: {e}", file.display());
-                    }
-                }
-                return Ok(session);
-            }
+            Ok(Ok(None)) if !last => {}
+            Ok(Ok(Some(done))) if last => return Ok(done),
+            Ok(Ok(_)) => bail!("portal {step}: the handshake is out of step"),
             Ok(Err(e)) => return Err(e),
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                bail!("portal {step}: no answer within {} s", wait.as_secs())
+                bail!("portal {step}: no answer within {wait:?}")
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 bail!("portal {step}: the handshake stopped")
             }
         }
     }
-    bail!("portal Start: no session")
+    bail!("portal: no steps")
 }
 
 /// The handshake's steps, each with how long it may take: 5 s, but up to 120 s for a `Start` that shows the dialog (no
@@ -122,7 +160,7 @@ fn steps(restoring: bool) -> [(&'static str, Duration); 5] {
 
 async fn handshake(
     restore: Option<String>,
-    tx: &mpsc::Sender<Report>,
+    tx: &mpsc::Sender<Report<(Session, Option<String>)>>,
 ) -> anyhow::Result<(Session, Option<String>)> {
     let conn = zbus::connection::Builder::session()
         .method_timeout(STEP)
@@ -158,13 +196,12 @@ async fn handshake(
         ),),
     )
     .await?;
-    // A string, not an object path, "for backwards compatibility".
+    // A handle that is missing or isn't a path leaves nothing to close here: the portal closes the session when this
+    // connection goes, at keybind-find's exit.
     let handle = created
         .remove("session_handle")
-        .context("no session_handle")
-        .and_then(|v| Ok(String::try_from(v)?))
-        .and_then(|s| Ok(OwnedObjectPath::try_from(s)?))
-        .context("portal CreateSession")?;
+        .and_then(session_handle)
+        .context("portal CreateSession: no session_handle")?;
     let _ = tx.send(Ok(None));
     let session = Session { conn, handle };
     match start(&session, restore, tx).await {
@@ -176,11 +213,20 @@ async fn handshake(
     }
 }
 
+/// CreateSession's `session_handle`: a string "for backwards compatibility", or an object path.
+fn session_handle(v: OwnedVariant) -> Option<OwnedObjectPath> {
+    match Variant::from(v) {
+        Variant::Str(s) => OwnedObjectPath::try_from(s.as_str().to_string()).ok(),
+        Variant::ObjectPath(p) => Some(p.into()),
+        _ => None,
+    }
+}
+
 /// `SelectDevices` and `Start` on `session`; returns `Start`'s restore token.
 async fn start(
     session: &Session,
     restore: Option<String>,
-    tx: &mpsc::Sender<Report>,
+    tx: &mpsc::Sender<Report<(Session, Option<String>)>>,
 ) -> anyhow::Result<Option<String>> {
     let token = handle_token("select");
     let mut select = vec![
@@ -228,7 +274,9 @@ fn handle_token(what: &str) -> String {
 }
 
 /// Calls `method` on the portal and waits for its Request's `Response`, subscribed before the call so an answer can't
-/// come first. Returns the results of a response 0; 1 (cancelled) and 2 (other) are the desktop's refusal.
+/// come first. The Request must be the predicted one, and only a Response from the portal that answered the call
+/// counts (another client on the bus could send one too). Returns the results of a response 0; 1 (cancelled) and 2
+/// (other) are the desktop's refusal.
 async fn request<B>(
     conn: &Connection,
     method: &str,
@@ -251,28 +299,45 @@ where
         let mut stream = MessageStream::for_match_rule(rule, conn, None)
             .await
             .map_err(flat)?;
-        // ponytail: assumes the returned handle is the predicted path (every xdg-desktop-portal since 0.9); resubscribe
-        // on the returned one if an older portal matters.
-        conn.call_method(
-            Some(DESKTOP),
-            DESKTOP_PATH,
-            Some(REMOTE_DESKTOP),
-            method,
-            body,
-        )
-        .await
-        .map_err(flat)?;
-        let msg = std::future::poll_fn(|cx| std::pin::Pin::new(&mut stream).poll_next(cx))
+        let reply = conn
+            .call_method(
+                Some(DESKTOP),
+                DESKTOP_PATH,
+                Some(REMOTE_DESKTOP),
+                method,
+                body,
+            )
             .await
-            .context("the bus closed")?
             .map_err(flat)?;
-        msg.body()
-            .deserialize::<(u32, HashMap<String, OwnedVariant>)>()
-            .map_err(flat)
+        // Every xdg-desktop-portal since 0.9 answers on the predicted path.
+        let handle = reply
+            .body()
+            .deserialize::<OwnedObjectPath>()
+            .map_err(flat)?;
+        if handle.as_str() != path {
+            bail!("the request is {}, not {path}", handle.as_str());
+        }
+        let portal = sender(&reply);
+        loop {
+            let msg = std::future::poll_fn(|cx| std::pin::Pin::new(&mut stream).poll_next(cx))
+                .await
+                .context("the bus closed")?
+                .map_err(flat)?;
+            if portal.is_some() && sender(&msg) == portal {
+                return msg
+                    .body()
+                    .deserialize::<(u32, HashMap<String, OwnedVariant>)>()
+                    .map_err(flat);
+            }
+        }
     }
     .await
     .with_context(|| format!("portal {method}"))?;
     answered(method, answer.0, answer.1)
+}
+
+fn sender(msg: &zbus::Message) -> Option<String> {
+    msg.header().sender().map(|s| s.to_string())
 }
 
 /// A zbus error as its own text: its source (the D-Bus or I/O error inside) would say the same again.
@@ -306,20 +371,34 @@ fn token_path_from(xdg_state_home: Option<OsString>, home: Option<OsString>) -> 
     Some(crate::usage::state_dir_from(xdg_state_home, home)?.join("portal-token"))
 }
 
-/// The stored token, if it has a token's shape. xdg-desktop-portal rejects a malformed one (INVALID_ARGUMENT) instead
-/// of ignoring it, so anything else is sent as no token. Its tokens are `[A-Za-z0-9_]` (or a UUID, from older
-/// versions): letters, digits, `_` and `-`.
-fn read_token(path: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(path).ok()?;
-    let token = text.trim();
-    let shaped = !token.is_empty()
+/// Whether `token` has a token's shape. xdg-desktop-portal rejects a malformed one (INVALID_ARGUMENT) instead of
+/// ignoring it. Its tokens are `[A-Za-z0-9_]` (or a UUID, from older versions): letters, digits, `_` and `-`.
+fn shaped(token: &str) -> bool {
+    !token.is_empty()
         && token
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
-    shaped.then(|| token.to_string())
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
-/// Replaces the stored token with `token` (mode 0600, through a new file renamed over it), or deletes it for `None`.
+/// The stored token: a regular file of at most 4 KiB with a token's shape; anything else is sent as no token.
+fn read_token(path: &Path) -> Option<String> {
+    use std::io::Read as _;
+    // Checked before opening: opening a FIFO would wait for a writer.
+    if !std::fs::metadata(path).ok()?.is_file() {
+        return None;
+    }
+    let file = std::fs::File::open(path).ok()?;
+    let mut text = String::new();
+    file.take(4097).read_to_string(&mut text).ok()?;
+    let token = text.trim();
+    if text.len() > 4096 {
+        return None;
+    }
+    shaped(token).then(|| token.to_string())
+}
+
+/// Replaces the stored token with `token` (mode 0600, through a new file of this process's renamed over it), or
+/// deletes it for `None`.
 fn save_token(path: &Path, token: Option<&str>) -> std::io::Result<()> {
     let Some(token) = token else {
         return match std::fs::remove_file(path) {
@@ -330,8 +409,7 @@ fn save_token(path: &Path, token: Option<&str>) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let new = path.with_extension("new");
-    let _ = std::fs::remove_file(&new);
+    let new = temp_path(path);
     std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -339,6 +417,13 @@ fn save_token(path: &Path, token: Option<&str>) -> std::io::Result<()> {
         .open(&new)?
         .write_all(token.as_bytes())?;
     std::fs::rename(&new, path)
+}
+
+/// `<file>.new.<pid>`: two runs at once each write their own.
+fn temp_path(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".new.{}", std::process::id()));
+    path.with_file_name(name)
 }
 
 #[cfg(test)]
@@ -438,7 +523,10 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "second");
         let mode = std::fs::metadata(&file).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
-        assert!(!file.with_extension("new").exists());
+        assert!(!temp_path(&file).exists());
+        assert!(temp_path(&file)
+            .to_string_lossy()
+            .ends_with(&format!("portal-token.new.{}", std::process::id())));
         save_token(&file, None).unwrap();
         assert!(!file.exists());
         // A garbage file is no token.
@@ -453,5 +541,117 @@ mod tests {
         assert_eq!(read_token(&file).as_deref(), Some("fake-1"));
         std::fs::write(&file, "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0").unwrap();
         assert!(read_token(&file).is_some());
+        // At most 4 KiB, and only a regular file.
+        std::fs::write(&file, "a".repeat(4096)).unwrap();
+        assert!(read_token(&file).is_some());
+        std::fs::write(&file, "a".repeat(4097)).unwrap();
+        assert_eq!(read_token(&file), None);
+        std::fs::remove_file(&file).unwrap();
+        std::fs::create_dir(&file).unwrap();
+        assert_eq!(read_token(&file), None);
+        std::fs::remove_dir(&file).unwrap();
+        let made = std::process::Command::new("mkfifo")
+            .arg(&file)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        assert_eq!(read_token(&file), None);
+    }
+
+    #[test]
+    fn the_token_after_a_handshake() {
+        use TokenFile::*;
+        // Started: Start's token replaces the stored one; none (or an empty or misshapen one) deletes it.
+        for sent in [false, true] {
+            assert_eq!(token_after(sent, Some(Some("fake-1"))), Write("fake-1"));
+            assert_eq!(token_after(sent, Some(None)), Delete);
+            assert_eq!(token_after(sent, Some(Some(""))), Delete);
+            assert_eq!(token_after(sent, Some(Some("a b"))), Delete);
+        }
+        // Failed: a token sent is one the portal may no longer honour; with none sent there is nothing to change.
+        assert_eq!(token_after(true, None), Delete);
+        assert_eq!(token_after(false, None), Keep);
+    }
+
+    #[test]
+    fn each_step_is_waited_for_by_name() {
+        let ms = Duration::from_millis;
+        let short = [
+            ("connect", ms(50)),
+            ("AvailableDeviceTypes", ms(50)),
+            ("CreateSession", ms(50)),
+            ("SelectDevices", ms(50)),
+            ("Start", ms(80)),
+        ];
+        // A handshake that stops reporting after n steps times out on step n, with that step's wait.
+        for (n, (step, wait)) in short.iter().enumerate() {
+            let (tx, rx) = mpsc::channel::<Report<&str>>();
+            for _ in 0..n {
+                tx.send(Ok(None)).unwrap();
+            }
+            let err = super::wait(&rx, &short).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                format!("portal {step}: no answer within {wait:?}")
+            );
+            drop(tx);
+        }
+        // One that ends early says which step it stopped at.
+        let (tx, rx) = mpsc::channel::<Report<&str>>();
+        tx.send(Ok(None)).unwrap();
+        tx.send(Ok(None)).unwrap();
+        drop(tx);
+        let err = super::wait(&rx, &steps(true)).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "portal CreateSession: the handshake stopped"
+        );
+        // The last report is the result; an error is passed on as it is.
+        let (tx, rx) = mpsc::channel::<Report<&str>>();
+        for _ in 0..4 {
+            tx.send(Ok(None)).unwrap();
+        }
+        tx.send(Ok(Some("started"))).unwrap();
+        assert_eq!(super::wait(&rx, &steps(false)).unwrap(), "started");
+        let (tx, rx) = mpsc::channel::<Report<&str>>();
+        tx.send(Ok(None)).unwrap();
+        tx.send(Err(anyhow::anyhow!("the desktop refused keyboard control")))
+            .unwrap();
+        assert_eq!(
+            super::wait(&rx, &steps(false)).unwrap_err().to_string(),
+            "the desktop refused keyboard control"
+        );
+        // Out of step: a result before Start, or a step report where the result belongs.
+        let (tx, rx) = mpsc::channel::<Report<&str>>();
+        for _ in 0..3 {
+            tx.send(Ok(None)).unwrap();
+        }
+        tx.send(Ok(Some("early"))).unwrap();
+        assert_eq!(
+            super::wait(&rx, &steps(false)).unwrap_err().to_string(),
+            "portal SelectDevices: the handshake is out of step"
+        );
+        let (tx, rx) = mpsc::channel::<Report<&str>>();
+        for _ in 0..5 {
+            tx.send(Ok(None)).unwrap();
+        }
+        assert_eq!(
+            super::wait(&rx, &steps(false)).unwrap_err().to_string(),
+            "portal Start: the handshake is out of step"
+        );
+    }
+
+    #[test]
+    fn session_handle_as_string_or_path() {
+        let path = "/org/freedesktop/portal/desktop/session/1_4/t";
+        let s = OwnedVariant::try_from(Variant::from(path)).unwrap();
+        assert_eq!(session_handle(s).unwrap().as_str(), path);
+        let o = OwnedVariant::try_from(Variant::from(zbus::ObjectPath::try_from(path).unwrap()))
+            .unwrap();
+        assert_eq!(session_handle(o).unwrap().as_str(), path);
+        let bad = OwnedVariant::try_from(Variant::from("not a path")).unwrap();
+        assert!(session_handle(bad).is_none());
+        let num = OwnedVariant::try_from(Variant::from(7u32)).unwrap();
+        assert!(session_handle(num).is_none());
     }
 }

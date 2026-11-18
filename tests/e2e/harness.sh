@@ -268,32 +268,40 @@ w() {
   sleep 0.5
 }
 
-# p NAME RESPONSE: a send through the RemoteDesktop portal under a faked GNOME session on sway's display (no SWAYSOCK,
+# p NAME MODE: picks sent through the RemoteDesktop portal under a faked GNOME session on sway's display (no SWAYSOCK,
 # XDG_CURRENT_DESKTOP=GNOME and a process named gnome-shell: a copy of sleep), the portal being tests/e2e/fake_portal.py
-# on this session bus with Start answering RESPONSE. The pick is GNOME's `minimize`, set to ctrl+shift+k (under GNOME on
-# Wayland no window is read, so a sheet can't apply), picked by a dmenu-style grep: two picks when RESPONSE is 0, one
-# when it is a refusal. fake_portal.py --check checks the calls, the token file and each pick's last stderr line.
+# on this session bus, answering as its MODE says (`fake_portal.py --plan MODE`: how many picks, and the token stored
+# before them). fake_portal.py --check checks the calls, the token file and each pick's stderr.
+# The pick is GNOME's `minimize`, set to ctrl+shift+k, not a global sheet's entry: under GNOME on Wayland keybind-find
+# reads no focused window, so it has no class and runs no sheets provider (context.rs `providers_for`), and a sheet
+# can't apply. Picked by a dmenu-style grep.
 p() {
-  local name=$1 response=$2 state=/tmp/$1-state picks=2 i line errs=()
+  local name=$1 mode=$2 state=/tmp/$1-state picks seed i line errs=()
   wanted "$name" || return 0
-  [ "$response" = 0 ] || picks=1
+  read -r picks seed < <(python3 -I "$E/fake_portal.py" --plan "$mode")
   rm -rf "$state" "$OUT/$name.calls"
+  if [ "$seed" != - ]; then
+    mkdir -p "$state/keybind-find" && (umask 077 && printf %s "$seed" >"$state/keybind-find/portal-token")
+  fi
   mkdir -p /tmp/portal-bin && cp "$(command -v sleep)" /tmp/portal-bin/gnome-shell
   PATH=/tmp/portal-bin:$PATH gnome-shell 300 &
   local shell=$!
   gsettings set org.gnome.desktop.wm.keybindings minimize "['<Control><Shift>k']"
-  # The image's real xdg-desktop-portal, if an earlier case's program started it on demand, owns the name: stopped (with
-  # its backends) and its name gone before the fake takes it.
+  # The image's real xdg-desktop-portal, if an earlier case's program started it on demand, owns the name and doesn't
+  # let it be replaced: stopped (with its backends) and its name gone before the fake takes it.
   pkill -f '^/usr/lib/xdg-desktop-portal' 2>/dev/null
   for _ in $(seq 50); do
     gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
       --method org.freedesktop.DBus.NameHasOwner org.freedesktop.portal.Desktop 2>/dev/null | grep -q true || break
     sleep 0.1
   done
-  FAKE_PORTAL_START=$response python3 -I "$E/fake_portal.py" "$OUT/$name.calls" >"$OUT/$name.fake.log" 2>&1 &
+  FAKE_PORTAL=$mode python3 -I "$E/fake_portal.py" "$OUT/$name.calls" >"$OUT/$name.fake.log" 2>&1 &
   local fake=$!
-  if ! gdbus wait --session --timeout 10 org.freedesktop.portal.Desktop >/dev/null 2>&1; then
-    record "$name" "FAIL	the fake portal didn't start	$(tail -c 300 "$OUT/$name.fake.log" | tr '\n\t' '  ')"
+  gdbus wait --session --timeout 10 org.freedesktop.portal.Desktop >/dev/null 2>&1
+  # The name is the fake's once it says so (it quits if another owner keeps it).
+  for _ in $(seq 100); do grep -qx ready "$OUT/$name.fake.log" 2>/dev/null && break; sleep 0.1; done
+  if ! grep -qx ready "$OUT/$name.fake.log" 2>/dev/null; then
+    record "$name" "FAIL	the fake portal didn't get the name	$(tail -c 300 "$OUT/$name.fake.log" | tr '\n\t' '  ')"
     FAILED=1
   else
     for i in $(seq "$picks"); do
@@ -301,7 +309,7 @@ p() {
         timeout 30 "$KBF" >/dev/null 2>"$OUT/$name.$i.err"
       errs+=("$OUT/$name.$i.err")
     done
-    if line=$(FAKE_PORTAL_START=$response python3 -I "$E/fake_portal.py" --check "$OUT/$name.calls" \
+    if line=$(python3 -I "$E/fake_portal.py" --check "$mode" "$OUT/$name.calls" \
          "$state/keybind-find/portal-token" "${errs[@]}" 2>&1); then
       record "$name" "$line"
     else
