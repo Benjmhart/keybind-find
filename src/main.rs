@@ -132,13 +132,17 @@ fn dump_all() -> anyhow::Result<()> {
 }
 
 fn collect(ctx: &Context) -> anyhow::Result<Vec<Sheet>> {
-    collect_with(&ctx.providers, |name| providers::sheet(name, ctx))
+    collect_with(&ctx.providers, ctx.class.is_none(), |name| {
+        providers::sheet(name, ctx)
+    })
 }
 
 /// Runs `sheet` for every provider at once and keeps the ones that worked, in `names` order. Each failure is one
-/// stderr line; if all fail, that's an error.
+/// stderr line; if all fail, that's an error. With `no_class` (the focused window unknown), an empty `sheets` means
+/// no global sheet: it is dropped silently and is neither a provider that worked nor one named as failed.
 fn collect_with(
     names: &[&str],
+    no_class: bool,
     sheet: impl Fn(&str) -> anyhow::Result<Sheet> + Sync,
 ) -> anyhow::Result<Vec<Sheet>> {
     let results: Vec<_> = std::thread::scope(|s| {
@@ -156,16 +160,19 @@ fn collect_with(
             .collect()
     });
     let mut sheets = Vec::new();
+    let mut tried = Vec::new();
     for (name, r) in results {
         match r {
+            Ok(s) if no_class && name == "sheets" && s.binds.is_empty() => continue,
             Ok(s) => sheets.push(s),
             Err(e) => eprintln!("keybind-find: {}", provider_error(name, &e)),
         }
+        tried.push(name);
     }
     if sheets.is_empty() {
         anyhow::bail!(
             "no bindings to show: every provider failed ({})",
-            names.join(", ")
+            tried.join(", ")
         );
     }
     Ok(sheets)
@@ -280,7 +287,7 @@ mod tests {
 
     #[test]
     fn failed_providers_are_dropped_in_order() {
-        let got = collect_with(&["a", "bad", "c"], |n| match n {
+        let got = collect_with(&["a", "bad", "c"], false, |n| match n {
             "bad" => anyhow::bail!("bad: broken"),
             _ => ok(n),
         })
@@ -291,14 +298,59 @@ mod tests {
 
     #[test]
     fn all_failing_is_an_error() {
-        let e = collect_with(&["a", "b"], |_| anyhow::bail!("no")).unwrap_err();
+        let e = collect_with(&["a", "b"], false, |_| anyhow::bail!("no")).unwrap_err();
         assert!(e.to_string().contains("a, b"), "{e}");
-        assert!(collect_with(&[], ok).is_err());
+        assert!(collect_with(&[], false, ok).is_err());
+    }
+
+    #[test]
+    fn with_no_class_a_global_sheet_is_listed() {
+        let global = || {
+            let mut binds = BTreeMap::new();
+            binds.insert(
+                "vm".to_string(),
+                vec![
+                    serde_json::from_str(r#"{"key": "shift+k b f", "desc": "vm-check"}"#).unwrap(),
+                ],
+            );
+            Ok(Sheet {
+                title: "global".into(),
+                provider: "sheets".into(),
+                binds,
+            })
+        };
+        let got = collect_with(&["xmonad", "espanso", "sheets"], true, |n| match n {
+            "sheets" => global(),
+            _ => anyhow::bail!("{n}: broken"),
+        })
+        .unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].binds["vm"][0].desc, "vm-check");
+    }
+
+    #[test]
+    fn with_no_class_and_no_global_sheet_every_provider_failed() {
+        let e = collect_with(&["xmonad", "espanso", "sheets"], true, |n| match n {
+            "sheets" => ok(n),
+            _ => anyhow::bail!("{n}: broken"),
+        })
+        .unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            "no bindings to show: every provider failed (xmonad, espanso)"
+        );
+        // With a class known, an empty `sheets` is a provider that worked, as before.
+        let got = collect_with(&["xmonad", "sheets"], false, |n| match n {
+            "sheets" => ok(n),
+            _ => anyhow::bail!("{n}: broken"),
+        })
+        .unwrap();
+        assert_eq!(got.len(), 1);
     }
 
     #[test]
     fn a_panicking_provider_is_one_failure() {
-        let got = collect_with(&["a", "boom"], |n| {
+        let got = collect_with(&["a", "boom"], false, |n| {
             if n == "boom" {
                 panic!("boom");
             }
@@ -311,7 +363,7 @@ mod tests {
     #[test]
     fn providers_run_at_the_same_time() {
         let t = std::time::Instant::now();
-        let got = collect_with(&["a", "b", "c"], |n| {
+        let got = collect_with(&["a", "b", "c"], false, |n| {
             std::thread::sleep(std::time::Duration::from_millis(300));
             ok(n)
         })
