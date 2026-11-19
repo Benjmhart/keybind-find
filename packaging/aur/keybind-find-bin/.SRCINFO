@@ -1,6 +1,6 @@
 pkgbase = keybind-find-bin
 	pkgdesc = Search the keybindings for the focused window and run the one you pick (prebuilt static binary)
-	pkgver = 1.1.2
+	pkgver = 1.2.0
 	pkgrel = 1
 	url = https://github.com/Benjmhart/keybind-find
 	arch = x86_64
@@ -23,7 +23,7 @@ pkgbase = keybind-find-bin
 	conflicts = keybind-find
 	options = !strip
 	options = !debug
-	source_x86_64 = https://github.com/Benjmhart/keybind-find/releases/download/v1.1.2/keybind-find-1.1.2-x86_64-unknown-linux-musl.tar.gz
-	sha256sums_x86_64 = 40820efd0c9bbc67d2de98c8d8e06b232318109a72aed284916f8a83346210ec
+	source_x86_64 = https://github.com/Benjmhart/keybind-find/releases/download/v1.2.0/keybind-find-1.2.0-x86_64-unknown-linux-musl.tar.gz
+	sha256sums_x86_64 = 06b723b87295a8ff6de43921e4b2620620aa6e89d1900ceed141d0758beaa495
 
 pkgname = keybind-find-bin
