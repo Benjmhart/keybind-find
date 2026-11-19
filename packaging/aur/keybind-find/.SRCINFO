@@ -1,6 +1,6 @@
 pkgbase = keybind-find
 	pkgdesc = Search the keybindings for the focused window and run the one you pick
-	pkgver = 1.1.2
+	pkgver = 1.2.0
 	pkgrel = 1
 	url = https://github.com/Benjmhart/keybind-find
 	arch = x86_64
@@ -23,7 +23,7 @@ pkgbase = keybind-find
 	optdepends = neovim: list the bindings of nvim
 	optdepends = tmux: list the bindings of tmux and the program in its pane
 	optdepends = espanso: list espanso snippets
-	source = keybind-find-1.1.2.tar.gz::https://github.com/Benjmhart/keybind-find/archive/v1.1.2.tar.gz
-	sha256sums = 20fe117280cc2361bf80920ab993332ada54ecba09ddbca281f8f82da0a35b7a
+	source = keybind-find-1.2.0.tar.gz::https://github.com/Benjmhart/keybind-find/archive/v1.2.0.tar.gz
+	sha256sums = 01541734b908816304bb4049bad44ee4aac0024aabfff5c3441960500ecd72bf
 
 pkgname = keybind-find

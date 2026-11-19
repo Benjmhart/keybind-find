@@ -16,8 +16,8 @@ points for a packager.
 
 Fedora COPR, openSUSE OBS, Void and others: not done here; contributions welcome.
 
-The AUR recipes are at 1.1.2 with real checksums (2026-11-12): both build with `makepkg -s` in a clean `archlinux`
-container, the source one passing its tests; `namcap` warns that Rust links `ld-linux` unused on `keybind-find` and, on
+The AUR recipes are at 1.2.0 with real checksums (2026-11-19): both build with `makepkg -s` in a clean `archlinux`
+container and run; `namcap` (checked at 1.1.2) warns that Rust links `ld-linux` unused on `keybind-find` and, on
 `keybind-find-bin`'s PKGBUILD, "Reference to x86_64 should be changed to $CARCH" (the asset name is literal). The
 ebuild and `RFP.txt` are still at 1.0.0.
 
