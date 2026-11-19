@@ -5,6 +5,8 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-19
+
 ### Added
 
 - WezTerm: its keys from `wezterm show-keys`, as WezTerm reads your `wezterm.lua` (defaults, `keys`, key tables tagged `key_table`, leader binds as sequences), and the program in its focused pane, asked of `wezterm cli list-clients` with nothing to configure ([#48](https://github.com/Benjmhart/keybind-find/issues/48)).
@@ -14,6 +16,11 @@ All notable changes to keybind-find are listed here. The format follows
 - awesome: its hotkeys from the running awesome over D-Bus (what its hotkeys popup reads), with each key's description and group; nothing to set up for the stock config, an `rc.lua` must load `awful` ([#50](https://github.com/Benjmhart/keybind-find/issues/50)).
 - niri: its binds from the `config.kdl` niri reads (KDL 1 as niri 26.04 reads it, `include`s merged as niri merges them), each with its `hotkey-overlay-title` or else its action, and the focused window from `niri msg --json focused-window`, so the focused app's keys are listed under niri too; niri's own binds are listed but not sent (wtype's keys reach the window, not niri) ([#53](https://github.com/Benjmhart/keybind-find/issues/53)).
 - KDE Plasma and GNOME on Wayland: a pick is sent through the desktop's RemoteDesktop portal (keys pressed as X keysyms, espanso triggers typed), after you allow it once; the approval is kept in `~/.local/state/keybind-find/portal-token`, and a `run` entry's program now starts there too.
+
+### Fixed
+
+- Global sheets (with `run` macros, and dwm's session sheet on an empty desktop) now apply when the focused window's class is unknown: GNOME on Wayland, and KDE without kdotool.
+- After the portal's permission dialog, the first keys wait 500 ms for the window to take focus back; GNOME dropped a pick's first chord without the wait.
 
 ## [1.1.2] - 2026-11-10
 
@@ -119,7 +126,8 @@ Everything below is new.
 
 - `config.toml` rebinds keybind-find's own picker keys (run, text search, undo, key search, scope); its own keys are listed too.
 
-[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.1.2...staging
+[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.2.0...staging
+[1.2.0]: https://github.com/Benjmhart/keybind-find/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/Benjmhart/keybind-find/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/Benjmhart/keybind-find/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Benjmhart/keybind-find/compare/v1.0.0...v1.1.0
