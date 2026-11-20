@@ -1,0 +1,1 @@
+commit=v0.66.2, build date=2026-10-16T13:28:42Z, build source=binaryRelease, version=0.66.2, os=linux, arch=amd64, git version=2.56.0

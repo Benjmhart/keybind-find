@@ -20,6 +20,7 @@ mod kde;
 mod kdl_v1;
 pub(crate) mod kitty;
 mod konsole;
+mod lazygit;
 mod less;
 mod lf;
 mod mc;
@@ -48,6 +49,7 @@ mod wezterm;
 mod xfce;
 mod xfce4_terminal;
 mod xmonad;
+mod yaml_subset;
 mod yazi;
 mod zathura;
 mod zed;
@@ -104,6 +106,7 @@ pub const KNOWN: &[&str] = &[
     "awesome",
     "niri",
     "lf",
+    "lazygit",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -151,6 +154,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "awesome" => awesome::sheet(ctx),
         "niri" => niri::sheet(ctx),
         "lf" => lf::sheet(),
+        "lazygit" => lazygit::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",

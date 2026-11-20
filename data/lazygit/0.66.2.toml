@@ -1,0 +1,1687 @@
+# lazygit's keybindings cheatsheet and default keybindings on Linux, read by keybind-find's lazygit provider.
+# Generated from lazygit tag v0.66.2 (commit 63ab89fff478854deb4a35ef8902676b3cc5ca72), MIT licensed: Copyright (c) 2018 Jesse Duffield.
+# [defaults]: every keybinding field (`<section>.<field>`, the yaml names of pkg/config/user_config.go's
+# KeybindingConfig structs) with the key list GetDefaultConfigForPlatform("linux") gives it (user_config.go:1017-1210),
+# before MergeLegacyAltKeybindings; `universal.jumpToBlock` (a list of key lists) is left out.
+# [[row]]: docs/keybindings/Keybindings_en.md's rows in order: `panel` its section, `action` its Action column, and
+# `field`, the keybinding field whose keys the row shows (the pkg/gui binding with that Description, and whose
+# merged default renders to the row's keys), or `keys`, the row's own labels when no field sets them. Descriptions
+# from pkg/i18n/english.go (EnglishTranslationSet); a binding's panel from pkg/gui/controllers.go's AttachControllers,
+# its ViewName, or its `navigation` tag (pkg/cheatsheet/generate.go getHeader).
+# 301 rows, 3 with fixed keys.
+
+[defaults]
+"universal.quit" = ["q"]
+"universal.quit-alt1" = ["<ctrl+c>"]
+"universal.suspendApp" = ["<ctrl+z>"]
+"universal.return" = ["<esc>"]
+"universal.quitWithoutChangingDirectory" = ["Q"]
+"universal.togglePanel" = ["<tab>"]
+"universal.prevItem" = ["<up>"]
+"universal.nextItem" = ["<down>"]
+"universal.prevItem-alt" = ["k"]
+"universal.nextItem-alt" = ["j"]
+"universal.prevPage" = [","]
+"universal.nextPage" = ["."]
+"universal.scrollLeft" = ["H"]
+"universal.scrollRight" = ["L"]
+"universal.gotoTop" = ["<"]
+"universal.gotoBottom" = [">"]
+"universal.gotoTop-alt" = ["<home>"]
+"universal.gotoBottom-alt" = ["<end>"]
+"universal.toggleRangeSelect" = ["v"]
+"universal.rangeSelectDown" = ["<shift+down>"]
+"universal.rangeSelectUp" = ["<shift+up>"]
+"universal.prevBlock" = ["<left>"]
+"universal.nextBlock" = ["<right>"]
+"universal.prevBlock-alt" = ["h"]
+"universal.nextBlock-alt" = ["l"]
+"universal.prevBlock-alt2" = ["<backtab>"]
+"universal.nextBlock-alt2" = ["<tab>"]
+"universal.focusMainView" = ["0"]
+"universal.jumpToFile" = ["<ctrl+g>"]
+"universal.nextMatch" = ["n"]
+"universal.prevMatch" = ["N"]
+"universal.startSearch" = ["/"]
+"universal.moveWordLeft" = ["<ctrl+left>"]
+"universal.moveWordRight" = ["<ctrl+right>"]
+"universal.backspaceWord" = ["<ctrl+backspace>"]
+"universal.forwardDeleteWord" = ["<ctrl+delete>"]
+"universal.optionMenu" = ["?"]
+"universal.select" = ["<space>"]
+"universal.goInto" = ["<enter>"]
+"universal.confirm" = ["<enter>"]
+"universal.confirmMenu" = ["<enter>"]
+"universal.confirmSuggestion" = ["<enter>"]
+"universal.confirmInEditor" = ["<ctrl+enter>"]
+"universal.confirmInEditor-alt" = ["<ctrl+s>"]
+"universal.remove" = ["d"]
+"universal.new" = ["n"]
+"universal.newWorktree" = ["w"]
+"universal.edit" = ["e"]
+"universal.openFile" = ["o"]
+"universal.openRecentRepos" = ["<ctrl+r>"]
+"universal.scrollUpMain" = ["<pgup>"]
+"universal.scrollDownMain" = ["<pgdown>"]
+"universal.scrollUpMain-alt1" = ["K"]
+"universal.scrollDownMain-alt1" = ["J"]
+"universal.scrollUpMain-alt2" = ["<ctrl+u>"]
+"universal.scrollDownMain-alt2" = ["<ctrl+d>"]
+"universal.executeShellCommand" = [":"]
+"universal.createRebaseOptionsMenu" = ["m"]
+"universal.pushFiles" = ["P"]
+"universal.pullFiles" = ["p"]
+"universal.refresh" = ["R"]
+"universal.createPatchOptionsMenu" = ["<ctrl+p>"]
+"universal.nextTab" = ["]"]
+"universal.prevTab" = ["["]
+"universal.nextScreenMode" = ["+"]
+"universal.prevScreenMode" = ["_"]
+"universal.cycleDiffRenderers" = ["|"]
+"universal.cycleDiffRenderersReverse" = ["\\"]
+"universal.undo" = ["z"]
+"universal.redo" = ["Z"]
+"universal.filteringMenu" = ["<ctrl+s>"]
+"universal.diffingMenu" = ["W"]
+"universal.diffingMenu-alt" = ["<ctrl+e>"]
+"universal.copyToClipboard" = ["<ctrl+o>"]
+"universal.submitEditorText" = ["<enter>"]
+"universal.extrasMenu" = ["@"]
+"universal.toggleWhitespaceInDiffView" = ["<ctrl+w>"]
+"universal.increaseContextInDiffView" = ["}"]
+"universal.decreaseContextInDiffView" = ["{"]
+"universal.increaseRenameSimilarityThreshold" = [")"]
+"universal.decreaseRenameSimilarityThreshold" = ["("]
+"universal.openDiffTool" = ["<ctrl+t>"]
+"universal.editConfig" = ["<alt+shift+c>"]
+"status.checkForUpdate" = ["u"]
+"status.recentRepos" = ["<enter>"]
+"status.allBranchesLogGraph" = ["a"]
+"status.allBranchesLogGraphReverse" = ["A"]
+"files.commitChanges" = ["c"]
+"files.commitChangesWithoutHook" = ["w"]
+"files.amendLastCommit" = ["A"]
+"files.commitChangesWithEditor" = ["C"]
+"files.findBaseCommitForFixup" = ["<ctrl+f>"]
+"files.ignoreFile" = ["i"]
+"files.refreshFiles" = ["r"]
+"files.stashAllChanges" = ["s"]
+"files.viewStashOptions" = ["S"]
+"files.toggleStagedAll" = ["a"]
+"files.viewResetOptions" = ["D"]
+"files.fetch" = ["f"]
+"files.toggleTreeView" = ["`"]
+"files.openMergeOptions" = ["M"]
+"files.openStatusFilter" = ["<ctrl+b>"]
+"files.confirmDiscard" = ["x"]
+"files.copyFileInfoToClipboard" = ["y"]
+"files.collapseAll" = ["-"]
+"files.expandAll" = ["="]
+"branches.copyPullRequestURL" = ["<ctrl+y>"]
+"branches.createPullRequest" = ["o"]
+"branches.viewPullRequestOptions" = ["O"]
+"branches.openPullRequestInBrowser" = ["G"]
+"branches.checkoutBranchByName" = ["c"]
+"branches.forceCheckoutBranch" = ["F"]
+"branches.checkoutPreviousBranch" = ["-"]
+"branches.rebaseBranch" = ["r"]
+"branches.renameBranch" = ["R"]
+"branches.mergeIntoCurrentBranch" = ["M"]
+"branches.moveCommitsToNewBranch" = ["N"]
+"branches.viewGitFlowOptions" = ["i"]
+"branches.fastForward" = ["f"]
+"branches.createTag" = ["T"]
+"branches.pushTag" = ["P"]
+"branches.setUpstream" = ["u"]
+"branches.fetchRemote" = ["f"]
+"branches.addForkRemote" = ["F"]
+"branches.sortOrder" = ["s"]
+"commits.squashDown" = ["s"]
+"commits.renameCommit" = ["r"]
+"commits.renameCommitWithEditor" = ["R"]
+"commits.viewResetOptions" = ["g"]
+"commits.markCommitAsFixup" = ["f"]
+"commits.setFixupMessage" = ["c"]
+"commits.createFixupCommit" = ["F"]
+"commits.squashAboveCommits" = ["S"]
+"commits.moveDownCommit" = ["<ctrl+j>", "<alt-down>"]
+"commits.moveUpCommit" = ["<ctrl+k>", "<alt-up>"]
+"commits.amendToCommit" = ["A"]
+"commits.resetCommitAuthor" = ["a"]
+"commits.pickCommit" = ["p"]
+"commits.revertCommit" = ["t"]
+"commits.cherryPickCopy" = ["C"]
+"commits.pasteCommits" = ["V"]
+"commits.markCommitAsBaseForRebase" = ["B"]
+"commits.tagCommit" = ["T"]
+"commits.checkoutCommit" = ["<space>"]
+"commits.resetCherryPick" = ["<ctrl+r>"]
+"commits.copyCommitAttributeToClipboard" = ["y"]
+"commits.openLogMenu" = ["<ctrl+l>"]
+"commits.openInBrowser" = ["o"]
+"commits.openPullRequestInBrowser" = ["G"]
+"commits.viewBisectOptions" = ["b"]
+"commits.startInteractiveRebase" = ["i"]
+"commits.selectCommitsOfCurrentBranch" = ["*"]
+"amendAttribute.resetAuthor" = ["a"]
+"amendAttribute.setAuthor" = ["A"]
+"amendAttribute.addCoAuthor" = ["c"]
+"stash.popStash" = ["g"]
+"stash.renameStash" = ["r"]
+"commitFiles.checkoutCommitFile" = ["c"]
+"main.prevHunk" = ["<left>", "h"]
+"main.nextHunk" = ["<right>", "l"]
+"main.prevFile" = ["N"]
+"main.nextFile" = ["n"]
+"main.toggleSelectHunk" = ["a"]
+"main.pickBothHunks" = ["b"]
+"main.editSelectHunk" = ["E"]
+"submodules.init" = ["i"]
+"submodules.update" = ["u"]
+"submodules.bulkMenu" = ["b"]
+"commitMessage.commitMenu" = ["<ctrl+o>"]
+
+[[row]]
+panel = "Global keybindings"
+action = "Switch to a recent repo"
+field = "universal.openRecentRepos"
+
+[[row]]
+panel = "Global keybindings"
+action = "Scroll up main window"
+field = "universal.scrollUpMain"
+
+[[row]]
+panel = "Global keybindings"
+action = "Scroll down main window"
+field = "universal.scrollDownMain"
+
+[[row]]
+panel = "Global keybindings"
+action = "View command log options"
+field = "universal.extrasMenu"
+
+[[row]]
+panel = "Global keybindings"
+action = "Push"
+field = "universal.pushFiles"
+
+[[row]]
+panel = "Global keybindings"
+action = "Pull"
+field = "universal.pullFiles"
+
+[[row]]
+panel = "Global keybindings"
+action = "Increase rename similarity threshold"
+field = "universal.increaseRenameSimilarityThreshold"
+
+[[row]]
+panel = "Global keybindings"
+action = "Decrease rename similarity threshold"
+field = "universal.decreaseRenameSimilarityThreshold"
+
+[[row]]
+panel = "Global keybindings"
+action = "Increase diff context size"
+field = "universal.increaseContextInDiffView"
+
+[[row]]
+panel = "Global keybindings"
+action = "Decrease diff context size"
+field = "universal.decreaseContextInDiffView"
+
+[[row]]
+panel = "Global keybindings"
+action = "Execute shell command"
+field = "universal.executeShellCommand"
+
+[[row]]
+panel = "Global keybindings"
+action = "View custom patch options"
+field = "universal.createPatchOptionsMenu"
+
+[[row]]
+panel = "Global keybindings"
+action = "View merge/rebase options"
+field = "universal.createRebaseOptionsMenu"
+
+[[row]]
+panel = "Global keybindings"
+action = "Refresh"
+field = "universal.refresh"
+
+[[row]]
+panel = "Global keybindings"
+action = "Next screen mode (normal/half/fullscreen)"
+field = "universal.nextScreenMode"
+
+[[row]]
+panel = "Global keybindings"
+action = "Prev screen mode"
+field = "universal.prevScreenMode"
+
+[[row]]
+panel = "Global keybindings"
+action = "Cycle diff renderers"
+field = "universal.cycleDiffRenderers"
+
+[[row]]
+panel = "Global keybindings"
+action = "Cycle diff renderers (reverse)"
+field = "universal.cycleDiffRenderersReverse"
+
+[[row]]
+panel = "Global keybindings"
+action = "Jump to file in diff"
+field = "universal.jumpToFile"
+
+[[row]]
+panel = "Global keybindings"
+action = "Cancel"
+field = "universal.return"
+
+[[row]]
+panel = "Global keybindings"
+action = "Open keybindings menu"
+field = "universal.optionMenu"
+
+[[row]]
+panel = "Global keybindings"
+action = "View filter options"
+field = "universal.filteringMenu"
+
+[[row]]
+panel = "Global keybindings"
+action = "View diffing options"
+field = "universal.diffingMenu"
+
+[[row]]
+panel = "Global keybindings"
+action = "Quit"
+field = "universal.quit"
+
+[[row]]
+panel = "Global keybindings"
+action = "Suspend the application"
+field = "universal.suspendApp"
+
+[[row]]
+panel = "Global keybindings"
+action = "Toggle whitespace"
+field = "universal.toggleWhitespaceInDiffView"
+
+[[row]]
+panel = "Global keybindings"
+action = "Edit config file"
+field = "universal.editConfig"
+
+[[row]]
+panel = "Global keybindings"
+action = "Undo"
+field = "universal.undo"
+
+[[row]]
+panel = "Global keybindings"
+action = "Redo"
+field = "universal.redo"
+
+[[row]]
+panel = "List panel navigation"
+action = "Previous page"
+field = "universal.prevPage"
+
+[[row]]
+panel = "List panel navigation"
+action = "Next page"
+field = "universal.nextPage"
+
+[[row]]
+panel = "List panel navigation"
+action = "Scroll to top"
+field = "universal.gotoTop"
+
+[[row]]
+panel = "List panel navigation"
+action = "Scroll to bottom"
+field = "universal.gotoBottom"
+
+[[row]]
+panel = "List panel navigation"
+action = "Toggle range select"
+field = "universal.toggleRangeSelect"
+
+[[row]]
+panel = "List panel navigation"
+action = "Range select down"
+field = "universal.rangeSelectDown"
+
+[[row]]
+panel = "List panel navigation"
+action = "Range select up"
+field = "universal.rangeSelectUp"
+
+[[row]]
+panel = "List panel navigation"
+action = "Search the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "List panel navigation"
+action = "Scroll left"
+field = "universal.scrollLeft"
+
+[[row]]
+panel = "List panel navigation"
+action = "Scroll right"
+field = "universal.scrollRight"
+
+[[row]]
+panel = "List panel navigation"
+action = "Next tab"
+field = "universal.nextTab"
+
+[[row]]
+panel = "List panel navigation"
+action = "Previous tab"
+field = "universal.prevTab"
+
+[[row]]
+panel = "Commit files"
+action = "Copy path to clipboard"
+field = "universal.copyToClipboard"
+
+[[row]]
+panel = "Commit files"
+action = "Copy to clipboard"
+field = "files.copyFileInfoToClipboard"
+
+[[row]]
+panel = "Commit files"
+action = "Checkout"
+field = "commitFiles.checkoutCommitFile"
+
+[[row]]
+panel = "Commit files"
+action = "Discard"
+field = "universal.remove"
+
+[[row]]
+panel = "Commit files"
+action = "Open file"
+field = "universal.openFile"
+
+[[row]]
+panel = "Commit files"
+action = "Edit"
+field = "universal.edit"
+
+[[row]]
+panel = "Commit files"
+action = "Open external diff tool (git difftool)"
+field = "universal.openDiffTool"
+
+[[row]]
+panel = "Commit files"
+action = "Toggle file included in patch"
+field = "universal.select"
+
+[[row]]
+panel = "Commit files"
+action = "Toggle all files"
+field = "files.toggleStagedAll"
+
+[[row]]
+panel = "Commit files"
+action = "Focus file diff / Toggle directory"
+field = "universal.goInto"
+
+[[row]]
+panel = "Commit files"
+action = "Toggle file tree view"
+field = "files.toggleTreeView"
+
+[[row]]
+panel = "Commit files"
+action = "Collapse all files"
+field = "files.collapseAll"
+
+[[row]]
+panel = "Commit files"
+action = "Expand all files"
+field = "files.expandAll"
+
+[[row]]
+panel = "Commit files"
+action = "Focus main view"
+field = "universal.focusMainView"
+
+[[row]]
+panel = "Commit files"
+action = "Filter the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Commit summary"
+action = "Confirm"
+field = "universal.submitEditorText"
+
+[[row]]
+panel = "Commit summary"
+action = "Close"
+field = "universal.return"
+
+[[row]]
+panel = "Commits"
+action = "Copy abbreviated commit hash to clipboard"
+field = "universal.copyToClipboard"
+
+[[row]]
+panel = "Commits"
+action = "Reset copied (cherry-picked) commits selection"
+field = "commits.resetCherryPick"
+
+[[row]]
+panel = "Commits"
+action = "View bisect options"
+field = "commits.viewBisectOptions"
+
+[[row]]
+panel = "Commits"
+action = "Squash"
+field = "commits.squashDown"
+
+[[row]]
+panel = "Commits"
+action = "Fixup"
+field = "commits.markCommitAsFixup"
+
+[[row]]
+panel = "Commits"
+action = "Set fixup message"
+field = "commits.setFixupMessage"
+
+[[row]]
+panel = "Commits"
+action = "Reword"
+field = "commits.renameCommit"
+
+[[row]]
+panel = "Commits"
+action = "Reword with editor"
+field = "commits.renameCommitWithEditor"
+
+[[row]]
+panel = "Commits"
+action = "Drop"
+field = "universal.remove"
+
+[[row]]
+panel = "Commits"
+action = "Edit (start interactive rebase)"
+field = "universal.edit"
+
+[[row]]
+panel = "Commits"
+action = "Start interactive rebase"
+field = "commits.startInteractiveRebase"
+
+[[row]]
+panel = "Commits"
+action = "Pick"
+field = "commits.pickCommit"
+
+[[row]]
+panel = "Commits"
+action = "Create fixup commit"
+field = "commits.createFixupCommit"
+
+[[row]]
+panel = "Commits"
+action = "Apply fixup commits"
+field = "commits.squashAboveCommits"
+
+[[row]]
+panel = "Commits"
+action = "Move commit down one"
+field = "commits.moveDownCommit"
+
+[[row]]
+panel = "Commits"
+action = "Move commit up one"
+field = "commits.moveUpCommit"
+
+[[row]]
+panel = "Commits"
+action = "Paste (cherry-pick)"
+field = "commits.pasteCommits"
+
+[[row]]
+panel = "Commits"
+action = "Mark as base commit for rebase"
+field = "commits.markCommitAsBaseForRebase"
+
+[[row]]
+panel = "Commits"
+action = "Amend"
+field = "commits.amendToCommit"
+
+[[row]]
+panel = "Commits"
+action = "Amend commit attribute"
+field = "commits.resetCommitAuthor"
+
+[[row]]
+panel = "Commits"
+action = "Revert"
+field = "commits.revertCommit"
+
+[[row]]
+panel = "Commits"
+action = "Tag commit"
+field = "commits.tagCommit"
+
+[[row]]
+panel = "Commits"
+action = "View log options"
+field = "commits.openLogMenu"
+
+[[row]]
+panel = "Commits"
+action = "Open pull request in browser"
+field = "commits.openPullRequestInBrowser"
+
+[[row]]
+panel = "Commits"
+action = "Checkout"
+field = "commits.checkoutCommit"
+
+[[row]]
+panel = "Commits"
+action = "Copy commit attribute to clipboard"
+field = "commits.copyCommitAttributeToClipboard"
+
+[[row]]
+panel = "Commits"
+action = "Open commit in browser"
+field = "commits.openInBrowser"
+
+[[row]]
+panel = "Commits"
+action = "Create new branch off of commit"
+field = "universal.new"
+
+[[row]]
+panel = "Commits"
+action = "Move commits to new branch"
+field = "branches.moveCommitsToNewBranch"
+
+[[row]]
+panel = "Commits"
+action = "New worktree"
+field = "universal.newWorktree"
+
+[[row]]
+panel = "Commits"
+action = "Reset"
+field = "commits.viewResetOptions"
+
+[[row]]
+panel = "Commits"
+action = "Copy (cherry-pick)"
+field = "commits.cherryPickCopy"
+
+[[row]]
+panel = "Commits"
+action = "Open external diff tool (git difftool)"
+field = "universal.openDiffTool"
+
+[[row]]
+panel = "Commits"
+action = "Select commits of current branch"
+field = "commits.selectCommitsOfCurrentBranch"
+
+[[row]]
+panel = "Commits"
+action = "Focus main view"
+field = "universal.focusMainView"
+
+[[row]]
+panel = "Commits"
+action = "View files"
+field = "universal.goInto"
+
+[[row]]
+panel = "Commits"
+action = "Search the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Confirmation panel"
+action = "Confirm"
+field = "universal.confirm"
+
+[[row]]
+panel = "Confirmation panel"
+action = "Close/Cancel"
+field = "universal.return"
+
+[[row]]
+panel = "Confirmation panel"
+action = "Copy to clipboard"
+field = "universal.copyToClipboard"
+
+[[row]]
+panel = "Files"
+action = "Copy path to clipboard"
+field = "universal.copyToClipboard"
+
+[[row]]
+panel = "Files"
+action = "Stage"
+field = "universal.select"
+
+[[row]]
+panel = "Files"
+action = "Filter files by status"
+field = "files.openStatusFilter"
+
+[[row]]
+panel = "Files"
+action = "Copy to clipboard"
+field = "files.copyFileInfoToClipboard"
+
+[[row]]
+panel = "Files"
+action = "Commit"
+field = "files.commitChanges"
+
+[[row]]
+panel = "Files"
+action = "Commit changes without pre-commit hook"
+field = "files.commitChangesWithoutHook"
+
+[[row]]
+panel = "Files"
+action = "Amend last commit"
+field = "files.amendLastCommit"
+
+[[row]]
+panel = "Files"
+action = "Commit changes using git editor"
+field = "files.commitChangesWithEditor"
+
+[[row]]
+panel = "Files"
+action = "Find base commit for fixup"
+field = "files.findBaseCommitForFixup"
+
+[[row]]
+panel = "Files"
+action = "Edit"
+field = "universal.edit"
+
+[[row]]
+panel = "Files"
+action = "Open file"
+field = "universal.openFile"
+
+[[row]]
+panel = "Files"
+action = "Ignore or exclude file"
+field = "files.ignoreFile"
+
+[[row]]
+panel = "Files"
+action = "Refresh files"
+field = "files.refreshFiles"
+
+[[row]]
+panel = "Files"
+action = "Stash"
+field = "files.stashAllChanges"
+
+[[row]]
+panel = "Files"
+action = "View stash options"
+field = "files.viewStashOptions"
+
+[[row]]
+panel = "Files"
+action = "Stage all"
+field = "files.toggleStagedAll"
+
+[[row]]
+panel = "Files"
+action = "Focus file diff / Collapse directory"
+field = "universal.goInto"
+
+[[row]]
+panel = "Files"
+action = "Discard"
+field = "universal.remove"
+
+[[row]]
+panel = "Files"
+action = "View upstream reset options"
+field = "commits.viewResetOptions"
+
+[[row]]
+panel = "Files"
+action = "Reset"
+field = "files.viewResetOptions"
+
+[[row]]
+panel = "Files"
+action = "Toggle file tree view"
+field = "files.toggleTreeView"
+
+[[row]]
+panel = "Files"
+action = "Open external diff tool (git difftool)"
+field = "universal.openDiffTool"
+
+[[row]]
+panel = "Files"
+action = "View merge conflict options"
+field = "files.openMergeOptions"
+
+[[row]]
+panel = "Files"
+action = "Fetch"
+field = "files.fetch"
+
+[[row]]
+panel = "Files"
+action = "Collapse all files"
+field = "files.collapseAll"
+
+[[row]]
+panel = "Files"
+action = "Expand all files"
+field = "files.expandAll"
+
+[[row]]
+panel = "Files"
+action = "Focus main view"
+field = "universal.focusMainView"
+
+[[row]]
+panel = "Files"
+action = "Filter the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Input prompt"
+action = "Confirm"
+keys = ["<enter>"]
+
+[[row]]
+panel = "Input prompt"
+action = "Close/Cancel"
+field = "universal.return"
+
+[[row]]
+panel = "Local branches"
+action = "Copy branch name to clipboard"
+field = "universal.copyToClipboard"
+
+[[row]]
+panel = "Local branches"
+action = "Show git-flow options"
+field = "branches.viewGitFlowOptions"
+
+[[row]]
+panel = "Local branches"
+action = "Checkout"
+field = "universal.select"
+
+[[row]]
+panel = "Local branches"
+action = "New branch"
+field = "universal.new"
+
+[[row]]
+panel = "Local branches"
+action = "Move commits to new branch"
+field = "branches.moveCommitsToNewBranch"
+
+[[row]]
+panel = "Local branches"
+action = "New worktree"
+field = "universal.newWorktree"
+
+[[row]]
+panel = "Local branches"
+action = "Create pull request"
+field = "branches.createPullRequest"
+
+[[row]]
+panel = "Local branches"
+action = "View create pull request options"
+field = "branches.viewPullRequestOptions"
+
+[[row]]
+panel = "Local branches"
+action = "Open pull request in browser"
+field = "branches.openPullRequestInBrowser"
+
+[[row]]
+panel = "Local branches"
+action = "Copy pull request URL to clipboard"
+field = "branches.copyPullRequestURL"
+
+[[row]]
+panel = "Local branches"
+action = "Checkout by name"
+field = "branches.checkoutBranchByName"
+
+[[row]]
+panel = "Local branches"
+action = "Checkout previous branch"
+field = "branches.checkoutPreviousBranch"
+
+[[row]]
+panel = "Local branches"
+action = "Force checkout"
+field = "branches.forceCheckoutBranch"
+
+[[row]]
+panel = "Local branches"
+action = "Delete"
+field = "universal.remove"
+
+[[row]]
+panel = "Local branches"
+action = "Rebase"
+field = "branches.rebaseBranch"
+
+[[row]]
+panel = "Local branches"
+action = "Merge"
+field = "branches.mergeIntoCurrentBranch"
+
+[[row]]
+panel = "Local branches"
+action = "Fast-forward"
+field = "branches.fastForward"
+
+[[row]]
+panel = "Local branches"
+action = "New tag"
+field = "branches.createTag"
+
+[[row]]
+panel = "Local branches"
+action = "Sort order"
+field = "branches.sortOrder"
+
+[[row]]
+panel = "Local branches"
+action = "Reset"
+field = "commits.viewResetOptions"
+
+[[row]]
+panel = "Local branches"
+action = "Rename branch"
+field = "branches.renameBranch"
+
+[[row]]
+panel = "Local branches"
+action = "View upstream options"
+field = "branches.setUpstream"
+
+[[row]]
+panel = "Local branches"
+action = "Open external diff tool (git difftool)"
+field = "universal.openDiffTool"
+
+[[row]]
+panel = "Local branches"
+action = "Focus main view"
+field = "universal.focusMainView"
+
+[[row]]
+panel = "Local branches"
+action = "View commits"
+field = "universal.goInto"
+
+[[row]]
+panel = "Local branches"
+action = "Filter the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Main panel (merging)"
+action = "Pick hunk"
+field = "universal.select"
+
+[[row]]
+panel = "Main panel (merging)"
+action = "Pick both hunks"
+field = "main.pickBothHunks"
+
+[[row]]
+panel = "Main panel (merging)"
+action = "Previous hunk"
+field = "universal.prevItem"
+
+[[row]]
+panel = "Main panel (merging)"
+action = "Next hunk"
+field = "universal.nextItem"
+
+[[row]]
+panel = "Main panel (merging)"
+action = "Previous conflict"
+field = "main.prevHunk"
+
+[[row]]
+panel = "Main panel (merging)"
+action = "Next conflict"
+field = "main.nextHunk"
+
+[[row]]
+panel = "Main panel (merging)"
+action = "Undo"
+field = "universal.undo"
+
+[[row]]
+panel = "Main panel (merging)"
+action = "Edit file"
+field = "universal.edit"
+
+[[row]]
+panel = "Main panel (merging)"
+action = "Open file"
+field = "universal.openFile"
+
+[[row]]
+panel = "Main panel (merging)"
+action = "View merge conflict options"
+field = "files.openMergeOptions"
+
+[[row]]
+panel = "Main panel (merging)"
+action = "Return to files panel"
+field = "universal.return"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Scroll down"
+keys = ["<mouse wheel down>"]
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Scroll up"
+keys = ["<mouse wheel up>"]
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Switch diff pane"
+field = "universal.togglePanel"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Toggle hunk selection"
+field = "main.toggleSelectHunk"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Toggle range select"
+field = "universal.toggleRangeSelect"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Edit file"
+field = "universal.edit"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Stage"
+field = "universal.select"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Discard"
+field = "universal.remove"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Edit hunk"
+field = "main.editSelectHunk"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Copy selected diff lines to clipboard"
+field = "universal.copyToClipboard"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Go to previous hunk"
+field = "main.prevHunk"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Go to next hunk"
+field = "main.nextHunk"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Go to previous file"
+field = "main.prevFile"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Go to next file"
+field = "main.nextFile"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Jump to file"
+field = "universal.jumpToFile"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Open pull request at selected line"
+field = "commits.openPullRequestInBrowser"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Exit back to side panel"
+field = "universal.return"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Commit"
+field = "files.commitChanges"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Commit changes without pre-commit hook"
+field = "files.commitChangesWithoutHook"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Commit changes using git editor"
+field = "files.commitChangesWithEditor"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Find base commit for fixup"
+field = "files.findBaseCommitForFixup"
+
+[[row]]
+panel = "Main panel (normal)"
+action = "Search the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Menu"
+action = "Execute"
+field = "universal.confirmMenu"
+
+[[row]]
+panel = "Menu"
+action = "Close/Cancel"
+field = "universal.return"
+
+[[row]]
+panel = "Menu"
+action = "Filter the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Reflog"
+action = "Copy abbreviated commit hash to clipboard"
+field = "universal.copyToClipboard"
+
+[[row]]
+panel = "Reflog"
+action = "Checkout"
+field = "commits.checkoutCommit"
+
+[[row]]
+panel = "Reflog"
+action = "Copy commit attribute to clipboard"
+field = "commits.copyCommitAttributeToClipboard"
+
+[[row]]
+panel = "Reflog"
+action = "Open commit in browser"
+field = "commits.openInBrowser"
+
+[[row]]
+panel = "Reflog"
+action = "Create new branch off of commit"
+field = "universal.new"
+
+[[row]]
+panel = "Reflog"
+action = "Move commits to new branch"
+field = "branches.moveCommitsToNewBranch"
+
+[[row]]
+panel = "Reflog"
+action = "New worktree"
+field = "universal.newWorktree"
+
+[[row]]
+panel = "Reflog"
+action = "Reset"
+field = "commits.viewResetOptions"
+
+[[row]]
+panel = "Reflog"
+action = "Copy (cherry-pick)"
+field = "commits.cherryPickCopy"
+
+[[row]]
+panel = "Reflog"
+action = "Reset copied (cherry-picked) commits selection"
+field = "commits.resetCherryPick"
+
+[[row]]
+panel = "Reflog"
+action = "Open external diff tool (git difftool)"
+field = "universal.openDiffTool"
+
+[[row]]
+panel = "Reflog"
+action = "Select commits of current branch"
+field = "commits.selectCommitsOfCurrentBranch"
+
+[[row]]
+panel = "Reflog"
+action = "Focus main view"
+field = "universal.focusMainView"
+
+[[row]]
+panel = "Reflog"
+action = "View commits"
+field = "universal.goInto"
+
+[[row]]
+panel = "Reflog"
+action = "Filter the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Remote branches"
+action = "Copy branch name to clipboard"
+field = "universal.copyToClipboard"
+
+[[row]]
+panel = "Remote branches"
+action = "Checkout"
+field = "universal.select"
+
+[[row]]
+panel = "Remote branches"
+action = "New branch"
+field = "universal.new"
+
+[[row]]
+panel = "Remote branches"
+action = "New worktree"
+field = "universal.newWorktree"
+
+[[row]]
+panel = "Remote branches"
+action = "Merge"
+field = "branches.mergeIntoCurrentBranch"
+
+[[row]]
+panel = "Remote branches"
+action = "Rebase"
+field = "branches.rebaseBranch"
+
+[[row]]
+panel = "Remote branches"
+action = "Delete"
+field = "universal.remove"
+
+[[row]]
+panel = "Remote branches"
+action = "Set as upstream"
+field = "branches.setUpstream"
+
+[[row]]
+panel = "Remote branches"
+action = "Sort order"
+field = "branches.sortOrder"
+
+[[row]]
+panel = "Remote branches"
+action = "Reset"
+field = "commits.viewResetOptions"
+
+[[row]]
+panel = "Remote branches"
+action = "Open external diff tool (git difftool)"
+field = "universal.openDiffTool"
+
+[[row]]
+panel = "Remote branches"
+action = "Focus main view"
+field = "universal.focusMainView"
+
+[[row]]
+panel = "Remote branches"
+action = "View commits"
+field = "universal.goInto"
+
+[[row]]
+panel = "Remote branches"
+action = "Filter the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Remotes"
+action = "View branches"
+field = "universal.goInto"
+
+[[row]]
+panel = "Remotes"
+action = "New remote"
+field = "universal.new"
+
+[[row]]
+panel = "Remotes"
+action = "Remove"
+field = "universal.remove"
+
+[[row]]
+panel = "Remotes"
+action = "Edit"
+field = "universal.edit"
+
+[[row]]
+panel = "Remotes"
+action = "Fetch"
+field = "branches.fetchRemote"
+
+[[row]]
+panel = "Remotes"
+action = "Add fork remote"
+field = "branches.addForkRemote"
+
+[[row]]
+panel = "Remotes"
+action = "Filter the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Secondary"
+action = "Switch diff pane"
+field = "universal.togglePanel"
+
+[[row]]
+panel = "Secondary"
+action = "Toggle hunk selection"
+field = "main.toggleSelectHunk"
+
+[[row]]
+panel = "Secondary"
+action = "Toggle range select"
+field = "universal.toggleRangeSelect"
+
+[[row]]
+panel = "Secondary"
+action = "Edit file"
+field = "universal.edit"
+
+[[row]]
+panel = "Secondary"
+action = "Stage"
+field = "universal.select"
+
+[[row]]
+panel = "Secondary"
+action = "Discard"
+field = "universal.remove"
+
+[[row]]
+panel = "Secondary"
+action = "Edit hunk"
+field = "main.editSelectHunk"
+
+[[row]]
+panel = "Secondary"
+action = "Copy selected diff lines to clipboard"
+field = "universal.copyToClipboard"
+
+[[row]]
+panel = "Secondary"
+action = "Go to previous hunk"
+field = "main.prevHunk"
+
+[[row]]
+panel = "Secondary"
+action = "Go to next hunk"
+field = "main.nextHunk"
+
+[[row]]
+panel = "Secondary"
+action = "Go to previous file"
+field = "main.prevFile"
+
+[[row]]
+panel = "Secondary"
+action = "Go to next file"
+field = "main.nextFile"
+
+[[row]]
+panel = "Secondary"
+action = "Jump to file"
+field = "universal.jumpToFile"
+
+[[row]]
+panel = "Secondary"
+action = "Open pull request at selected line"
+field = "commits.openPullRequestInBrowser"
+
+[[row]]
+panel = "Secondary"
+action = "Exit back to side panel"
+field = "universal.return"
+
+[[row]]
+panel = "Secondary"
+action = "Commit"
+field = "files.commitChanges"
+
+[[row]]
+panel = "Secondary"
+action = "Commit changes without pre-commit hook"
+field = "files.commitChangesWithoutHook"
+
+[[row]]
+panel = "Secondary"
+action = "Commit changes using git editor"
+field = "files.commitChangesWithEditor"
+
+[[row]]
+panel = "Secondary"
+action = "Find base commit for fixup"
+field = "files.findBaseCommitForFixup"
+
+[[row]]
+panel = "Secondary"
+action = "Search the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Stash"
+action = "Apply"
+field = "universal.select"
+
+[[row]]
+panel = "Stash"
+action = "Pop"
+field = "stash.popStash"
+
+[[row]]
+panel = "Stash"
+action = "Drop"
+field = "universal.remove"
+
+[[row]]
+panel = "Stash"
+action = "New branch"
+field = "universal.new"
+
+[[row]]
+panel = "Stash"
+action = "New worktree"
+field = "universal.newWorktree"
+
+[[row]]
+panel = "Stash"
+action = "Rename stash"
+field = "stash.renameStash"
+
+[[row]]
+panel = "Stash"
+action = "Focus main view"
+field = "universal.focusMainView"
+
+[[row]]
+panel = "Stash"
+action = "View files"
+field = "universal.goInto"
+
+[[row]]
+panel = "Stash"
+action = "Filter the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Status"
+action = "Edit config file"
+field = "universal.edit"
+
+[[row]]
+panel = "Status"
+action = "Check for update"
+field = "status.checkForUpdate"
+
+[[row]]
+panel = "Status"
+action = "Switch to a recent repo"
+field = "status.recentRepos"
+
+[[row]]
+panel = "Status"
+action = "Show/cycle all branch logs"
+field = "status.allBranchesLogGraph"
+
+[[row]]
+panel = "Status"
+action = "Show/cycle all branch logs (reverse)"
+field = "status.allBranchesLogGraphReverse"
+
+[[row]]
+panel = "Status"
+action = "Focus main view"
+field = "universal.focusMainView"
+
+[[row]]
+panel = "Sub-commits"
+action = "Copy abbreviated commit hash to clipboard"
+field = "universal.copyToClipboard"
+
+[[row]]
+panel = "Sub-commits"
+action = "Checkout"
+field = "commits.checkoutCommit"
+
+[[row]]
+panel = "Sub-commits"
+action = "Copy commit attribute to clipboard"
+field = "commits.copyCommitAttributeToClipboard"
+
+[[row]]
+panel = "Sub-commits"
+action = "Open commit in browser"
+field = "commits.openInBrowser"
+
+[[row]]
+panel = "Sub-commits"
+action = "Create new branch off of commit"
+field = "universal.new"
+
+[[row]]
+panel = "Sub-commits"
+action = "Move commits to new branch"
+field = "branches.moveCommitsToNewBranch"
+
+[[row]]
+panel = "Sub-commits"
+action = "New worktree"
+field = "universal.newWorktree"
+
+[[row]]
+panel = "Sub-commits"
+action = "Reset"
+field = "commits.viewResetOptions"
+
+[[row]]
+panel = "Sub-commits"
+action = "Copy (cherry-pick)"
+field = "commits.cherryPickCopy"
+
+[[row]]
+panel = "Sub-commits"
+action = "Reset copied (cherry-picked) commits selection"
+field = "commits.resetCherryPick"
+
+[[row]]
+panel = "Sub-commits"
+action = "Open external diff tool (git difftool)"
+field = "universal.openDiffTool"
+
+[[row]]
+panel = "Sub-commits"
+action = "Select commits of current branch"
+field = "commits.selectCommitsOfCurrentBranch"
+
+[[row]]
+panel = "Sub-commits"
+action = "Focus main view"
+field = "universal.focusMainView"
+
+[[row]]
+panel = "Sub-commits"
+action = "View files"
+field = "universal.goInto"
+
+[[row]]
+panel = "Sub-commits"
+action = "Search the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Submodules"
+action = "Copy submodule name to clipboard"
+field = "universal.copyToClipboard"
+
+[[row]]
+panel = "Submodules"
+action = "Enter"
+field = "universal.goInto"
+
+[[row]]
+panel = "Submodules"
+action = "Remove"
+field = "universal.remove"
+
+[[row]]
+panel = "Submodules"
+action = "Update"
+field = "submodules.update"
+
+[[row]]
+panel = "Submodules"
+action = "New submodule"
+field = "universal.new"
+
+[[row]]
+panel = "Submodules"
+action = "Update submodule URL"
+field = "universal.edit"
+
+[[row]]
+panel = "Submodules"
+action = "Initialize"
+field = "submodules.init"
+
+[[row]]
+panel = "Submodules"
+action = "View bulk submodule options"
+field = "submodules.bulkMenu"
+
+[[row]]
+panel = "Submodules"
+action = "Filter the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Tags"
+action = "Copy tag to clipboard"
+field = "universal.copyToClipboard"
+
+[[row]]
+panel = "Tags"
+action = "Checkout"
+field = "universal.select"
+
+[[row]]
+panel = "Tags"
+action = "New tag"
+field = "universal.new"
+
+[[row]]
+panel = "Tags"
+action = "New worktree"
+field = "universal.newWorktree"
+
+[[row]]
+panel = "Tags"
+action = "Delete"
+field = "universal.remove"
+
+[[row]]
+panel = "Tags"
+action = "Push tag"
+field = "branches.pushTag"
+
+[[row]]
+panel = "Tags"
+action = "Reset"
+field = "commits.viewResetOptions"
+
+[[row]]
+panel = "Tags"
+action = "Open external diff tool (git difftool)"
+field = "universal.openDiffTool"
+
+[[row]]
+panel = "Tags"
+action = "Focus main view"
+field = "universal.focusMainView"
+
+[[row]]
+panel = "Tags"
+action = "View commits"
+field = "universal.goInto"
+
+[[row]]
+panel = "Tags"
+action = "Filter the current view by text"
+field = "universal.startSearch"
+
+[[row]]
+panel = "Worktrees"
+action = "New worktree"
+field = "universal.new"
+
+[[row]]
+panel = "Worktrees"
+action = "Switch"
+field = "universal.select"
+
+[[row]]
+panel = "Worktrees"
+action = "Open in editor"
+field = "universal.openFile"
+
+[[row]]
+panel = "Worktrees"
+action = "Remove"
+field = "universal.remove"
+
+[[row]]
+panel = "Worktrees"
+action = "Filter the current view by text"
+field = "universal.startSearch"

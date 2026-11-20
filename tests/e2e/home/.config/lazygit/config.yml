@@ -1,0 +1,21 @@
+# lazygit's config for the e2e lazygit case: keybind-find reads only `keybinding:`, the rest is skipped unread.
+disableStartupPopups: true
+# A top-level flow mapping (the cases run with no network).
+update: { method: never }
+customCommands:
+  - key: <c-t>
+    context: global
+    command: |
+      echo e2e
+keybinding:
+  universal:
+    # The case's key: X, and quit-alt1's <ctrl+c>.
+    quit: X
+    nextItem: [<down>, j]
+    prevItem:
+      - <up>
+      - k
+    'gotoTop': ['<', <home>]
+    edit: <disabled>
+    # Meta: left out.
+    refresh: <m-r>

@@ -8,6 +8,7 @@ All notable changes to keybind-find are listed here. The format follows
 ### Added
 
 - lf: its keys in normal, visual and command-line mode, asked of the running lf (`lf -remote "query <pid> maps"`) once it has run a shell command, else lf r42's defaults with your `lfrc` files, `-command`s and `source`d files on top, read as lf reads them ([#54](https://github.com/Benjmhart/keybind-find/issues/54)).
+- lazygit: its keys by panel, as its keybindings cheatsheet lists them, lazygit 0.66.2's defaults with your `config.yml` files and the repo's `.lazygit.yml`/`.git/lazygit.yml` applied as lazygit applies them (their `keybinding:` section, read with a strict YAML subset); custom commands aren't listed yet ([#56](https://github.com/Benjmhart/keybind-find/issues/56)).
 
 ## [1.2.0] - 2026-11-19
 

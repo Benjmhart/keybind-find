@@ -1,0 +1,725 @@
+//! The small part of YAML that lazygit's `keybinding:` section is written in, read strictly: the document's top-level
+//! entries are split at column 0 and only `keybinding` is parsed; inside it, block mappings by indentation, plain and
+//! quoted scalars, one-line flow sequences and mappings, and block sequences of scalars. Anything else in it (anchors,
+//! tags, block scalars, a flow collection over several lines, a duplicate key, …) is refused with its line, so a file
+//! is never read differently from how yaml.v3 reads it.
+
+use anyhow::bail;
+
+/// A parsed value. A mapping keeps its keys in order, each with its line.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Node {
+    Map(Vec<(String, Node, usize)>),
+    Seq(Vec<Node>),
+    Scalar(String),
+    Null,
+}
+
+/// How deep mappings and sequences may nest (as `kdl_v1` caps its parser): no lazygit file nests past 3.
+const DEPTH: usize = 64;
+
+/// The value of the document's top-level `keybinding` entry, `None` when it has none. A failure is `line N: …`.
+pub(crate) fn keybinding(text: &str) -> anyhow::Result<Option<Node>> {
+    let lines: Vec<&str> = text
+        .split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .collect();
+    let blank = |l: &str| {
+        let t = l.trim_start_matches([' ', '\t']);
+        t.is_empty() || t.starts_with('#')
+    };
+    let marker = |l: &str, m: &str| {
+        l.strip_prefix(m)
+            .is_some_and(|r| r.is_empty() || r.starts_with([' ', '\t']))
+    };
+    let mut first = true;
+    let mut entry: Option<usize> = None;
+    let mut end = lines.len();
+    for (i, l) in lines.iter().enumerate() {
+        if blank(l) {
+            continue;
+        }
+        let n = i + 1;
+        if marker(l, "---") {
+            if !first || !blank(&l[3..]) {
+                bail!("line {n}: a second document, or text after `---`");
+            }
+            first = false;
+            continue;
+        }
+        if first && l.trim_start().starts_with(['{', '[']) {
+            bail!("line {n}: a flow mapping or sequence as the whole document");
+        }
+        first = false;
+        let top = !l.starts_with([' ', '\t', '-']) || (l.starts_with('-') && !marker(l, "-"));
+        if !top || marker(l, "...") {
+            continue;
+        }
+        if entry.is_some() && end == lines.len() {
+            end = i;
+        }
+        if key_of(l).is_some_and(|k| k == "keybinding") {
+            if entry.is_some() {
+                bail!("line {n}: `keybinding` twice");
+            }
+            entry = Some(i);
+            end = lines.len();
+        }
+    }
+    let Some(start) = entry else {
+        return Ok(None);
+    };
+    let n = start + 1;
+    let (_, rest) = split_key(lines[start], n)?;
+    if !blank(rest) {
+        bail!("line {n}: `keybinding:` must be followed by a block on the next lines");
+    }
+    let mut body = Vec::new();
+    for (i, l) in lines.iter().enumerate().take(end).skip(start + 1) {
+        if blank(l) || marker(l, "...") {
+            continue;
+        }
+        let content = l.trim_start_matches([' ', '\t']);
+        let indent = &l[..l.len() - content.len()];
+        if indent.contains('\t') {
+            bail!("line {}: a tab in the indentation", i + 1);
+        }
+        body.push((i + 1, indent.len(), content));
+    }
+    if body.is_empty() {
+        return Ok(Some(Node::Null));
+    }
+    let mut pos = 0;
+    let node = block(&body, &mut pos, 0, 1)?;
+    match body.get(pos) {
+        Some((n, _, _)) => bail!("line {n}: unexpected indentation"),
+        None => Ok(Some(node)),
+    }
+}
+
+/// A top-level line's key, when it has one.
+fn key_of(line: &str) -> Option<String> {
+    split_key(line, 0).ok().map(|(k, _)| k)
+}
+
+/// One body line: (line number, indentation, the rest).
+type Line<'a> = (usize, usize, &'a str);
+
+fn is_item(c: &str) -> bool {
+    c == "-" || c.starts_with("- ") || c.starts_with("-\t")
+}
+
+/// The block at `body[*pos]`, deeper than `parent`.
+fn block(body: &[Line], pos: &mut usize, parent: usize, depth: usize) -> anyhow::Result<Node> {
+    let Some(&(n, indent, content)) = body.get(*pos) else {
+        return Ok(Node::Null);
+    };
+    if depth > DEPTH {
+        bail!("line {n}: nested deeper than {DEPTH} levels");
+    }
+    if indent <= parent {
+        bail!("line {n}: a block must be indented more than its key");
+    }
+    if is_item(content) {
+        return seq(body, pos, indent, depth);
+    }
+    let mut entries: Vec<(String, Node, usize)> = Vec::new();
+    while let Some(&(n, i, c)) = body.get(*pos) {
+        if i < indent {
+            break;
+        }
+        if i > indent {
+            bail!("line {n}: unexpected indentation");
+        }
+        if is_item(c) {
+            bail!("line {n}: a sequence item where a key belongs");
+        }
+        let (key, rest) = split_key(c, n)?;
+        if key == "<<" {
+            bail!("line {n}: a merge key (`<<`)");
+        }
+        if entries.iter().any(|(k, _, _)| *k == key) {
+            bail!("line {n}: the key {key:?} twice");
+        }
+        *pos += 1;
+        let value = match line_value(rest, n, depth)? {
+            Some(v) => v,
+            None if body.get(*pos).is_some_and(|&(_, i, _)| i > indent) => {
+                block(body, pos, indent, depth + 1)?
+            }
+            None => Node::Null,
+        };
+        entries.push((key, value, n));
+    }
+    Ok(Node::Map(entries))
+}
+
+/// A block sequence of scalars at `indent`.
+fn seq(body: &[Line], pos: &mut usize, indent: usize, depth: usize) -> anyhow::Result<Node> {
+    let mut items = Vec::new();
+    while let Some(&(n, i, c)) = body.get(*pos) {
+        if i < indent {
+            break;
+        }
+        if i > indent {
+            bail!("line {n}: unexpected indentation (a sequence holds only one-line values here)");
+        }
+        if !is_item(c) {
+            bail!("line {n}: a key where a sequence item belongs");
+        }
+        let rest = &c[1..];
+        if split_key(rest.trim_start(), n).is_ok() {
+            bail!("line {n}: a sequence holding a mapping");
+        }
+        *pos += 1;
+        let item = match line_value(rest, n, depth)? {
+            Some(v @ (Node::Scalar(_) | Node::Null)) => v,
+            Some(_) => bail!("line {n}: a sequence holding a collection"),
+            None if body.get(*pos).is_some_and(|&(_, i, _)| i > indent) => {
+                bail!("line {n}: a sequence holding a block")
+            }
+            None => Node::Null,
+        };
+        items.push(item);
+    }
+    Ok(Node::Seq(items))
+}
+
+/// A line's `key:` and the text after the colon.
+fn split_key(line: &str, n: usize) -> anyhow::Result<(String, &str)> {
+    let chars: Vec<(usize, char)> = line.char_indices().collect();
+    let mut cur = Cur {
+        s: line,
+        chars: &chars,
+        i: 0,
+        n,
+    };
+    let key = match cur.peek() {
+        Some('\'' | '"') => {
+            let k = cur.quoted()?;
+            cur.spaces();
+            k
+        }
+        _ => {
+            cur.plain_start()?;
+            let start = cur.i;
+            loop {
+                match cur.peek() {
+                    None => bail!("line {n}: expected `key: value`"),
+                    Some(':') if matches!(cur.at(1), None | Some(' ' | '\t')) => break,
+                    Some(' ' | '\t') if cur.at(1) == Some('#') => {
+                        bail!("line {n}: expected `key: value`")
+                    }
+                    _ => cur.i += 1,
+                }
+            }
+            cur.text(start, cur.i).trim_end().to_string()
+        }
+    };
+    if cur.peek() != Some(':') || !matches!(cur.at(1), None | Some(' ' | '\t')) {
+        bail!("line {n}: expected `:` after the key");
+    }
+    let at = cur.offset(cur.i + 1);
+    Ok((key, &line[at..]))
+}
+
+/// The value after a key's colon (or a `-`), `None` when the line holds none.
+fn line_value(rest: &str, n: usize, depth: usize) -> anyhow::Result<Option<Node>> {
+    let chars: Vec<(usize, char)> = rest.char_indices().collect();
+    let mut cur = Cur {
+        s: rest,
+        chars: &chars,
+        i: 0,
+        n,
+    };
+    cur.spaces();
+    if matches!(cur.peek(), None | Some('#')) {
+        return Ok(None);
+    }
+    let v = cur.value(false, depth)?;
+    cur.end()?;
+    Ok(Some(v))
+}
+
+/// A cursor over one line.
+struct Cur<'a> {
+    s: &'a str,
+    chars: &'a [(usize, char)],
+    i: usize,
+    n: usize,
+}
+
+impl Cur<'_> {
+    fn peek(&self) -> Option<char> {
+        self.at(0)
+    }
+
+    fn at(&self, k: usize) -> Option<char> {
+        self.chars.get(self.i + k).map(|&(_, c)| c)
+    }
+
+    fn offset(&self, i: usize) -> usize {
+        self.chars.get(i).map_or(self.s.len(), |&(o, _)| o)
+    }
+
+    fn text(&self, from: usize, to: usize) -> &str {
+        &self.s[self.offset(from)..self.offset(to)]
+    }
+
+    fn spaces(&mut self) {
+        while matches!(self.peek(), Some(' ' | '\t')) {
+            self.i += 1;
+        }
+    }
+
+    /// Only whitespace and a comment may follow a value.
+    fn end(&mut self) -> anyhow::Result<()> {
+        let before = self.i;
+        self.spaces();
+        match self.peek() {
+            None => Ok(()),
+            Some('#') if self.i > before => Ok(()),
+            Some(c) => bail!("line {}: unexpected {c:?} after the value", self.n),
+        }
+    }
+
+    fn value(&mut self, flow: bool, depth: usize) -> anyhow::Result<Node> {
+        let n = self.n;
+        if depth > DEPTH {
+            bail!("line {n}: nested deeper than {DEPTH} levels");
+        }
+        match self.peek() {
+            Some('[') => self.flow_seq(depth),
+            Some('{') => self.flow_map(depth),
+            Some('\'' | '"') => Ok(Node::Scalar(self.quoted()?)),
+            _ => {
+                self.plain_start()?;
+                let start = self.i;
+                while let Some(c) = self.peek() {
+                    let next = self.at(1);
+                    let blank_next = matches!(next, None | Some(' ' | '\t'));
+                    match c {
+                        ' ' | '\t' if next == Some('#') => break,
+                        ',' | ']' | '}' if flow => break,
+                        ':' if blank_next || (flow && matches!(next, Some(',' | ']' | '}'))) => {
+                            bail!("line {n}: a mapping where a value belongs")
+                        }
+                        _ => self.i += 1,
+                    }
+                }
+                let text = self.text(start, self.i).trim_end();
+                Ok(match text {
+                    "~" => Node::Null,
+                    t if t.eq_ignore_ascii_case("null") => Node::Null,
+                    t => Node::Scalar(t.to_string()),
+                })
+            }
+        }
+    }
+
+    /// Refuses what YAML would read as something other than a plain scalar, or doesn't allow to start one.
+    fn plain_start(&self) -> anyhow::Result<()> {
+        let n = self.n;
+        let blank_next = matches!(self.at(1), None | Some(' ' | '\t'));
+        match self.peek() {
+            Some('&') => bail!("line {n}: an anchor (`&`)"),
+            Some('*') => bail!("line {n}: an alias (`*`)"),
+            Some('!') => bail!("line {n}: a tag (`!`)"),
+            Some('|' | '>') => bail!("line {n}: a block scalar (`|`, `>`)"),
+            Some(c @ ('[' | ']' | '{' | '}' | ',' | '#' | '\'' | '"' | '%' | '@' | '`')) => {
+                bail!("line {n}: a plain value can't start with {c:?}; quote it")
+            }
+            Some(c @ ('-' | '?' | ':')) if blank_next => {
+                bail!("line {n}: {c:?} followed by a space starts no value here; quote it")
+            }
+            Some(_) => Ok(()),
+            None => bail!("line {n}: a value is missing"),
+        }
+    }
+
+    fn quoted(&mut self) -> anyhow::Result<String> {
+        let n = self.n;
+        let Some(q) = self.peek() else {
+            bail!("line {n}: a value is missing");
+        };
+        self.i += 1;
+        let mut out = String::new();
+        loop {
+            let Some(c) = self.peek() else {
+                bail!("line {n}: a quoted value not closed on its line");
+            };
+            self.i += 1;
+            match (q, c) {
+                ('\'', '\'') if self.peek() == Some('\'') => {
+                    self.i += 1;
+                    out.push('\'');
+                }
+                ('\'', '\'') | ('"', '"') => return Ok(out),
+                ('"', '\\') => {
+                    let Some(e) = self.peek() else {
+                        bail!("line {n}: a quoted value not closed on its line");
+                    };
+                    self.i += 1;
+                    match e {
+                        '\\' | '"' | '/' => out.push(e),
+                        't' => out.push('\t'),
+                        'n' => out.push('\n'),
+                        'x' | 'u' => {
+                            let len = if e == 'x' { 2 } else { 4 };
+                            let hex: String = (0..len).filter_map(|k| self.at(k)).collect();
+                            let c = (hex.len() == len)
+                                .then(|| u32::from_str_radix(&hex, 16).ok())
+                                .flatten()
+                                .and_then(char::from_u32);
+                            let Some(c) = c else {
+                                bail!("line {n}: a bad \\{e} escape");
+                            };
+                            self.i += len;
+                            out.push(c);
+                        }
+                        _ => bail!("line {n}: the escape \\{e} isn't read here"),
+                    }
+                }
+                _ => out.push(c),
+            }
+        }
+    }
+
+    fn flow_end(&mut self, close: char) -> anyhow::Result<bool> {
+        self.spaces();
+        match self.peek() {
+            Some(',') => {
+                self.i += 1;
+                Ok(false)
+            }
+            Some(c) if c == close => {
+                self.i += 1;
+                Ok(true)
+            }
+            None | Some('#') => bail!("line {}: a flow collection over several lines", self.n),
+            Some(c) => bail!("line {}: unexpected {c:?} in a flow collection", self.n),
+        }
+    }
+
+    fn flow_seq(&mut self, depth: usize) -> anyhow::Result<Node> {
+        let n = self.n;
+        self.i += 1;
+        let mut items = Vec::new();
+        loop {
+            self.spaces();
+            match self.peek() {
+                Some(']') => {
+                    self.i += 1;
+                    return Ok(Node::Seq(items));
+                }
+                Some('[' | '{') => bail!("line {n}: a flow sequence holding a collection"),
+                None | Some('#') => bail!("line {n}: a flow collection over several lines"),
+                _ => {}
+            }
+            items.push(self.value(true, depth + 1)?);
+            if self.flow_end(']')? {
+                return Ok(Node::Seq(items));
+            }
+        }
+    }
+
+    fn flow_map(&mut self, depth: usize) -> anyhow::Result<Node> {
+        let n = self.n;
+        self.i += 1;
+        let mut entries: Vec<(String, Node, usize)> = Vec::new();
+        loop {
+            self.spaces();
+            let key = match self.peek() {
+                Some('}') => {
+                    self.i += 1;
+                    return Ok(Node::Map(entries));
+                }
+                None | Some('#') => bail!("line {n}: a flow collection over several lines"),
+                Some('\'' | '"') => self.quoted()?,
+                _ => {
+                    self.plain_start()?;
+                    let start = self.i;
+                    while !matches!(self.peek(), None | Some(':' | ',' | '}' | '[' | ']' | '{')) {
+                        self.i += 1;
+                    }
+                    self.text(start, self.i).trim_end().to_string()
+                }
+            };
+            self.spaces();
+            if self.peek() != Some(':') {
+                bail!("line {n}: expected `:` after a key in a flow mapping");
+            }
+            self.i += 1;
+            if key == "<<" {
+                bail!("line {n}: a merge key (`<<`)");
+            }
+            if entries.iter().any(|(k, _, _)| *k == key) {
+                bail!("line {n}: the key {key:?} twice");
+            }
+            self.spaces();
+            let value = match self.peek() {
+                Some(',' | '}') => Node::Null,
+                _ => self.value(true, depth + 1)?,
+            };
+            entries.push((key, value, n));
+            if self.flow_end('}')? {
+                return Ok(Node::Map(entries));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(v: &str) -> Node {
+        Node::Scalar(v.into())
+    }
+
+    /// The `keybinding` entry of `body` (indented under it).
+    fn kb(body: &str) -> anyhow::Result<Option<Node>> {
+        keybinding(&format!("keybinding:\n{body}"))
+    }
+
+    /// The value of `universal.<field>` in a one-field document.
+    fn field(value: &str) -> anyhow::Result<Node> {
+        let node = kb(&format!("  universal:\n    f: {value}\n"))?;
+        let Some(Node::Map(top)) = node else {
+            panic!("{node:?}")
+        };
+        let Node::Map(u) = &top[0].1 else {
+            panic!("{top:?}")
+        };
+        Ok(u[0].1.clone())
+    }
+
+    fn err(text: &str) -> String {
+        format!("{:#}", keybinding(text).unwrap_err())
+    }
+
+    #[test]
+    fn accepted_forms() {
+        for (value, want) in [
+            ("q", s("q")),
+            ("<ctrl+c>", s("<ctrl+c>")),
+            ("'?'", s("?")),
+            ("'it''s'", s("it's")),
+            (r#""n""#, s("n")),
+            (r#""a\\b\"c\/\t\n\x41\u00e9""#, s("a\\b\"c/\t\nAé")),
+            ("a#b", s("a#b")),
+            ("'#'", s("#")),
+            ("q # a comment", s("q")),
+            ("[<up>, k]", Node::Seq(vec![s("<up>"), s("k")])),
+            ("['>', <end>]", Node::Seq(vec![s(">"), s("<end>")])),
+            ("[]", Node::Seq(vec![])),
+            ("[a, b,]", Node::Seq(vec![s("a"), s("b")])),
+            (
+                "{ quit: q, x: { y: [a] }, z: }",
+                Node::Map(vec![
+                    ("quit".into(), s("q"), 3),
+                    (
+                        "x".into(),
+                        Node::Map(vec![("y".into(), Node::Seq(vec![s("a")]), 3)]),
+                        3,
+                    ),
+                    ("z".into(), Node::Null, 3),
+                ]),
+            ),
+            ("~", Node::Null),
+            ("NuLL", Node::Null),
+            ("'null'", s("null")),
+            ("", Node::Null),
+            ("# only a comment", Node::Null),
+            ("<disabled>", s("<disabled>")),
+            ("y", s("y")),
+            ("-x", s("-x")),
+        ] {
+            assert_eq!(field(value).unwrap(), want, "{value}");
+        }
+        // A block list, an empty value then a deeper block, comments between, CRLF.
+        let text = "# top\r\n---\r\nother: 1\r\nkeybinding:\r\n  # c\r\n  universal:\r\n\r\n    nextItem:\r\n      - <down>\r\n      - \"j\"\r\n      -\r\n    quit: q\r\n  'files' : { a: b }\r\nlast: x\r\n";
+        assert_eq!(
+            keybinding(text).unwrap(),
+            Some(Node::Map(vec![
+                (
+                    "universal".into(),
+                    Node::Map(vec![
+                        (
+                            "nextItem".into(),
+                            Node::Seq(vec![s("<down>"), s("j"), Node::Null]),
+                            8
+                        ),
+                        ("quit".into(), s("q"), 12),
+                    ]),
+                    6
+                ),
+                (
+                    "files".into(),
+                    Node::Map(vec![("a".into(), s("b"), 13)]),
+                    13
+                ),
+            ]))
+        );
+        // No keybinding entry; an empty one.
+        assert_eq!(keybinding("gui:\n  x: 1\n").unwrap(), None);
+        assert_eq!(keybinding("").unwrap(), None);
+        assert_eq!(keybinding("keybinding:\n# c\n").unwrap(), Some(Node::Null));
+        assert_eq!(
+            keybinding("\"keybinding\":\n  a: b\n").unwrap(),
+            Some(Node::Map(vec![("a".into(), s("b"), 2)]))
+        );
+    }
+
+    #[test]
+    fn other_entries_are_skipped_unread() {
+        let text = "\
+customCommands:
+- key: x
+  command: |
+    echo &a *b !!str {
+  prompts: [
+    a,
+  ]
+anchors: &a
+  x: *a
+update: { method: never }
+keybinding:
+  universal:
+    quit: X
+gui: |
+  [not { read
+";
+        assert_eq!(
+            keybinding(text).unwrap(),
+            Some(Node::Map(vec![(
+                "universal".into(),
+                Node::Map(vec![("quit".into(), s("X"), 13)]),
+                12
+            )]))
+        );
+    }
+
+    #[test]
+    fn refusals_name_their_line() {
+        for (text, line, what) in [
+            ("keybinding:\n  universal:\n\tquit: q\n", 3, "tab"),
+            ("keybinding:\n  universal: &a\n    quit: q\n", 2, "anchor"),
+            ("keybinding:\n  universal:\n    quit: *a\n", 3, "alias"),
+            ("keybinding:\n  universal:\n    <<: x\n", 3, "merge key"),
+            ("keybinding:\n  universal:\n    quit: !!str q\n", 3, "tag"),
+            (
+                "keybinding:\n  universal:\n    quit: |\n      q\n",
+                3,
+                "block scalar",
+            ),
+            (
+                "keybinding:\n  universal:\n    quit: >\n",
+                3,
+                "block scalar",
+            ),
+            (
+                "keybinding:\n  universal:\n    quit: [q,\n      x]\n",
+                3,
+                "several lines",
+            ),
+            ("keybinding:\n  u:\n    quit: { a: b\n", 3, "several lines"),
+            ("keybinding:\n  u:\n    quit: q\n    quit: x\n", 4, "twice"),
+            ("keybinding:\n  u:\n    q: { a: 1, a: 2 }\n", 3, "twice"),
+            ("keybinding:\n  u:\n    quit: @\n", 3, "quote it"),
+            ("keybinding:\n  u:\n    quit: `\n", 3, "quote it"),
+            ("keybinding:\n  u:\n    quit: - q\n", 3, "quote it"),
+            (
+                "keybinding:\n  u:\n    quit:\n      - a: b\n",
+                4,
+                "holding a mapping",
+            ),
+            (
+                "keybinding:\n  u:\n    quit:\n      - [a]\n",
+                4,
+                "collection",
+            ),
+            (
+                "keybinding:\n  u:\n    quit:\n      -\n        x\n",
+                4,
+                "holding a block",
+            ),
+            (
+                "keybinding:\n  u:\n    quit: [[a]]\n",
+                3,
+                "holding a collection",
+            ),
+            (
+                "keybinding:\n  u:\n    quit: a: b\n",
+                3,
+                "mapping where a value",
+            ),
+            ("keybinding:\n  u:\n    quit: \"\\q\"\n", 3, "escape"),
+            ("keybinding:\n  u:\n    quit: 'q\n", 3, "not closed"),
+            ("keybinding:\n  u:\n    quit: 'q'x\n", 3, "after the value"),
+            (
+                "keybinding:\n  u:\n    quit: q\n   x: y\n",
+                4,
+                "indentation",
+            ),
+            (
+                "keybinding:\n  u:\n    quit: q\n      x: y\n",
+                4,
+                "indentation",
+            ),
+            ("keybinding:\n  u: q\n    x: y\n", 3, "indentation"),
+            ("keybinding:\n  u\n", 2, "key: value"),
+            ("keybinding:\n- a\n", 2, "indented more"),
+            (
+                "keybinding: { universal: { quit: q } }\n",
+                1,
+                "block on the next",
+            ),
+            ("keybinding:\n  a: 1\nkeybinding:\n  b: 2\n", 3, "twice"),
+            ("{ keybinding: {} }\n", 1, "whole document"),
+            ("# c\n[a]\n", 2, "whole document"),
+            ("a: 1\n---\nkeybinding:\n", 2, "second document"),
+            ("---\n---\n", 2, "second document"),
+        ] {
+            let e = err(text);
+            assert!(e.starts_with(&format!("line {line}: ")), "{text:?}: {e}");
+            assert!(e.contains(what), "{text:?}: {e}");
+        }
+    }
+
+    #[test]
+    fn deep_and_broken_input_never_panics() {
+        let deep: String = (0..100)
+            .map(|d| format!("{}k{d}:\n", " ".repeat(d + 1)))
+            .collect();
+        assert!(err(&format!("keybinding:\n{deep}")).contains("deeper than 64"));
+        let flow = format!(
+            "keybinding:\n  u: {}{}\n",
+            "{a: ".repeat(100),
+            "}".repeat(100)
+        );
+        assert!(err(&flow).contains("deeper than 64"));
+        let full =
+            "keybinding:\n  u:\n    quit: [\"a\\u00e9\", 'b''c', { x: y }]\n    'q': \"\\x4\"\n";
+        let chars: Vec<char> = full.chars().collect();
+        for cut in 0..=chars.len() {
+            let text: String = chars[..cut].iter().collect();
+            let _ = keybinding(&text);
+            let _ = keybinding(&format!("{text}é\"'"));
+        }
+        for junk in [
+            "\"",
+            "'",
+            ":",
+            "- ",
+            "-",
+            "[",
+            "{",
+            "keybinding",
+            "keybinding:\n  :",
+            "keybinding:\n  ''",
+        ] {
+            let _ = keybinding(junk);
+        }
+    }
+}
