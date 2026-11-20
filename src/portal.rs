@@ -58,7 +58,7 @@ pub fn send(e: &Entry) -> anyhow::Result<()> {
 
 /// xorgproto's keysyms: `name 0xvalue` (keysymdef.h, then XF86keysym.h), then `U+XXXX 0xvalue`, the named keysym
 /// for a code point.
-const KEYSYMS: &str = include_str!("../data/keysyms/xorgproto-2026.1.txt");
+pub(crate) const KEYSYMS: &str = include_str!("../data/keysyms/xorgproto-2026.1.txt");
 /// `NotifyKeyboardKeysym`'s state.
 const PRESS: u32 = 1;
 const RELEASE: u32 = 0;

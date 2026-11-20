@@ -523,8 +523,9 @@ const SESSIONS: &[(&str, &[&str])] = &[
     ("xfce", &["xfce", "xfwm4"]),
     // X11 only: its EWMH name (ewmh.c at v4.3).
     ("awesome", &["awesome"]),
-    // X11 window managers with no provider yet, so they are named rather than unknown.
+    // X11 only: its EWMH name (openbox/screen.c:209 at release-3.6.1), LXDE's and LXQt's too, which run Openbox.
     ("openbox", &["openbox"]),
+    // X11 window managers with no provider yet, so they are named rather than unknown.
     ("bspwm", &["bspwm"]),
     ("qtile", &["qtile"]),
     ("herbstluftwm", &["herbstluftwm"]),
@@ -661,13 +662,22 @@ fn session_file_name(d: &str) -> &str {
     name.strip_suffix(".desktop").unwrap_or(name)
 }
 
-/// The window-manager provider for a session: only sway, Hyprland, niri, xmonad, KDE, Xfce, i3, GNOME and awesome have one. Nothing falls back to
+/// The window-manager provider for a session: only sway, Hyprland, niri, xmonad, KDE, Xfce, i3, GNOME, awesome and Openbox have one. Nothing falls back to
 /// xmonad: a leftover `xmonad.keys` under i3 must not show.
 fn wm_provider(session: Option<&'static str>) -> Option<&'static str> {
     session.filter(|s| {
         matches!(
             *s,
-            "sway" | "hyprland" | "niri" | "xmonad" | "kde" | "xfce" | "i3" | "gnome" | "awesome"
+            "sway"
+                | "hyprland"
+                | "niri"
+                | "xmonad"
+                | "kde"
+                | "xfce"
+                | "i3"
+                | "gnome"
+                | "awesome"
+                | "openbox"
         )
     })
 }
@@ -1089,7 +1099,7 @@ fn focused(node: &serde_json::Value) -> Option<&serde_json::Value> {
 }
 
 /// Runs a short query (X, sway, Hyprland) with a 1 s limit, so a wedged display server can't hang the hotkey.
-fn run(program: &str, args: &[&str]) -> anyhow::Result<String> {
+pub(crate) fn run(program: &str, args: &[&str]) -> anyhow::Result<String> {
     run_for(query_command(program, args), Duration::from_secs(1))
 }
 
@@ -1729,7 +1739,7 @@ fn parse_xprop(text: &str) -> Props {
 }
 
 /// The double-quoted strings in an xprop value, with xprop's `\"` and `\\` escapes undone.
-fn quoted(value: &str) -> Vec<String> {
+pub(crate) fn quoted(value: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut chars = value.chars();
     while chars.by_ref().any(|c| c == '"') {
@@ -3714,6 +3724,7 @@ mod tests {
         // Each session with a window-manager provider names itself; a new one adds a row.
         let with = [
             "sway", "hyprland", "niri", "xmonad", "kde", "xfce", "i3", "gnome", "awesome",
+            "openbox",
         ];
         assert_eq!(wm_provider(None), None);
         // Xfce's Wayland session is unknown: no xfwm4 keys on another compositor.
@@ -3752,6 +3763,12 @@ mod tests {
         assert_eq!(
             list("awesome"),
             ["awesome", "espanso", "alacritty", "nvim", "sheets"]
+        );
+        // So does Openbox (its EWMH name `Openbox`, matched ignoring case), under LXDE and LXQt too.
+        assert_eq!(wm_provider(Some("openbox")), Some("openbox"));
+        assert_eq!(
+            list("Openbox"),
+            ["openbox", "espanso", "alacritty", "nvim", "sheets"]
         );
     }
 

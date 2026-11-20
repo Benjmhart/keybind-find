@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- keybind-find's e2e config for Openbox: synthetic, a few keybinds the openbox case and the unit tests' shapes use. -->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+<keyboard>
+  <chainQuitKey>C-g</chainQuitKey>
+  <!-- e2e -->
+  <keybind key="W-S-x">
+    <action name="Execute"><command>echo e2e quit</command></action>
+  </keybind>
+  <keybind key="W-a">
+    <keybind key="t">
+      <action name="Execute"><command>echo e2e chain</command></action>
+    </keybind>
+  </keybind>
+  <keybind key="H-x">
+    <action name="Execute"><command>echo e2e hyper</command></action>
+  </keybind>
+</keyboard>
+</openbox_config>

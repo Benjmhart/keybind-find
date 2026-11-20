@@ -1,7 +1,7 @@
-# The e2e cases, sourced by harness.sh once per phase (PHASE=x11, awesome, wayland, then niri).
+# The e2e cases, sourced by harness.sh once per phase (PHASE=x11, awesome, openbox, wayland, then niri).
 # Each names its case, the providers that must answer (each with at least one bind), and one key from tests/e2e/home
-# that must be listed: "PROVIDER|KEY|part of its description[|scope=value,...]". x: under i3, or under awesome in its
-# phase (the focused window found through xdotool); w: under sway; p NAME MODE: picks through a fake portal under a
+# that must be listed: "PROVIDER|KEY|part of its description[|scope=value,...]". x: under i3, or under awesome or
+# Openbox in its phase (the focused window found through xdotool); w: under sway; p NAME MODE: picks through a fake portal under a
 # faked GNOME session on sway's display (harness.sh `p`); n: under niri; d: one provider dumped directly, after a setup
 # command (its desktop can't run here); o NAME PROVIDER -- COMMAND: the program's own key report (COMMAND) checked
 # against `keybind-find dump PROVIDER` by oracle.py. The niri phase runs only when its name is wanted: name
@@ -116,6 +116,10 @@ end
 return table.concat(o, ";")'
   o awesome-oracle awesome -- dbus-send --session --dest=org.awesomewm.awful --type=method_call --print-reply \
     --reply-timeout=2000 / org.awesomewm.awful.Remote.Eval "string:$AWESOME_REPORT"
+elif [ "$PHASE" = openbox ]; then
+  # Openbox on the same display, i3 and awesome stopped: its keybinds from tests/e2e/home/.config/openbox/rc.xml. Openbox
+  # prints no report of its bindings, so there is no oracle case.
+  x openbox        "openbox zsh"  "openbox|super+shift+x|e2e quit"   -- xterm -e zsh
 elif [ "$PHASE" = wayland ]; then
   w foot-zsh       "sway foot zsh"       "sway|super+Return|exec foot"      -- foot zsh
   w foot-helix     "sway foot helix"     "foot|ctrl+shift+y|Spawns a new"   -- foot helix /tmp/e2e.rs

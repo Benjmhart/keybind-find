@@ -24,7 +24,7 @@ Please report security problems privately, through GitHub's private vulnerabilit
 - **It runs other programs**, always with explicit arguments:
   - the programs it reads: nvim (headless, with your config), `tmux`, `herdr`, `espanso`, `swaymsg`, `niri` (`msg
     --json focused-window` under niri; niri's config is only read, its `spawn` commands shown, never run), `xdotool`,
-    `xprop`, `xmodmap`, `wezterm` (`show-keys` runs your `wezterm.lua`, as WezTerm does on every start; `cli
+    `xprop` (also `xprop -root _OB_CONFIG_FILE` under Openbox, the file Openbox names), `xmodmap`, `wezterm` (`show-keys` runs your `wezterm.lua`, as WezTerm does on every start; `cli
     list-clients`, without your config, asks the running WezTerm for its focused pane), `zellij` (`--version`, and
     `setup --dump-keybinds=<preset>` or `setup --dump-config`, which print zellij's built-in keys and start no session; zellij
     creates its cache directory and a log under `/tmp/zellij-<uid>` as on any start; and `action list-clients`, which
@@ -58,7 +58,9 @@ Please report security problems privately, through GitHub's private vulnerabilit
   `kxmlgui5/konsole/*ui.rc` and shortcut scheme files, lf's `lfrc` files and the files they `source`, lazygit's `config.yml` files and the repo's `.lazygit.yml` and
   `.git/lazygit.yml` (only their `keybinding:` section is parsed; nothing in them is run), Kakoune's kakrc, `kakrc.local`
   and autoload `*.kak` files (only their `map`, `unmap`, `declare-user-mode`, `try` and `evaluate-commands` are read;
-  nothing in them is run), Vimium's extension folder), xmonad's keymap dump, and `/proc` to find the program inside a terminal and your own sxhkd's
+  nothing in them is run), Openbox's `rc.xml` (the file in the root window's `_OB_CONFIG_FILE` property, else the
+  first `openbox/rc.xml` of your XDG config dirs; only its `<keyboard>` keybinds are read, their actions shown as text,
+  never run), Vimium's extension folder), xmonad's keymap dump, and `/proc` to find the program inside a terminal and your own sxhkd's
   and the focused lf's and lazygit's config files (`/proc/<pid>/{cmdline,environ,cwd}` of your `sxhkd` processes and
   of that `lf` or `lazygit` only, and that lazygit's `/proc/<pid>/exe`), and `/proc/<pid>/{comm,environ}` of the nnn in
   the focused terminal (its `NNN_PLUG` and `NNN_BMS` are shown, never run), and `/proc/<pid>/{comm,cmdline,environ,exe}`
