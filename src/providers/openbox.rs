@@ -9,7 +9,7 @@
 //! and a DOCTYPE without an internal subset are skipped; elements, quoted attributes, text, CDATA, comments, the five
 //! predefined entities and character references are read; names compare by local name, as libxml2's `node->name`.
 
-use crate::context::{quoted, run, Context};
+use crate::context::{run, Context};
 use crate::sheet::{chord, Bind, Sheet};
 use std::collections::{HashMap, HashSet};
 use std::io::Read as _;
@@ -23,8 +23,8 @@ const MAX_SIZE: u64 = 4 << 20;
 /// at v2.15.1; Openbox passes `NOBLANKS | RECOVER` only, `obt/xml.c:153-156`).
 const MAX_DEPTH: usize = 256;
 
-/// Keys read (each key of a chain counted) before the rest are left out: `key="a b c …"` alternatives multiply down a
-/// chain.
+/// Keys and actions read (each key of a chain counted, each action each time it is bound) before the rest are left
+/// out: `key="a b c …"` alternatives multiply down a chain, and each one binds all its keybind's actions.
 const MAX_KEYS: usize = 5000;
 
 /// Openbox's own keys when no rc.xml has a `<keyboard>` (or none loads): `bind_default_keyboard`,
@@ -40,62 +40,61 @@ const CATEGORY: &str = "openbox";
 type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 
 pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
-    // No property: the XDG lookup, as Openbox does without `--config-file`.
-    let prop = run("xprop", &["-root", "_OB_CONFIG_FILE"]).map_err(|e| format!("{e:#}"));
-    let (sheet, notes) = read(prop.as_deref().map_err(String::as_str), &|k| {
-        std::env::var(k).ok()
-    });
+    // No X, no xprop or no property: the XDG lookup, as Openbox does without `--config-file`.
+    let prop = run("xprop", &["-root", "_OB_CONFIG_FILE"]).ok();
+    let (sheet, notes) = read(prop.as_deref(), &|k| std::env::var(k).ok());
     for note in notes {
-        eprintln!("keybind-find: openbox: {}", printable(&note));
+        eprintln!("keybind-find: openbox: {note}");
     }
     Ok(sheet)
 }
 
-/// `s` with control characters escaped: a note quotes a file's text and a root-window property any X client can set.
+/// `s` with control and bidirectional-format characters escaped: a note quotes a file's text and a root-window
+/// property any X client can set.
 fn printable(s: &str) -> String {
     s.chars()
-        .map(|c| {
-            if c.is_control() {
-                c.escape_debug().to_string()
-            } else {
-                c.to_string()
-            }
+        .map(|c| match c {
+            '\u{200e}'
+            | '\u{200f}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2066}'..='\u{2069}' => c.escape_unicode().to_string(),
+            c if c.is_control() => c.escape_debug().to_string(),
+            c => c.to_string(),
         })
         .collect()
 }
 
-/// The sheet from the file Openbox picks (`prop`: `xprop -root _OB_CONFIG_FILE`'s output, or why it failed; `env`:
-/// keybind-find's environment), and the stderr notes.
-fn read(prop: Result<&str, &str>, env: Env) -> (Sheet, Vec<String>) {
+/// The sheet from the file Openbox picks (`prop`: `xprop -root _OB_CONFIG_FILE`'s output; `env`: keybind-find's
+/// environment), and the stderr notes, printable.
+fn read(prop: Option<&str>, env: Env) -> (Sheet, Vec<String>) {
+    let (sheet, notes) = lookup(prop, env);
+    (sheet, notes.iter().map(|n| printable(n)).collect())
+}
+
+fn lookup(prop: Option<&str>, env: Env) -> (Sheet, Vec<String>) {
     let mut notes = Vec::new();
     // `openbox/openbox.c:245-256`: the `--config-file` file, or else the first `openbox/rc.xml` of the config dirs.
-    // Each with whether its absence is said.
     let mut candidates = Vec::new();
-    match prop.map(property_path) {
-        Err(e) => notes.push(format!(
-            "couldn't read _OB_CONFIG_FILE ({e}); looking in the XDG config dirs"
-        )),
-        Ok(Some(p)) if p.is_absolute() => candidates.push((p, true)),
-        Ok(Some(p)) => notes.push(format!(
+    match prop.and_then(property_path) {
+        Some(p) if p.is_absolute() => candidates.push(p),
+        Some(p) => notes.push(format!(
             "_OB_CONFIG_FILE names a relative path ({}); looking in the XDG config dirs",
             p.display()
         )),
-        Ok(None) => {}
+        None => {}
     }
     candidates.extend(
         config_dirs(env)
             .into_iter()
-            .map(|d| (d.join("openbox/rc.xml"), false)),
+            .map(|d| d.join("openbox/rc.xml")),
     );
-    for (path, said) in candidates {
+    for path in candidates {
         match load(&path) {
-            Ok(None) if said => notes.push(format!(
-                "_OB_CONFIG_FILE names {}, which doesn't exist; looking in the XDG config dirs",
-                path.display()
-            )),
             Ok(None) => {}
-            Ok(Some((root, includes))) => {
-                let (sheet, left) = keyboard(&root, includes);
+            Ok(Some(root)) => {
+                let (sheet, left) = keyboard(&root);
                 notes.extend(left.note());
                 return (sheet, notes);
             }
@@ -109,14 +108,39 @@ fn read(prop: Result<&str, &str>, env: Env) -> (Sheet, Vec<String>) {
 }
 
 /// The path in `xprop -root _OB_CONFIG_FILE`'s output: `_OB_CONFIG_FILE(UTF8_STRING) = "…"`; `None` for
-/// `_OB_CONFIG_FILE:  not found.` (the property is erased when no `--config-file` was given, `openbox.c:258-266`).
+/// `_OB_CONFIG_FILE:  not found.` (the property is erased when no `--config-file` was given, `openbox.c:258-266`) or
+/// an empty value. xprop prints it as `8u` under `LC_ALL=C.UTF-8`: non-ASCII as it is, `\`, `"`, newline and tab
+/// escaped (`\n`, `\t`), other control characters as three octal digits (`\033`); undone here, byte for byte.
 fn property_path(out: &str) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
     let (_, value) = out.lines().next()?.split_once(" = ")?;
-    quoted(value)
-        .into_iter()
-        .next()
-        .filter(|p| !p.is_empty())
-        .map(PathBuf::from)
+    let mut rest = value.strip_prefix('"')?.as_bytes();
+    let mut path = Vec::new();
+    loop {
+        let (b, tail) = rest.split_first()?;
+        rest = tail;
+        match b {
+            b'"' => break,
+            b'\\' => {
+                let (e, tail) = rest.split_first()?;
+                rest = tail;
+                path.push(match e {
+                    b'n' => b'\n',
+                    b't' => b'\t',
+                    b'0'..=b'3' => match rest {
+                        [x @ b'0'..=b'7', y @ b'0'..=b'7', tail @ ..] => {
+                            rest = tail;
+                            (e - b'0') << 6 | (x - b'0') << 3 | (y - b'0')
+                        }
+                        _ => *e,
+                    },
+                    e => *e,
+                });
+            }
+            b => path.push(*b),
+        }
+    }
+    (!path.is_empty()).then(|| PathBuf::from(std::ffi::OsString::from_vec(path)))
 }
 
 /// `obt_paths_new` (`obt/paths.c:145-149,164-179`): the config home (non-empty `XDG_CONFIG_HOME`, else
@@ -143,24 +167,32 @@ fn config_dirs(env: Env) -> Vec<PathBuf> {
 }
 
 /// The file's root element and its `xi:include` count; `None` when it doesn't exist; why it doesn't load otherwise.
-fn load(path: &Path) -> Result<Option<(Element, usize)>, String> {
-    // Checked before opening, so a FIFO there can't hang us. ponytail: a race with a swap in between; open
-    // non-blocking if that matters.
-    match std::fs::metadata(path) {
+fn load(path: &Path) -> Result<Option<Element>, String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    // Opened non-blocking and checked on the handle, so a FIFO put there can't hang us.
+    // ponytail: Linux's O_NONBLOCK on x86 and arm (libc isn't a dependency); alpha, mips, parisc and sparc differ.
+    const O_NONBLOCK: i32 = 0o4000;
+    let f = match std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NONBLOCK)
+        .open(path)
+    {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.to_string()),
-        Ok(m) if !m.is_file() => return Err("not a regular file".into()),
-        Ok(_) => {}
+        Ok(f) => f,
+    };
+    if !f.metadata().map_err(|e| e.to_string())?.is_file() {
+        return Err("not a regular file".into());
     }
     let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .and_then(|f| f.take(MAX_SIZE + 1).read_to_end(&mut bytes))
+    f.take(MAX_SIZE + 1)
+        .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     if bytes.len() as u64 > MAX_SIZE {
         return Err(format!("larger than {} MiB", MAX_SIZE >> 20));
     }
     let text = String::from_utf8(bytes).map_err(|_| "not UTF-8".to_string())?;
-    let (root, includes) = parse_xml(&text)?;
+    let root = parse_xml(&text)?;
     // `obt/xml.c:160-170`: a document of another type is passed over.
     if root.name != "openbox_config" {
         return Err(format!(
@@ -168,7 +200,7 @@ fn load(path: &Path) -> Result<Option<(Element, usize)>, String> {
             root.name
         ));
     }
-    Ok(Some((root, includes)))
+    Ok(Some(root))
 }
 
 // --- the XML subset --------------------------------------------------------------------------------------------
@@ -221,9 +253,8 @@ fn local(qname: &str) -> &str {
     qname.rsplit(':').next().unwrap_or(qname)
 }
 
-/// The document's root element and how many `include` elements (XInclude, not followed) it has; an error with its
-/// line number when the text isn't well-formed for this subset.
-fn parse_xml(text: &str) -> Result<(Element, usize), String> {
+/// The document's root element; an error with its line number when the text isn't well-formed for this subset.
+fn parse_xml(text: &str) -> Result<Element, String> {
     // XML's end-of-line handling: CRLF and a lone CR read as LF (lines then count the same).
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
@@ -232,7 +263,6 @@ fn parse_xml(text: &str) -> Result<(Element, usize), String> {
     // Open elements: (qualified name, element, where it opened).
     let mut stack: Vec<(&str, Element, usize)> = Vec::new();
     let mut root: Option<Element> = None;
-    let mut includes = 0;
     let mut pos = 0;
     while pos < text.len() {
         let rest = &text[pos..];
@@ -308,9 +338,6 @@ fn parse_xml(text: &str) -> Result<(Element, usize), String> {
             if root.is_some() {
                 return Err(err(start, format!("<{qname}> after the root element")));
             }
-            if el.name == "include" {
-                includes += 1;
-            }
             // Bounded, so dropping the tree and walking chains can't overflow the stack.
             if stack.len() >= MAX_DEPTH {
                 return Err(err(
@@ -341,8 +368,7 @@ fn parse_xml(text: &str) -> Result<(Element, usize), String> {
     if let Some((name, _, at)) = stack.pop() {
         return Err(err(at, format!("<{name}> is never closed")));
     }
-    let root = root.ok_or_else(|| "no root element".to_string())?;
-    Ok((root, includes))
+    root.ok_or_else(|| "no root element".to_string())
 }
 
 /// A closed element: its parent's child, or the root.
@@ -503,9 +529,10 @@ impl LeftOut {
         .into_iter()
         .filter(|(n, _)| *n > 0)
         .map(|(n, why)| format!("{n} {why}"))
-        .chain(self.capped.then(|| {
-            format!("every key after the first {MAX_KEYS} (counting each key of a chain)")
-        }))
+        .chain(
+            self.capped
+                .then(|| format!("everything after the first {MAX_KEYS} keys and actions")),
+        )
         .collect();
         (!parts.is_empty()).then(|| format!("leaving out: {}", parts.join(", ")))
     }
@@ -518,56 +545,94 @@ struct Bound {
     actions: Vec<String>,
 }
 
+/// A node of the key tree, as `keytree.c` builds it: its children by chord, and the bound sequence that ends here
+/// (an index in `bound`). A node that is neither a leaf nor has children is a stub (a chain's start whose next key is
+/// Openbox's key 0).
 #[derive(Default)]
+struct KeyNode {
+    children: HashMap<String, usize>,
+    leaf: Option<usize>,
+}
+
 struct Binds {
     bound: Vec<Bound>,
-    /// Each bound sequence's index in `bound`.
-    leaves: HashMap<Vec<String>, usize>,
-    /// Every sequence with keys bound after it: the proper prefixes of bound sequences, and stubs.
-    inner: HashSet<Vec<String>>,
+    /// The key tree; node 0 is the root.
+    tree: Vec<KeyNode>,
     left: LeftOut,
-    /// Keys read so far (`MAX_KEYS`).
-    keys: usize,
+    /// Keys and actions read so far (`MAX_KEYS`).
+    work: usize,
 }
 
 impl Binds {
-    fn has_leaf_prefix(&self, chords: &[String]) -> bool {
-        (1..chords.len()).any(|n| self.leaves.contains_key(&chords[..n]))
-    }
-
-    /// `chords` and its proper prefixes as having keys after them.
-    fn add_inner(&mut self, chords: &[String]) {
-        for n in 1..=chords.len() {
-            self.inner.insert(chords[..n].to_vec());
+    fn new(left: LeftOut) -> Binds {
+        Binds {
+            bound: Vec::new(),
+            tree: vec![KeyNode::default()],
+            left,
+            work: 0,
         }
     }
 
+    /// Whether `n` more keys or actions fit under `MAX_KEYS`; counted when they do, noted when they don't.
+    fn spend(&mut self, n: usize) -> bool {
+        if self.work + n > MAX_KEYS {
+            self.left.capped = true;
+            return false;
+        }
+        self.work += n;
+        true
+    }
+
+    /// The node for `chords`, made as needed; `None` when a proper prefix of it is a bound key (`tree_find`'s
+    /// conflict, `openbox/keytree.c:107-136`).
+    fn node(&mut self, chords: &[String]) -> Option<usize> {
+        let mut at = 0;
+        for c in chords {
+            if self.tree[at].leaf.is_some() {
+                return None;
+            }
+            at = match self.tree[at].children.get(c) {
+                Some(&n) => n,
+                None => {
+                    self.tree.push(KeyNode::default());
+                    let n = self.tree.len() - 1;
+                    self.tree[at].children.insert(c.clone(), n);
+                    n
+                }
+            };
+        }
+        Some(at)
+    }
+
     /// `keyboard_bind` (`openbox/keyboard.c:142-176`) with `tree_find` (`openbox/keytree.c:107-136`): the same
-    /// sequence gets the actions appended; one that is a proper prefix of a bound one, or has one as a proper prefix,
-    /// is dropped.
-    fn bind(&mut self, chords: &[String], category: &str, actions: Vec<String>) {
-        if let Some(&i) = self.leaves.get(chords) {
-            self.bound[i].actions.extend(actions);
-        } else if self.inner.contains(chords) || self.has_leaf_prefix(chords) {
-            self.left.conflicts += 1;
-        } else {
-            self.add_inner(&chords[..chords.len().saturating_sub(1)]);
-            self.leaves.insert(chords.to_vec(), self.bound.len());
-            self.bound.push(Bound {
-                chords: chords.to_vec(),
-                category: category.into(),
-                actions,
-            });
+    /// sequence gets the actions appended; one that is a proper prefix of a bound one (or a stub), or has one as a
+    /// proper prefix, is dropped.
+    fn bind(&mut self, chords: &[String], category: &str, actions: &[String]) {
+        let fresh = self.tree.len();
+        match self.node(chords) {
+            Some(n) if let Some(i) = self.tree[n].leaf => {
+                self.bound[i].actions.extend_from_slice(actions)
+            }
+            // Made just now: nothing was after it.
+            Some(n) if n >= fresh => {
+                self.tree[n].leaf = Some(self.bound.len());
+                self.bound.push(Bound {
+                    chords: chords.to_vec(),
+                    category: category.into(),
+                    actions: actions.to_vec(),
+                });
+            }
+            _ => self.left.conflicts += 1,
         }
     }
 
     /// A chain whose next key didn't translate: Openbox still binds `chords` then a key-0 node (`tree_build`,
-    /// `openbox/keytree.c:47-66`), which never fires or matches (`:116-119`), so `chords` becomes a chain's start, and
-    /// a later key `chords` conflicts. Dropped, as Openbox drops it, when that is itself a conflict.
+    /// `openbox/keytree.c:47-66`), which never fires or matches (`:116-119`), so `chords` becomes a chain's start and a
+    /// later key `chords` conflicts. Dropped, as Openbox drops it, when that is itself a conflict.
     fn stub(&mut self, chords: &[String]) {
-        if !chords.is_empty() && !self.leaves.contains_key(chords) && !self.has_leaf_prefix(chords)
-        {
-            self.add_inner(chords);
+        if !chords.is_empty() {
+            // A node with no leaf and no children is a stub; a leaf stays a leaf (the stub is the conflict).
+            let _ = self.node(chords);
         }
     }
 
@@ -578,48 +643,49 @@ impl Binds {
             return;
         };
         let nested: Vec<&Element> = kb.elements().filter(|e| e.name == "keybind").collect();
-        // `config.c:456`: split on single spaces (a newline in the attribute is one already).
-        for k in keys.split(' ').filter(|k| !k.is_empty()) {
-            if self.keys >= MAX_KEYS {
-                self.left.capped = true;
+        let actions: Vec<String> = if nested.is_empty() {
+            kb.elements()
+                .filter(|e| e.name == "action")
+                .filter_map(describe)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        // No action binds nothing (`actions_parse` gives NULL without a name).
+        // ponytail: "binds something" is read one level deep; walk the subtree if a chain of empty keybinds matters.
+        let binds_any = !nested.is_empty() || !actions.is_empty();
+        // `config.c:456`: split on single spaces (a newline in the attribute is one already). An empty piece (two
+        // spaces) is Openbox's key 0 too: not listed (AC: skipped), but a stub after a chain's start.
+        for k in keys.split(' ') {
+            if !self.spend(1) {
                 return;
             }
-            self.keys += 1;
             let c = match translate(k) {
                 Ok(c) => c,
                 Err(why) => {
-                    *match why {
-                        Why::Unsendable => &mut self.left.unsendable,
-                        Why::Keycode => &mut self.left.keycodes,
-                        Why::Unknown => &mut self.left.unknown,
-                    } += 1;
-                    // ponytail: "binds something" is read one level deep (a nested keybind or a named action);
-                    // walk the whole subtree if a report shows a chain of only empty keybinds.
-                    if !nested.is_empty()
-                        || kb
-                            .elements()
-                            .any(|e| e.name == "action" && describe(e).is_some())
-                    {
+                    if !k.is_empty() {
+                        *match why {
+                            Why::Unsendable => &mut self.left.unsendable,
+                            Why::Keycode => &mut self.left.keycodes,
+                            Why::Unknown => &mut self.left.unknown,
+                        } += 1;
+                    }
+                    if binds_any {
                         self.stub(chords);
                     }
                     continue;
                 }
             };
             chords.push(c);
-            if nested.is_empty() {
-                let actions: Vec<String> = kb
-                    .elements()
-                    .filter(|e| e.name == "action")
-                    .filter_map(describe)
-                    .collect();
-                // No action binds nothing (`actions_parse` gives NULL without a name).
-                if !actions.is_empty() {
-                    self.bind(chords, category, actions);
-                }
-            } else {
+            if !nested.is_empty() {
                 for n in &nested {
                     self.keybind(n, chords, category);
                 }
+            } else if !actions.is_empty() {
+                if !self.spend(actions.len()) {
+                    return;
+                }
+                self.bind(chords, category, &actions);
             }
             chords.pop();
         }
@@ -645,26 +711,35 @@ impl Binds {
     }
 }
 
+/// The `include` elements that can drop keybinds: the root's own (one may bring a `<keyboard>`) and those inside the
+/// read `<keyboard>`.
+fn includes(root: &Element, kb: Option<&Element>) -> usize {
+    fn under(e: &Element) -> usize {
+        e.elements()
+            .map(|c| usize::from(c.name == "include") + under(c))
+            .sum()
+    }
+    root.elements().filter(|e| e.name == "include").count() + kb.map_or(0, under)
+}
+
 /// `parse_keyboard` (`openbox/config.c:488-510`) on the root's last `<keyboard>` (each one unbinds all before it);
 /// with none, the built-in keys (`:1141-1147`: bound before the `keyboard` callback runs).
-fn keyboard(root: &Element, includes: usize) -> (Sheet, LeftOut) {
+fn keyboard(root: &Element) -> (Sheet, LeftOut) {
+    let kb = root.elements().filter(|e| e.name == "keyboard").last();
     let left = LeftOut {
-        includes,
+        includes: includes(root, kb),
         ..LeftOut::default()
     };
-    let Some(kb) = root.elements().filter(|e| e.name == "keyboard").last() else {
+    let Some(kb) = kb else {
         return defaults(left);
     };
-    let mut binds = Binds {
-        left,
-        ..Binds::default()
-    };
+    let mut binds = Binds::new(left);
     let mut category = CATEGORY.to_string();
     for child in &kb.children {
         match child {
             // A title comment heads the keybinds after it; one with `<` is commented-out XML.
             Node::Comment(c) if !c.contains('<') => {
-                let t = c.split_whitespace().collect::<Vec<_>>().join(" ");
+                let t = collapse(c);
                 if !t.is_empty() {
                     category = t;
                 }
@@ -677,23 +752,27 @@ fn keyboard(root: &Element, includes: usize) -> (Sheet, LeftOut) {
 }
 
 fn defaults(left: LeftOut) -> (Sheet, LeftOut) {
-    let mut binds = Binds {
-        left,
-        ..Binds::default()
-    };
+    let mut binds = Binds::new(left);
     for (key, action) in DEFAULTS {
         if let Ok(c) = translate(key) {
-            binds.bind(&[c], CATEGORY, vec![action.to_string()]);
+            binds.bind(&[c], CATEGORY, &[action.to_string()]);
         }
     }
     binds.sheet()
 }
 
-/// An action as text: its `name`, then ` child=value` per direct child with text only (whitespace collapsed); an
-/// Execute command (`command`, or the legacy `execute`, `openbox/actions/execute.c:59-60`) as its value alone. Child
-/// elements with elements in them (`finalactions`, `startupnotify`) are skipped. `None` without a name.
+/// `s` on one line: control characters as spaces (they would reach the picker), whitespace runs as one space.
+fn collapse(s: &str) -> String {
+    s.split(|c: char| c.is_whitespace() || c.is_control())
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// An action as text: its `name`, then ` child=value` per direct child with text only (collapsed); an Execute command
+/// (`command`, or the legacy `execute`, `openbox/actions/execute.c:59-60`) as its value alone. Child elements with
+/// elements in them (`finalactions`, `startupnotify`) are skipped. `None` without a name.
 fn describe(action: &Element) -> Option<String> {
-    let collapse = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut out = collapse(action.attr("name")?);
     if out.is_empty() {
         return None;
@@ -794,8 +873,7 @@ mod tests {
 
     /// The sheet and left-out counts of an rc.xml text.
     fn binds(text: &str) -> (Sheet, LeftOut) {
-        let (root, includes) = parse_xml(text).unwrap();
-        keyboard(&root, includes)
+        keyboard(&parse_xml(text).unwrap())
     }
 
     fn kb(body: &str) -> (Sheet, LeftOut) {
@@ -1020,7 +1098,7 @@ mod tests {
 
     #[test]
     fn xml_reader() {
-        let (root, n) = parse_xml(
+        let root = parse_xml(
             "<?xml version=\"1.0\"?>\r\n<!DOCTYPE openbox_config>\r\n<?pi x?>\r\n\
              <ob:openbox_config xmlns:ob=\"http://openbox.org/3.4/rc\">\r\n\
              <a b='1' c=\"&amp;&#x41;&#65;\"/>\r\n<t>&lt;&amp;&#x41;&#65;&gt;&quot;&apos;</t>\r\n\
@@ -1028,7 +1106,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(root.name, "openbox_config");
-        assert_eq!(n, 1);
         let els: Vec<&Element> = root.elements().collect();
         assert_eq!(
             els[0].attrs,
@@ -1056,17 +1133,28 @@ mod tests {
     }
 
     #[test]
-    fn xinclude_is_counted() {
+    fn xinclude_is_counted_where_it_can_drop_keybinds() {
+        // The root's own (one may bring a <keyboard>) and the read <keyboard>'s; not under <menu> or an older
+        // <keyboard>.
         let (_, left) = binds(
-            "<openbox_config xmlns:xi=\"http://www.w3.org/2001/XInclude\"><xi:include href=\"k.xml\"/></openbox_config>",
+            r#"<openbox_config xmlns:xi="http://www.w3.org/2001/XInclude">
+                <xi:include href="k.xml"/>
+                <menu><xi:include href="m.xml"/></menu>
+                <keyboard><xi:include href="old.xml"/></keyboard>
+                <keyboard><keybind key="W-a"><xi:include href="a.xml"/></keybind></keyboard>
+            </openbox_config>"#,
         );
-        assert_eq!(left.includes, 1);
+        assert_eq!(left.includes, 2);
+        assert_eq!(
+            left.note().unwrap(),
+            "leaving out: 2 xi:include elements not followed"
+        );
+        let (_, left) = binds("<openbox_config><xi:include href=\"k.xml\"/></openbox_config>");
         assert_eq!(
             left.note().unwrap(),
             "leaving out: 1 xi:include element not followed"
         );
     }
-
     fn tmp(name: &str) -> PathBuf {
         let d = crate::test_tmp().join(format!("kbf-openbox-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
@@ -1143,49 +1231,41 @@ mod tests {
         let env = move |k: &str| vars.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
         let reply = |p: &Path| format!("_OB_CONFIG_FILE(UTF8_STRING) = \"{}\"\n", p.display());
         const NONE: &str = "_OB_CONFIG_FILE:  not found.\n";
-        let go = |prop: Result<&str, &str>| read(prop, &env);
+        let go = |prop: Option<&str>| read(prop, &env);
 
         // Nothing found: the defaults, and a note.
-        let (sheet, notes) = go(Ok(NONE));
+        let (sheet, notes) = go(Some(NONE));
         assert_eq!(keys(&sheet), ["alt+Tab", "alt+shift+Tab", "alt+F4"]);
         assert_eq!(notes, ["no rc.xml loads; listing Openbox's built-in keys"]);
         // The property's file.
-        let (sheet, notes) = go(Ok(&reply(&lxde)));
+        let (sheet, notes) = go(Some(&reply(&lxde)));
         assert_eq!(
             (keys(&sheet), notes.len()),
             (vec!["super+l".to_string()], 0)
         );
 
         put(&etc, &rc("W-e"));
-        // No property: the XDG lookup, silently.
-        let (sheet, notes) = go(Ok(NONE));
-        assert_eq!(
-            (keys(&sheet), notes.len()),
-            (vec!["super+e".to_string()], 0)
-        );
-        // xprop failing, or the property naming a missing file: said, then the XDG lookup.
-        let (sheet, notes) = go(Err("xprop: unable to open display ''"));
+        // The property's file beats the XDG one.
+        assert_eq!(keys(&go(Some(&reply(&lxde))).0), ["super+l"]);
+        // No property, no xprop answer, an empty value, or a file that doesn't exist: the XDG lookup, silently.
+        let missing = reply(&d.join("missing.xml"));
+        let empty = "_OB_CONFIG_FILE(UTF8_STRING) = \"\"\n";
+        for prop in [Some(NONE), None, Some(empty), Some(&missing)] {
+            let (sheet, notes) = go(prop);
+            assert_eq!(
+                (keys(&sheet), notes.len()),
+                (vec!["super+e".to_string()], 0),
+                "{prop:?}"
+            );
+        }
+        // A relative path: a note, then the XDG lookup. Notes are printable: the property is any X client's.
+        let (sheet, notes) = go(Some(
+            "_OB_CONFIG_FILE(UTF8_STRING) = \"lxde\\033[31m-rc.xml\"\n",
+        ));
         assert_eq!(keys(&sheet), ["super+e"]);
         assert_eq!(
             notes,
-            ["couldn't read _OB_CONFIG_FILE (xprop: unable to open display ''); looking in the XDG config dirs"]
-        );
-        let missing = d.join("missing.xml");
-        let (sheet, notes) = go(Ok(&reply(&missing)));
-        assert_eq!(keys(&sheet), ["super+e"]);
-        assert_eq!(
-            notes,
-            [format!(
-                "_OB_CONFIG_FILE names {}, which doesn't exist; looking in the XDG config dirs",
-                missing.display()
-            )]
-        );
-        // A relative path: a note, then the XDG lookup.
-        let (sheet, notes) = go(Ok("_OB_CONFIG_FILE(UTF8_STRING) = \"lxde-rc.xml\"\n"));
-        assert_eq!(keys(&sheet), ["super+e"]);
-        assert_eq!(
-            notes,
-            ["_OB_CONFIG_FILE names a relative path (lxde-rc.xml); looking in the XDG config dirs"]
+            ["_OB_CONFIG_FILE names a relative path (lxde\\u{1b}[31m-rc.xml); looking in the XDG config dirs"]
         );
         // xprop's octal escapes are undone: a file named `é.xml`.
         let accent = d.join("é.xml");
@@ -1194,12 +1274,12 @@ mod tests {
             "_OB_CONFIG_FILE(UTF8_STRING) = \"{}/\\303\\251.xml\"\n",
             d.display()
         );
-        assert_eq!(keys(&go(Ok(&escaped)).0), ["super+z"]);
+        assert_eq!(keys(&go(Some(&escaped)).0), ["super+z"]);
         // The home's file first; one of another type is noted and passed over.
         let mine = put(&home, &rc("W-h"));
-        assert_eq!(keys(&go(Ok(NONE)).0), ["super+h"]);
+        assert_eq!(keys(&go(Some(NONE)).0), ["super+h"]);
         std::fs::write(&mine, "<openbox_menu/>").unwrap();
-        let (sheet, notes) = go(Ok(NONE));
+        let (sheet, notes) = go(Some(NONE));
         assert_eq!(keys(&sheet), ["super+e"]);
         assert_eq!(
             notes,
@@ -1210,7 +1290,7 @@ mod tests {
         );
         // A malformed one too, with its line.
         std::fs::write(&mine, "<openbox_config>\n<keyboard>\n</openbox_config>").unwrap();
-        let (_, notes) = go(Ok(NONE));
+        let (_, notes) = go(Some(NONE));
         assert_eq!(
             notes,
             [format!(
@@ -1218,15 +1298,28 @@ mod tests {
                 mine.display()
             )]
         );
-        // The property's file that doesn't load: noted, then the XDG lookup (whose home file is still malformed).
+        // The property's file that doesn't load: noted, then the XDG lookup.
         std::fs::remove_file(&mine).unwrap();
         std::fs::write(&lxde, [0xffu8, 0xfe]).unwrap();
-        let (sheet, notes) = go(Ok(&reply(&lxde)));
+        let (sheet, notes) = go(Some(&reply(&lxde)));
         assert_eq!(keys(&sheet), ["super+e"]);
         assert_eq!(notes, [format!("{}: not UTF-8; skipped", lxde.display())]);
-        // A directory where the home's rc.xml would be: noted, and the next dir's is used.
+        // A directory, or a FIFO (opened without waiting for a writer), where the home's rc.xml would be: noted, and
+        // the next dir's is used.
         std::fs::create_dir(&mine).unwrap();
-        let (sheet, notes) = go(Ok(NONE));
+        let (sheet, notes) = go(Some(NONE));
+        assert_eq!(keys(&sheet), ["super+e"]);
+        assert_eq!(
+            notes,
+            [format!("{}: not a regular file; skipped", mine.display())]
+        );
+        std::fs::remove_dir(&mine).unwrap();
+        let made = std::process::Command::new("mkfifo")
+            .arg(&mine)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let (sheet, notes) = go(Some(NONE));
         assert_eq!(keys(&sheet), ["super+e"]);
         assert_eq!(
             notes,
@@ -1234,6 +1327,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn property_escapes() {
+        let path = |v: &str| property_path(&format!("_OB_CONFIG_FILE(UTF8_STRING) = {v}\n"));
+        assert_eq!(
+            path(r#""/a\303\251\n\t\033\"\\b\7""#),
+            Some(PathBuf::from("/aé\n\t\u{1b}\"\\b7"))
+        );
+        assert_eq!(path(r#""""#), None);
+        assert_eq!(path(r#""/unterminated"#), None);
+        assert_eq!(property_path("_OB_CONFIG_FILE:  not found.\n"), None);
+    }
     #[test]
     fn config_dirs_in_order_and_the_size_cap() {
         let d = tmp("dirs");
@@ -1249,7 +1353,7 @@ mod tests {
             ),
         ];
         let env = move |k: &str| vars.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        let go = || read(Ok("_OB_CONFIG_FILE:  not found.\n"), &env);
+        let go = || read(Some("_OB_CONFIG_FILE:  not found.\n"), &env);
         let first = put(&a, &rc("W-a"));
         put(&b, &rc("W-b"));
         assert_eq!(keys(&go().0), ["super+a"]);
@@ -1273,10 +1377,51 @@ mod tests {
     }
 
     #[test]
-    fn notes_escape_control_characters() {
+    fn notes_escape_control_and_bidi_characters() {
         assert_eq!(printable("a\u{1b}[31mb\nc é"), "a\\u{1b}[31mb\\nc é");
+        assert_eq!(
+            printable("x\u{202e}y\u{2066}z\u{200f}\u{2028}"),
+            "x\\u{202e}y\\u{2066}z\\u{200f}\\u{2028}"
+        );
     }
 
+    #[test]
+    fn titles_and_actions_drop_control_characters() {
+        let (sheet, _) = kb("<!-- A\u{1b}[2Jtitle -->\
+            <keybind key=\"W-a\"><action name=\"Ex\u{7}ecute\"><command>rm\u{1b}x\u{85}y</command></action></keybind>");
+        assert_eq!(
+            rows(&sheet),
+            [row("A [2Jtitle", "super+a", "Ex ecute rm x y")]
+        );
+    }
+
+    #[test]
+    fn repeated_modifiers_are_one() {
+        // Openbox ORs the masks (translate.c:126-130); `chord` keeps one of each.
+        for k in ["W-W-a", "Super-W-a", "Mod4-super-a"] {
+            assert_eq!(translate(k), Ok("super+a".to_string()), "{k}");
+        }
+        assert_eq!(translate("S-Shift-a"), Ok("shift+a".to_string()));
+    }
+
+    #[test]
+    fn an_empty_key_piece_is_key_zero() {
+        // `g_strsplit(" ")` gives "" for two spaces (config.c:456): not listed, not counted (AC #3), but after a
+        // chain's start it is a key-0 node (keytree.c:47-66), so a later key `W-a` conflicts.
+        let (sheet, left) = kb(r#"
+            <keybind key=" b  c "><action name="Close"/></keybind>
+            <keybind key="W-a"><keybind key="t  u"><action name="Lower"/></keybind></keybind>
+            <keybind key="W-a"><action name="Raise"/></keybind>
+        "#);
+        assert_eq!(keys(&sheet), ["b", "c", "super+a t", "super+a u"]);
+        assert_eq!(
+            left,
+            LeftOut {
+                conflicts: 1,
+                ..LeftOut::default()
+            }
+        );
+    }
     #[test]
     fn non_ascii_keys_are_unknown() {
         assert_eq!(translate("W-€"), Err(Why::Unknown));
@@ -1293,41 +1438,99 @@ mod tests {
                 "</keybind>".repeat(n)
             )
         };
+        // 256 elements deep, the root among them, load; 257 don't (libxml2's limit).
         assert!(parse_xml(&deep(255)).is_ok());
         assert_eq!(
-            parse_xml(&deep(300)).unwrap_err(),
+            parse_xml(&deep(256)).unwrap_err(),
             "line 1: elements nested deeper than 256"
         );
-        // A chain as deep as the limit allows is read.
+        assert!(parse_xml(&deep(300)).is_err());
+        // The deepest chain that loads: openbox_config, keyboard, 253 keybinds and the action make 256.
         let chain = format!(
             "<openbox_config><keyboard>{}<action name=\"Close\"/>{}</keyboard></openbox_config>",
-            "<keybind key=\"a\">".repeat(250),
-            "</keybind>".repeat(250)
+            "<keybind key=\"a\">".repeat(253),
+            "</keybind>".repeat(253)
         );
         let (sheet, _) = binds(&chain);
-        assert_eq!(keys(&sheet), [vec!["a"; 250].join(" ")]);
+        assert_eq!(keys(&sheet), [vec!["a"; 253].join(" ")]);
+    }
+    /// `n` keys of the keysym table's letters, F-keys and digits, repeating.
+    fn many(n: usize) -> String {
+        let names: Vec<String> = ('a'..='l')
+            .map(String::from)
+            .chain((1..=35).map(|f| format!("F{f}")))
+            .collect();
+        (0..n)
+            .map(|i| names[i % names.len()].as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn actions(sheet: &Sheet) -> usize {
+        sheet
+            .binds
+            .values()
+            .flatten()
+            .map(|b| b.desc.split("; ").count())
+            .sum()
     }
 
     #[test]
     fn chain_blow_up_is_capped() {
-        let start = std::time::Instant::now();
         let level = |inner: &str| format!("<keybind key=\"a b c d e f g h\">{inner}</keybind>");
         let mut body = "<action name=\"Close\"/>".to_string();
         for _ in 0..8 {
             body = level(&body);
         }
         let (sheet, left) = kb(&body);
-        // ponytail: generous for a debug build under load; the uncapped walk is 8^8 keys.
-        assert!(start.elapsed() < std::time::Duration::from_secs(20));
+        // Depth first, each leaf a key and an action, each level above it a key: the 5000 run out at the 2,332nd
+        // leaf (worked out by walking the same tree).
         assert!(left.capped);
-        let rows = sheet.binds.values().flatten().count();
-        assert!(rows > 0 && rows < MAX_KEYS, "{rows}");
+        assert_eq!(sheet.binds.values().flatten().count(), 2331);
         assert_eq!(
             left.note().unwrap(),
-            "leaving out: every key after the first 5000 (counting each key of a chain)"
+            "leaving out: everything after the first 5000 keys and actions"
         );
     }
 
+    #[test]
+    fn the_cap_counts_actions() {
+        // 60 keys (47 distinct: repeats append), each binding 100 actions: 49 fit (101 each), the 50th's don't.
+        let acts = "<action name=\"Close\"/>".repeat(100);
+        let (sheet, left) = kb(&format!("<keybind key=\"{}\">{acts}</keybind>", many(60)));
+        assert!(left.capped);
+        assert_eq!(
+            (sheet.binds.values().flatten().count(), actions(&sheet)),
+            (47, 4900)
+        );
+        // Exactly 5000 isn't capped: 2500 keys of one action each (47 distinct, repeats appended).
+        let one = "<action name=\"Close\"/>";
+        let (sheet, left) = kb(&format!("<keybind key=\"{}\">{one}</keybind>", many(2500)));
+        assert!(!left.capped);
+        assert_eq!(
+            (sheet.binds.values().flatten().count(), actions(&sheet)),
+            (47, 2500)
+        );
+        let (_, left) = kb(&format!("<keybind key=\"{}\">{one}</keybind>", many(2501)));
+        assert!(left.capped);
+    }
+
+    #[test]
+    fn a_deep_chain_with_many_alternatives() {
+        // 252 keybinds of `a`, the last with 4700 alternatives: 252 keys, then 2 per alternative until 5000.
+        let chain = format!(
+            "<openbox_config><keyboard>{}<keybind key=\"{}\"><action name=\"Close\"/></keybind>{}</keyboard></openbox_config>",
+            "<keybind key=\"a\">".repeat(252),
+            many(4700),
+            "</keybind>".repeat(252)
+        );
+        let (sheet, left) = binds(&chain);
+        assert!(left.capped);
+        assert_eq!(
+            (sheet.binds.values().flatten().count(), actions(&sheet)),
+            (47, 2374)
+        );
+    }
     #[test]
     fn a_chain_with_a_failed_key_still_starts_a_chain() {
         // keytree.c:47-66: `W-a` then a key-0 node, so a later `W-a` conflicts.
@@ -1359,7 +1562,7 @@ mod tests {
     fn attribute_newlines_split_alternatives() {
         let (sheet, _) = kb("<keybind key=\"W-a\n   W-b\"><action name=\"Close\"/></keybind>");
         assert_eq!(keys(&sheet), ["super+a", "super+b"]);
-        let (root, _) = parse_xml("<a b=\"x\ty&#10;z\"/>").unwrap();
+        let root = parse_xml("<a b=\"x\ty&#10;z\"/>").unwrap();
         assert_eq!(root.attr("b"), Some("x y\nz"));
     }
 
@@ -1425,7 +1628,7 @@ mod tests {
             assert_eq!(parse_xml(text).unwrap_err(), want, "{text:?}");
         }
         // A BOM, and a DOCTYPE with a quoted `>`, are fine.
-        let (root, _) = parse_xml("\u{feff}<!DOCTYPE a SYSTEM \"a>b\"><a/>").unwrap();
+        let root = parse_xml("\u{feff}<!DOCTYPE a SYSTEM \"a>b\"><a/>").unwrap();
         assert_eq!(root.name, "a");
     }
 

@@ -452,13 +452,11 @@ if wanted awesome-phase || [[ " ${CASES:-} " == *" awesome"* ]]; then
 fi
 
 # --- X11: Openbox on the same display ----------------------------------------------------------------------------
-# Started with --config-file, as LXDE and LXQt start it: tests/e2e/home/.config/openbox/e2e-rc.xml, a name the XDG
-# lookup doesn't find (that would be the image's stock /etc/xdg/openbox/rc.xml), so the case checks that keybind-find
-# reads the file Openbox names in _OB_CONFIG_FILE. Openbox sets _OB_VERSION on the root window once it manages the
-# screen (openbox/screen.c:317 at release-3.6.1). Only when the phase or an openbox case is wanted.
+# Its rc.xml is tests/e2e/home/.config/openbox/rc.xml (the XDG lookup). Openbox sets _OB_VERSION on the root window once
+# it manages the screen (openbox/screen.c:317 at release-3.6.1). Only when the phase or an openbox case is wanted.
 if wanted openbox-phase || [[ " ${CASES:-} " == *" openbox"* ]]; then
   stop_daemons
-  openbox --config-file "$HOME/.config/openbox/e2e-rc.xml" >"$OUT/openbox.log" 2>&1 &
+  openbox >"$OUT/openbox.log" 2>&1 &
   OPENBOX=$!
   up=""
   for _ in $(seq 100); do

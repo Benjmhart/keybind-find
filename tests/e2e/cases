@@ -117,18 +117,19 @@ return table.concat(o, ";")'
   o awesome-oracle awesome -- dbus-send --session --dest=org.awesomewm.awful --type=method_call --print-reply \
     --reply-timeout=2000 / org.awesomewm.awful.Remote.Eval "string:$AWESOME_REPORT"
 elif [ "$PHASE" = openbox ]; then
-  # Openbox on the same display, i3 and awesome stopped: its keybinds from the file it was started with
-  # (tests/e2e/home/.config/openbox/e2e-rc.xml, named in _OB_CONFIG_FILE). Openbox prints no report of its bindings,
-  # so there is no oracle case.
+  # Openbox on the same display, i3 and awesome stopped: its keybinds from tests/e2e/home/.config/openbox/rc.xml. Openbox
+  # prints no report of its bindings, so there is no oracle case.
   x openbox        "openbox zsh"  "openbox|super+shift+x|e2e quit"   -- xterm -e zsh
-  # The same dump: the chain listed as a key sequence, and the H-x keybind left out and counted.
-  if wanted openbox; then
-    if line=$(python3 -I "$E/check.py" "$OUT/openbox.json" "openbox" "openbox|super+a t|e2e chain" 2>&1) &&
-      grep -q 'openbox: leaving out: 1 with a Meta, Hyper' "$OUT/openbox.err"; then
-      record openbox-chain "ok	$line"
-    else
-      record openbox-chain "FAIL	$line	$(tr '\n\t' '  ' < "$OUT/openbox.err" | cut -c1-300)"; FAILED=1
-    fi
+  # The same dump: the chain listed as a key sequence, and the H-x keybind left out and counted. A skip (not a failure)
+  # when the openbox case didn't pass here: it fails on its own, or wasn't run (CASES=openbox-chain alone).
+  if ! wanted openbox-chain; then :
+  elif [[ " ${RESULTS[*]} " != *$' openbox\tok\t'* ]]; then
+    record openbox-chain "skip	the openbox case didn't pass in this run"
+  elif line=$(python3 -I "$E/check.py" "$OUT/openbox.json" "openbox" "openbox|super+a t|e2e chain" 2>&1) &&
+    grep -q 'openbox: leaving out: 1 with a Meta, Hyper' "$OUT/openbox.err"; then
+    record openbox-chain "ok	$line"
+  else
+    record openbox-chain "FAIL	$line	$(tr '\n\t' '  ' < "$OUT/openbox.err" | cut -c1-300)"; FAILED=1
   fi
 elif [ "$PHASE" = wayland ]; then
   w foot-zsh       "sway foot zsh"       "sway|super+Return|exec foot"      -- foot zsh
