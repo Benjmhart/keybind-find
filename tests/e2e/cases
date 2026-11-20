@@ -25,6 +25,10 @@ if [ "$PHASE" = x11 ]; then
   # Y is bound only by on-init in the running lf (tests/e2e/home/.config/lf/lfrc): proves the live read. lf takes its
   # home from passwd (/home/tester), not $HOME, so LF_CONFIG_HOME points it at the e2e config.
   x lf             "i3 lf"      "lf|shift+y|e2e-live|mode=normal"   -- xterm -e env LF_CONFIG_HOME="$HOME/.config" lf
+  # lazygit reads $HOME/.config/lazygit/config.yml (tests/e2e/home): X is its quit there. No oracle: lazygit prints only
+  # its defaults.
+  wanted lazygit && { rm -rf /tmp/e2e-repo && git init -q /tmp/e2e-repo; }
+  x lazygit        "i3 lazygit" "lazygit|shift+x|Quit"              -- xterm -e lazygit -p /tmp/e2e-repo
   x emacs-nw       "i3 emacs"   "emacs|ctrl+c k|kill-buffer"        -- xterm -e emacs -nw /tmp/e2e.c
   # c-mode's map, which only the running Emacs's C buffer has (the batch read lists the global map): proves the
   # server path.

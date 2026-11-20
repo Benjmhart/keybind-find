@@ -33,7 +33,8 @@ Please report security problems privately, through GitHub's private vulnerabilit
     sends is a fixed snippet in keybind-find that only reads `awful.key.hotkeys`, with nothing of yours put into it, and
     the reply is hex-decoded text, never run; with no `DBUS_SESSION_BUS_ADDRESS`, some libdbus builds start a session
     bus of their own for it), `lf` (`-remote "query <pid> maps"` and `cmaps`, which ask the focused lf for its key
-    list through lf's own server; keybind-find sends lf nothing);
+    list through lf's own server; keybind-find sends lf nothing), `lazygit` (`--version`, which runs `git --version`
+    and starts no session: the focused lazygit's own binary, `/proc/<pid>/exe`, else `lazygit` from PATH) and `git` (`rev-parse` in the focused lazygit's repo, to find the repo's lazygit files);
   - the picker: `alacritty` with `fzf`, `fuzzel` or `dmenu`, or whatever program `KEYBIND_FIND_PICKER` names;
   - `notify-send` for errors under a hotkey.
 
@@ -45,9 +46,10 @@ Please report security problems privately, through GitHub's private vulnerabilit
   exit. Pressed keys are only matched against the list, never stored.
 - **It reads config files:** its own `config.toml`, sheets and Vimium backup, the configs of the programs it lists
   (sway, alacritty, herdr and its `plugins.json`, zellij's `config.kdl`, sxhkd's `sxhkdrc` and extra configs, Konsole's `konsolerc`,
-  `kxmlgui5/konsole/*ui.rc` and shortcut scheme files, lf's `lfrc` files and the files they `source`, Vimium's extension folder), xmonad's keymap dump, and `/proc` to find the program inside a terminal and your own sxhkd's
-  and the focused lf's config files (`/proc/<pid>/{cmdline,environ,cwd}` of your `sxhkd` processes and of that `lf`
-  only).
+  `kxmlgui5/konsole/*ui.rc` and shortcut scheme files, lf's `lfrc` files and the files they `source`, lazygit's `config.yml` files and the repo's `.lazygit.yml` and
+  `.git/lazygit.yml` (only their `keybinding:` section is parsed; nothing in them is run), Vimium's extension folder), xmonad's keymap dump, and `/proc` to find the program inside a terminal and your own sxhkd's
+  and the focused lf's and lazygit's config files (`/proc/<pid>/{cmdline,environ,cwd}` of your `sxhkd` processes and
+  of that `lf` or `lazygit` only, and that lazygit's `/proc/<pid>/exe`).
 - **It writes:** the usage log, `$XDG_STATE_HOME/keybind-find/usage.tsv` (default `~/.local/state/...`), which holds
   the time, provider and key of each pick (an espanso trigger, never its replacement); and, while the fzf picker is
   open, a `0700` directory under `$XDG_RUNTIME_DIR` (else the temporary directory) with the list, the key-search list,

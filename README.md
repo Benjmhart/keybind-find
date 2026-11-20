@@ -43,6 +43,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | yazi | its keys: yazi's default keymap for its version (25.4.8, 25.5.31 and 26.9.1 built in) with your `keymap.toml` merged in | none ([below](#yazi)) |
 | ranger | its file-browser keys: ranger's default rc.conf (1.9.4's built in, the same since 1.9.3) with `/etc/ranger/rc.conf` and yours on top | none ([below](#ranger)) |
 | lf | its keys in normal, visual and command-line mode, from the running lf when it has them, else lf r42's defaults with your `lfrc` on top | none ([below](#lf)) |
+| lazygit | its keys by panel, as its own keybindings cheatsheet lists them: lazygit 0.66.2's defaults with your `config.yml` and the repo's `.git/lazygit.yml` on top | none ([below](#lazygit)) |
 | helix | its keys in normal, select and insert mode: helix's default keymap for its version (25.01.1 and 25.07.1 built in) with your `config.toml` keys merged in | none ([below](#helix)) |
 | ncmpcpp | its keys: ncmpcpp's defaults (0.10.1's built in, the same since 0.9.2) with your `bindings` files on top | none ([below](#ncmpcpp)) |
 | herdr | herdr's defaults for its version, your `config.toml` and plugin commands | none |
@@ -62,7 +63,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | espanso | `espanso match list`; picking a match types its trigger | none |
 | anything else | a sheet you write, or a script that prints one; a global sheet (`"provider": "*"`) lists things with no key, such as macros, that a pick runs (`"run": [argv]`) | [docs/sheets.md](docs/sheets.md) |
 
-nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, lf, helix, herdr, tmux, zellij, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
+nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, lf, lazygit, helix, herdr, tmux, zellij, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
 sway `app_id`, Hyprland `class`); nvim also inside a herdr, tmux or zellij pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
@@ -402,6 +403,46 @@ many terminals send BackSpace, Tab and Return for them, which lf reads as those 
 command (an editor from `e`, a pager from `i`, a shell from `w`), lf's keys aren't listed: that program is in front.
 Its previewer, its cleaner and programs a command left running in the background don't read the terminal, so lf stays
 listed while they run.
+
+### lazygit
+
+Over lazygit in a terminal, keybind-find lists the rows of lazygit's own keybindings cheatsheet (what its `?` menu and
+docs show), filed under their panel (`Files`, `Commits`, `Global keybindings`, `List panel navigation`, …), each key
+one entry described by the row's action, with the config key that sets it (`universal.quit`) as its command. The
+defaults are lazygit's for your version (asked of the focused lazygit's own binary, `/proc/<pid>/exe --version`, else
+of `lazygit --version` on PATH; 0.66.2's are built in, the nearest is used with a note for another version). On top come the `keybinding:` sections of the files lazygit reads, in lazygit's order: the
+files `--use-config-file`/`LG_CONFIG_FILE` names (comma-separated, in order; a missing one gets a line), else
+`config.yml` in `--use-config-dir`/`CONFIG_DIR`, else the first `jesseduffield/lazygit/config.yml`, then the first
+`lazygit/config.yml`, in `$XDG_CONFIG_HOME` (else `~/.config`) then each `$XDG_CONFIG_DIRS` directory (else
+`/etc/xdg`); then the repo's files, as lazygit reads them on entering a repo: `.lazygit.yml` in each directory above
+the repo, the outermost first (the repo's own `.lazygit.yml` isn't read, as lazygit doesn't), then
+`.git/lazygit.yml` (the main repo's for a linked worktree), found with `git rev-parse` in lazygit's directory. The
+flags, the variables and the directory come from the focused lazygit's process (keybind-find's own for `keybind-find
+dump lazygit`). Each field a file sets replaces the default's keys; a legacy `-alt` field (`quit-alt1`, …) adds its
+keys to the main one, so `quit: X` gives `X` and `<ctrl+c>`, as in lazygit. `<disabled>`, an empty value and `null`
+unbind; a row left with no key isn't listed. lazygit re-reads its files when they change, so this is what it uses.
+
+The files are YAML, and keybind-find reads only their `keybinding:` section, with a small reader of the YAML lazygit's
+own docs use there: nested `key: value` lines, plain and quoted values, one-line `[a, b]` lists and `{ a: b }`
+mappings, `- a` lists (also at the key's own column) and comments (the rest of the file is skipped unread). Inside `keybinding:` anchors, aliases,
+tags, `|` and `>` blocks, a list or mapping over several lines, a duplicate key, a mapping where keys belong, a
+section or `keybinding:` itself left empty (lazygit refuses its null), and anywhere in the file a top-level value
+going on to the next lines, an indented or flow document, a directive other than `%YAML 1.1` and `%TAG`, a control
+character, a lone CR or a Unicode line break, or text that isn't UTF-8 make
+keybind-find skip that file's keys, with one line naming the file and line; the other files still count. A section
+or key lazygit doesn't have gets one line and is ignored, as lazygit ignores it (an old name lazygit renames when it
+loads a file, such as `executeCustomCommand`, is one: lazygit writes the new name back into the file). There is no
+oracle: lazygit prints only its defaults (`lazygit --config`), so the built-in sheet is checked against lazygit's
+cheatsheet instead.
+
+Left out, with a count: `meta` keys (the terminal decides what that is, and keybind-find can't send it to the
+terminal), the mouse wheel rows, characters with no keysym, and keys lazygit refuses (one stops lazygit loading its
+whole config: that file gets a line, and its other keys are listed as written). Custom commands (`customCommands:`) aren't listed yet. Only the Linux
+defaults are built in: with `LAZYGIT_KEYBINDING_PLATFORM=darwin`, the six keys that differ on macOS show their Linux
+default. A repo given with `--git-dir`, lazygit started inside a `.git` directory and bare repos read no repo files.
+lazygit is found as the program in the terminal, not inside a tmux, zellij or screen pane or nvim's terminal
+(lazygit.nvim). While lazygit runs an editor (`e`), a shell command (`:`) or a pager, its keys aren't listed: that
+program is in front.
 
 ### helix
 

@@ -169,8 +169,8 @@ fn found_nvim(pid: u32) {
     let _ = NVIM_PID.set(pid);
 }
 
-/// The pid of the editor found in the focused window, for an editor provider other than nvim to ask it: Emacs or vim
-/// in the terminal's foreground, or an Emacs or gvim window's own pid (an `emacsclient -c` frame's is the daemon's).
+/// The pid of the editor (or lf, or lazygit) found in the focused window, for a provider other than nvim's to ask it or
+/// read its `/proc`: Emacs, vim, lf or lazygit in the terminal's foreground, or an Emacs or gvim window's own pid (an `emacsclient -c` frame's is the daemon's).
 /// ponytail: beside `Context`, like `NVIM_PID`; first found wins.
 static EDITOR_PID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
 
@@ -198,9 +198,9 @@ fn is_emacs_window(class: &str) -> bool {
 }
 
 /// An editor leading a terminal's foreground group, by comm: Emacs, or vim (`vi` too: the vim provider's names), or
-/// lf (its provider asks it by pid).
+/// lf (its provider asks it by pid), or lazygit (its provider reads its environment, arguments and directory).
 fn is_editor_comm(comm: &str) -> bool {
-    EMACS_COMMS.contains(&comm) || matches!(comm, "vim" | "vi" | "lf")
+    EMACS_COMMS.contains(&comm) || matches!(comm, "vim" | "vi" | "lf" | "lazygit")
 }
 
 /// The pid of an Emacs window (an `emacsclient -c` frame's is the daemon's) or a gvim window, for its provider to ask.
@@ -823,6 +823,9 @@ fn providers_for(
             // leads while they run: its keys only when it is alone in the group.
             // ponytail: the program lf started isn't read then (as before lf had a provider); name it from `group`.
             Some("lf") if group.iter().all(|c| c == "lf") => providers.push("lf"),
+            // lazygit runs an editor (`e`), a shell command (`:`) or a pager in its own group, with the terminal as
+            // their input: its keys only when it is alone in the group (its git commands read no terminal).
+            Some("lazygit") if group.iter().all(|c| c == "lazygit") => providers.push("lazygit"),
             // `hx` upstream and on Debian; Arch installs it as `helix`.
             Some("hx" | "helix") => providers.push("helix"),
             _ => {}
@@ -1407,12 +1410,14 @@ fn foreground_of(child: &str, proc: &std::path::Path) -> Option<Foreground> {
 
 /// The group's programs the user can be typing into. lf runs `$` and `!` commands in its own group with the terminal
 /// as their input, but also its previewer, its cleaner and what a `$` command leaves running in the background (a
-/// GUI app opened with `&`), with other input: under lf, only lf and what reads the terminal count.
+/// GUI app opened with `&`), with other input: under lf, only lf and what reads the terminal count. lazygit runs its
+/// git commands in its group with no terminal input (pkg/gui/gui.go:1128-1136 gives one only to a subprocess the
+/// user works in): the same.
 /// `members` is each process's comm and whether its standard input is a terminal.
 fn in_front(leader: &str, members: Vec<(String, bool)>) -> Vec<String> {
     members
         .into_iter()
-        .filter(|(c, tty)| leader != "lf" || c == "lf" || *tty)
+        .filter(|(c, tty)| !matches!(leader, "lf" | "lazygit") || c == leader || *tty)
         .map(|(c, _)| c)
         .collect()
 }
@@ -1804,6 +1809,15 @@ mod tests {
             x(Some("Alacritty"), Some("lf")),
             ["xmonad", "espanso", "alacritty", "lf", "sheets"]
         );
+        // lazygit in a terminal, after the terminal's own keys and before `sheets`.
+        assert_eq!(
+            x(Some("XTerm"), Some("lazygit")),
+            ["xmonad", "espanso", "lazygit", "sheets"]
+        );
+        assert_eq!(
+            x(Some("Alacritty"), Some("lazygit")),
+            ["xmonad", "espanso", "alacritty", "lazygit", "sheets"]
+        );
         // Emacs in a terminal (Debian's flavors by their own names, `emacsclient -t`), after the terminal's own keys and
         // before `sheets`; an Emacs window by class or app id, any case.
         for child in [
@@ -2051,6 +2065,34 @@ mod tests {
             in_front("man", m(&[("man", true), ("less", false)])),
             ["man", "less"]
         );
+        // lazygit the same: its git commands don't count, the editor from `e` does.
+        let lg = |g: &[&str]| {
+            providers_for(
+                Some("xmonad"),
+                Some("Alacritty"),
+                Some("lazygit"),
+                &group(g),
+            )
+        };
+        assert_eq!(
+            lg(&["lazygit"]),
+            ["xmonad", "espanso", "alacritty", "lazygit", "sheets"]
+        );
+        assert_eq!(
+            lg(&["lazygit", "vim"]),
+            ["xmonad", "espanso", "alacritty", "sheets"]
+        );
+        assert_eq!(
+            in_front("lazygit", m(&[("lazygit", true), ("git", false)])),
+            ["lazygit"]
+        );
+        assert_eq!(
+            in_front(
+                "lazygit",
+                m(&[("lazygit", true), ("sh", true), ("vim", true)])
+            ),
+            ["lazygit", "sh", "vim"]
+        );
     }
 
     #[test]
@@ -2270,6 +2312,7 @@ mod tests {
                 (Some("ncmpcpp"), vec!["ncmpcpp"]),
                 (Some("ranger"), vec!["ranger"]),
                 (Some("lf"), vec!["lf"]),
+                (Some("lazygit"), vec!["lazygit"]),
                 (Some("hx"), vec!["helix"]),
                 (Some("helix"), vec!["helix"]),
                 (Some("python3"), vec![]),
@@ -4068,23 +4111,35 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
     /// Emacs below, since the slot is the test process's first-found).
     #[test]
     fn editor_comms() {
-        for comm in ["vim", "vi", "emacs", "emacsclient", "emacs-nox", "lf"] {
+        for comm in [
+            "vim",
+            "vi",
+            "emacs",
+            "emacsclient",
+            "emacs-nox",
+            "lf",
+            "lazygit",
+        ] {
             assert!(is_editor_comm(comm), "{comm}");
         }
         // nvim has its own slot; others aren't editors with a provider to ask.
-        for comm in ["nvim", "gvim", "view", "zsh", "Vim", "lfx"] {
+        for comm in ["nvim", "gvim", "view", "zsh", "Vim", "lfx", "lazygit-x"] {
             assert!(!is_editor_comm(comm), "{comm}");
         }
     }
 
-    /// lf leading the terminal's foreground group is recorded for the lf provider, and then an Emacs leading another
-    /// terminal's is found but not recorded: the first found wins (a stand-in `/proc`; no other test finds an editor,
-    /// so the first-found pid is lf's here).
+    /// lazygit leading the terminal's foreground group is recorded for the lazygit provider, and then lf and an Emacs
+    /// leading other terminals' are found but not recorded: the first found wins (a stand-in `/proc`; no other test
+    /// finds an editor, so the first-found pid is lazygit's here; lf's and Emacs's are recorded by the same
+    /// `is_editor_comm` gate, tested above).
     #[test]
     fn editor_pid_from_the_foreground_leader() {
         let proc = crate::test_tmp().join(format!("kbf-editor-proc-{}", std::process::id()));
+        let (child0, lazygit) = (4_000_005u32, 4_000_006u32);
         let (child, lf, child2, emacs) = (4_000_001u32, 4_000_002u32, 4_000_003u32, 4_000_004u32);
         for (pid, comm, tpgid) in [
+            (child0, "zsh", lazygit),
+            (lazygit, "lazygit", lazygit),
             (child, "zsh", lf),
             (lf, "lf", lf),
             (child2, "zsh", emacs),
@@ -4099,12 +4154,14 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             )
             .unwrap();
         }
+        let fg0 = foreground_of(&child0.to_string(), &proc);
         let fg = foreground_of(&child.to_string(), &proc);
         let fg2 = foreground_of(&child2.to_string(), &proc);
         let _ = std::fs::remove_dir_all(&proc);
+        assert_eq!(fg0.map(|f| f.comm).as_deref(), Some("lazygit"));
         assert_eq!(fg.map(|f| f.comm).as_deref(), Some("lf"));
         assert_eq!(fg2.map(|f| f.comm).as_deref(), Some("emacs"));
-        assert_eq!(editor_pid(), Some(lf));
+        assert_eq!(editor_pid(), Some(lazygit));
     }
 
     #[test]
