@@ -306,6 +306,19 @@ fn config_dirs(env: Env) -> Vec<PathBuf> {
 /// `GIT_WORK_TREE` (from `environ`) do when both are absolute and `cwd` is in that work tree: lazygit sets and clears
 /// them as it switches repos (git.go:87, repos_helper.go:384-389), so others are stale.
 fn repo_files(cwd: &Path, environ: Option<&Environ>) -> Vec<PathBuf> {
+    let own = std::env::vars_os().map(|(k, _)| k);
+    run_for(git_command(cwd, environ, own), GIT_TIMEOUT)
+        .map(|out| per_repo(&out))
+        .unwrap_or_default()
+}
+
+/// `git rev-parse` in `cwd`, with every `GIT_*` of keybind-find's own environment (`own`, the names) removed and
+/// lazygit's `GIT_DIR`/`GIT_WORK_TREE` when they still describe `cwd`.
+fn git_command(
+    cwd: &Path,
+    environ: Option<&Environ>,
+    own: impl Iterator<Item = std::ffi::OsString>,
+) -> Command {
     let mut cmd = Command::new("git");
     cmd.args([
         "rev-parse",
@@ -318,7 +331,7 @@ fn repo_files(cwd: &Path, environ: Option<&Environ>) -> Vec<PathBuf> {
     .current_dir(cwd)
     .env("LC_ALL", "C")
     .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
-    for (k, _) in std::env::vars_os() {
+    for k in own {
         if k.as_encoded_bytes().starts_with(b"GIT_") {
             cmd.env_remove(k);
         }
@@ -328,9 +341,7 @@ fn repo_files(cwd: &Path, environ: Option<&Environ>) -> Vec<PathBuf> {
             cmd.env("GIT_DIR", d).env("GIT_WORK_TREE", w);
         }
     }
-    run_for(cmd, GIT_TIMEOUT)
-        .map(|out| per_repo(&out))
-        .unwrap_or_default()
+    cmd
 }
 
 /// The files from `git rev-parse`'s answer (`repoPathsForDir`): the repo is the worktree for the main worktree or a
@@ -1225,10 +1236,18 @@ mod tests {
         }
         let repo = repo.canonicalize().unwrap();
         std::fs::create_dir_all(repo.join("sub")).unwrap();
-        // keybind-find's own GIT_* never reach git: this ceiling (only this repo's path) would hide the repo.
-        std::env::set_var("GIT_CEILING_DIRECTORIES", &repo);
+        // keybind-find's own GIT_* never reach git (checked on the command, without changing this process's env).
+        let own = ["GIT_CEILING_DIRECTORIES", "HOME"]
+            .map(std::ffi::OsString::from)
+            .into_iter();
+        let cmd = git_command(&repo.join("sub"), None, own);
+        let envs: Vec<_> = cmd.get_envs().collect();
+        assert!(
+            envs.contains(&(std::ffi::OsStr::new("GIT_CEILING_DIRECTORIES"), None)),
+            "{envs:?}"
+        );
+        assert!(!envs.iter().any(|(k, _)| *k == "HOME"), "{envs:?}");
         let files = repo_files(&repo.join("sub"), None);
-        std::env::remove_var("GIT_CEILING_DIRECTORIES");
         assert_eq!(files.last(), Some(&repo.join(".git/lazygit.yml")));
         assert_eq!(
             files[files.len() - 2],
