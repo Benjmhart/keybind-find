@@ -1128,6 +1128,17 @@ mod tests {
             files[files.len() - 2],
             repo.parent().unwrap().join(".lazygit.yml")
         );
+        // The repo's `.git/lazygit.yml` applies after the global files; missing ones are skipped without a word.
+        std::fs::write(
+            repo.join(".git/lazygit.yml"),
+            "keybinding:\n  universal:\n    quit: Z\n",
+        )
+        .unwrap();
+        let files: Vec<(PathBuf, bool)> = files.into_iter().map(|f| (f, false)).collect();
+        let mut notes = Vec::new();
+        let fields = merged("0.66.2", &pin().defaults, &files, &mut notes);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(fields["universal.quit"], ["Z", "<ctrl+c>"]);
         // Not a repo: none.
         assert!(repo_files(Path::new("/")).is_empty() || Path::new("/.git").exists());
     }

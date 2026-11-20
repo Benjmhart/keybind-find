@@ -561,6 +561,15 @@ mod tests {
                 ),
             ]))
         );
+        // A section as a one-line flow mapping (only `keybinding:` itself must be a block).
+        assert_eq!(
+            kb("  universal: { quit: q }\n").unwrap(),
+            Some(Node::Map(vec![(
+                "universal".into(),
+                Node::Map(vec![("quit".into(), s("q"), 2)]),
+                2
+            )]))
+        );
         // No keybinding entry; an empty one.
         assert_eq!(keybinding("gui:\n  x: 1\n").unwrap(), None);
         assert_eq!(keybinding("").unwrap(), None);
