@@ -22,6 +22,9 @@ if [ "$PHASE" = x11 ]; then
   x ranger         "i3 ranger"  "ranger|shift+x|quit"               -- xterm -e ranger
   x ncmpcpp        "i3 ncmpcpp" "ncmpcpp|shift+x|quit"              -- xterm -e ncmpcpp
   x yazi           "i3 yazi"    "yazi|shift+x|e2e quit"             -- xterm -e yazi
+  # Y is bound only by on-init in the running lf (tests/e2e/home/.config/lf/lfrc): proves the live read. lf takes its
+  # home from passwd (/home/tester), not $HOME, so LF_CONFIG_HOME points it at the e2e config.
+  x lf             "i3 lf"      "lf|shift+y|e2e-live|mode=normal"   -- xterm -e env LF_CONFIG_HOME="$HOME/.config" lf
   x emacs-nw       "i3 emacs"   "emacs|ctrl+c k|kill-buffer"        -- xterm -e emacs -nw /tmp/e2e.c
   # c-mode's map, which only the running Emacs's C buffer has (the batch read lists the global map): proves the
   # server path.
@@ -73,6 +76,9 @@ if [ "$PHASE" = x11 ]; then
   o wezterm-oracle wezterm -- wezterm show-keys --lua
   # zellij prints no effective keys: its preset is the oracle, the config's changes its KNOWN differences.
   o zellij-oracle zellij -- zellij setup --dump-keybinds default
+  # lf's own `query` answer is its live path, so the oracle checks the fallback: lf is gone before the dump, which
+  # reads lfrc over the pinned defaults.
+  o lf-oracle lf -- sh "$E/oracle-lf.sh"
 elif [ "$PHASE" = awesome ]; then
   # awesome on the same display, i3 stopped: its keys from the running awesome over D-Bus
   # (tests/e2e/home/.config/awesome/rc.lua: the stock rc.lua plus keys of our own).

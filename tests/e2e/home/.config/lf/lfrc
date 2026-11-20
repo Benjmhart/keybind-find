@@ -1,0 +1,13 @@
+# keybind-find's e2e lfrc (synthetic). e2e-live quits, so a pick of shift+y ends the case; Y is bound only when lf
+# runs on-init, so only the running lf's answer has it (the live read). The rest exercises keys keybind-find leaves
+# out: a count digit, a bind after a shorter one (Qa after Q).
+cmd e2e-live quit
+nmap X quit
+map 1 bottom
+map Q quit
+map Qa top
+cmap <a-x> cmd-escape
+cmd on-init :{{
+    nmap Y e2e-live
+    &true
+}}

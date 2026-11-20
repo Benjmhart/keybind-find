@@ -1,0 +1,130 @@
+# lf r42's built-in keys, written as lfrc lines that keybind-find reads with the same parser as your lfrc.
+# Source: https://github.com/gokcehan/lf at tag r42 (commit 5b6c393d547970a264bd4f0a78fd6513227f8e10):
+#   opts.go:324-446 (the normal and visual map, the normal-only and visual-only keys, the command-line keys) and
+#   os.go:171-189 (setDefaults: e, i, w and <f-1> in both modes).
+# lf is MIT-licensed (Copyright (c) 2016 Gokcehan Kara). Keys lf's scanner would read as something else are quoted.
+
+# Normal and visual mode (opts.go:325-390).
+map k up
+map <up> up
+map <m-up> up
+map <c-u> half-up
+map <c-b> page-up
+map <pgup> page-up
+map <c-y> scroll-up
+map <c-m-up> scroll-up
+map j down
+map <down> down
+map <m-down> down
+map <c-d> half-down
+map <c-f> page-down
+map <pgdn> page-down
+map <c-e> scroll-down
+map <c-m-down> scroll-down
+map h updir
+map <left> updir
+map l open
+map <right> open
+map q quit
+map gg top
+map <home> top
+map G bottom
+map <end> bottom
+map H high
+map M middle
+map L low
+map [ jump-prev
+map ] jump-next
+map t tag-toggle
+map u unselect
+map y copy
+map d cut
+map c clear
+map p paste
+map <c-l> redraw
+map <c-r> reload
+map ":" read
+map "$" shell
+map "%" shell-pipe
+map "!" shell-wait
+map "&" shell-async
+map f find
+map F find-back
+map ; find-next
+map , find-prev
+map / search
+map ? search-back
+map n search-next
+map N search-prev
+map m mark-save
+map "'" mark-load
+map '"' mark-remove
+map r rename
+map <c-n> cmd-history-next
+map <c-p> cmd-history-prev
+map zh set hidden!
+map zr set reverse!
+map zn set info
+map zs set info size
+map zt set info time
+map za set info size:time
+map sn :set sortby natural; set info
+map ss :set sortby size; set info size
+map st :set sortby time; set info time
+map sa :set sortby atime; set info atime
+map sb :set sortby btime; set info btime
+map sc :set sortby ctime; set info ctime
+map se :set sortby ext; set info
+map gh cd ~
+
+# Normal mode only (opts.go:395-398).
+nmap <space> :toggle; down
+nmap V visual
+nmap v invert
+
+# Visual mode only (opts.go:401-404).
+vmap <esc> visual-discard
+vmap V visual-accept
+vmap o visual-change
+
+# Command-line mode (opts.go:407-446).
+cmap <space> cmd-insert " "
+cmap <esc> cmd-escape
+cmap <tab> cmd-complete
+cmap <enter> cmd-enter
+cmap <c-j> cmd-enter
+cmap <down> cmd-history-next
+cmap <c-n> cmd-history-next
+cmap <up> cmd-history-prev
+cmap <c-p> cmd-history-prev
+cmap <delete> cmd-delete
+cmap <c-d> cmd-delete
+cmap <backspace> cmd-delete-back
+cmap <left> cmd-left
+cmap <c-b> cmd-left
+cmap <right> cmd-right
+cmap <c-f> cmd-right
+cmap <home> cmd-home
+cmap <c-a> cmd-home
+cmap <end> cmd-end
+cmap <c-e> cmd-end
+cmap <c-u> cmd-delete-home
+cmap <c-k> cmd-delete-end
+cmap <c-w> cmd-delete-unix-word
+cmap <c-y> cmd-yank
+cmap <c-t> cmd-transpose
+cmap <c-c> cmd-interrupt
+cmap <a-f> cmd-word
+cmap <a-b> cmd-word-back
+cmap <a-c> cmd-capitalize-word
+cmap <a-d> cmd-delete-word
+cmap <a-backspace> cmd-delete-word-back
+cmap <a-u> cmd-uppercase-word
+cmap <a-l> cmd-lowercase-word
+cmap <a-t> cmd-transpose-word
+
+# setDefaults (os.go:171-189).
+map e $$EDITOR "$f"
+map i $$PAGER "$f"
+map w $$SHELL
+map <f-1> help

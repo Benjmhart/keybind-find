@@ -1,0 +1,87 @@
+mode	key		command
+nv	!		shell-wait
+nv	"		mark-remove
+nv	$		shell
+nv	%		shell-pipe
+nv	&		shell-async
+nv	'		mark-load
+nv	,		find-prev
+nv	/		search
+nv	1		bottom
+nv	:		read
+nv	;		find-next
+nv	<c-b>		page-up
+nv	<c-d>		half-down
+nv	<c-e>		scroll-down
+nv	<c-f>		page-down
+nv	<c-l>		redraw
+nv	<c-m-down>	scroll-down
+nv	<c-m-up>	scroll-up
+nv	<c-n>		cmd-history-next
+nv	<c-p>		cmd-history-prev
+nv	<c-r>		reload
+nv	<c-u>		half-up
+nv	<c-y>		scroll-up
+nv	<down>		down
+nv	<end>		bottom
+v	<esc>		visual-discard
+nv	<f-1>		help
+nv	<home>		top
+nv	<left>		updir
+nv	<m-down>	down
+nv	<m-up>		up
+nv	<pgdn>		page-down
+nv	<pgup>		page-up
+nv	<right>		open
+n	<space>		:{{ toggle; down; }}
+nv	<up>		up
+nv	?		search-back
+nv	F		find-back
+nv	G		bottom
+nv	H		high
+nv	L		low
+nv	M		middle
+nv	N		search-prev
+nv	Q		quit
+nv	Qa		top
+n	V		visual
+v	V		visual-accept
+n	X		quit
+n	Y		e2e-live
+nv	[		jump-prev
+nv	]		jump-next
+nv	c		clear
+nv	d		cut
+nv	e		${{ $EDITOR "$f" }}
+nv	f		find
+nv	gg		top
+nv	gh		cd ~
+nv	h		updir
+nv	i		${{ $PAGER "$f" }}
+nv	j		down
+nv	k		up
+nv	l		open
+nv	m		mark-save
+nv	n		search-next
+v	o		visual-change
+nv	p		paste
+nv	q		quit
+nv	r		rename
+nv	sa		:{{ set sortby atime; set info atime; }}
+nv	sb		:{{ set sortby btime; set info btime; }}
+nv	sc		:{{ set sortby ctime; set info ctime; }}
+nv	se		:{{ set sortby ext; set info; }}
+nv	sn		:{{ set sortby natural; set info; }}
+nv	ss		:{{ set sortby size; set info size; }}
+nv	st		:{{ set sortby time; set info time; }}
+nv	t		tag-toggle
+nv	u		unselect
+n	v		invert
+nv	w		${{ $SHELL }}
+nv	y		copy
+nv	za		set info size:time
+nv	zh		set hidden!
+nv	zn		set info
+nv	zr		set reverse!
+nv	zs		set info size
+nv	zt		set info time

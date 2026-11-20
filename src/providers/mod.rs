@@ -21,6 +21,7 @@ mod kdl_v1;
 pub(crate) mod kitty;
 mod konsole;
 mod less;
+mod lf;
 mod mc;
 mod micro;
 mod mpv;
@@ -102,6 +103,7 @@ pub const KNOWN: &[&str] = &[
     "konsole",
     "awesome",
     "niri",
+    "lf",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -148,6 +150,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "konsole" => konsole::sheet(),
         "awesome" => awesome::sheet(ctx),
         "niri" => niri::sheet(ctx),
+        "lf" => lf::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
