@@ -728,11 +728,19 @@ def self_test():
     assert nnn_report(help_text) == {"Up", "k", "Prior", "ctrl+u", "q", "alt+Escape", "d", "period", "alt",
                                      "semicolon", "equal", "Tab", "shift+Tab", "!line: stray", "b d", "semicolon x",
                                      "semicolon shift+f"}, nnn_report(help_text)
-    nk = KNOWN["nnn"]
-    for p, *_ in nk:
-        assert fnmatch.fnmatchcase(p, p), p
-    for k in ("semicolon", "q", "ctrl+q", "Return", "semicolon x", "b d"):
-        assert not [p for p, *_ in nk if fnmatch.fnmatchcase(k, p)], k
+    # Each KNOWN pattern covers the key its help line (or bindings[] entry) gives, and no listed key.
+    nk = {p: rest for p, *rest in KNOWN["nnn"]}
+    samples = {"Escape": "      2Esc ^Q  Quit                   ^y  Next young",
+               "alt+Escape": "    q Alt+Esc  Quit context            d  Detail mode toggle",
+               "alt": "        Alt ;  Select plugin           =  Launch app"}
+    for p, line in samples.items():
+        got = nnn_report(" NAVIGATION\n" + line + "\n")
+        assert [k for k in got if fnmatch.fnmatchcase(k, p)] == [p], (p, got)
+        assert nk[p][1:] == [], p
+    assert sorted(p for p in nk if nk[p][1:] == ["dump"]) == ["End", "Home"]
+    assert sorted(nk) == sorted(list(samples) + ["Home", "End"])
+    for k in ("semicolon", "q", "ctrl+q", "Return", "semicolon x", "b d", "shift+Tab", "ctrl+e"):
+        assert not [p for p in nk if fnmatch.fnmatchcase(k, p)], k
     print("oracle.py: self-test ok")
     return 0
 

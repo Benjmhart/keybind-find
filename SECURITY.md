@@ -35,7 +35,8 @@ Please report security problems privately, through GitHub's private vulnerabilit
     bus of their own for it), `lf` (`-remote "query <pid> maps"` and `cmaps`, which ask the focused lf for its key
     list through lf's own server; keybind-find sends lf nothing), `lazygit` (`--version`, which runs `git --version`
     and starts no session: the focused lazygit's own binary, `/proc/<pid>/exe`, else `lazygit` from PATH) and `git` (`rev-parse` in the focused lazygit's repo, to find the repo's lazygit files), `nnn` (`-V`, which prints
-    its version and exits: the focused nnn's own binary, `/proc/<pid>/exe`, else `nnn` from PATH);
+    its version and exits: the focused nnn's own binary, `/proc/<pid>/exe`, else `nnn` from PATH; that binary is
+    picked by its comm `nnn`, which any process of yours can set);
   - the picker: `alacritty` with `fzf`, `fuzzel` or `dmenu`, or whatever program `KEYBIND_FIND_PICKER` names;
   - `notify-send` for errors under a hotkey.
 

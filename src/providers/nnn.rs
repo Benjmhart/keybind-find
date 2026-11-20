@@ -128,9 +128,12 @@ fn sheet_with(
         });
     }
     // `lazy_parse_plug` (nnn.c:6191-6201): a bad NNN_PLUG runs no plugin; a bad NNN_BMS stops nnn (nnn.c:10503-10506).
-    for (name, lead, category, what, bad) in [
+    // `plug`: NNN_PLUG's entries, whose leading `-` is nnn's no-refresh flag; NNN_BMS's `,` is never read: after `b`,
+    // `,` is nnn's marked directory (`handle_bookmark`, nnn.c:6235).
+    for (name, plug, lead, category, what, bad) in [
         (
             "NNN_PLUG",
+            true,
             "semicolon",
             "PLUGIN KEYS",
             "plugin",
@@ -138,6 +141,7 @@ fn sheet_with(
         ),
         (
             "NNN_BMS",
+            false,
             "b",
             "BOOKMARKS",
             "bookmark",
@@ -150,13 +154,13 @@ fn sheet_with(
             continue;
         };
         for (k, value) in entries {
-            let Some(key) = byte_key(k) else {
+            let Some(key) = byte_key(k).filter(|_| plug || k != b',') else {
                 left_out += 1;
                 continue;
             };
             // nnn's no-refresh flag (`-`, nnn.c:9625-9627) isn't part of the plugin's name.
             let shown = match value.strip_prefix('-') {
-                Some(rest) if what == "plugin" && !rest.is_empty() => rest,
+                Some(rest) if plug && !rest.is_empty() => rest,
                 _ => &value,
             };
             sheet.binds.entry(category.into()).or_default().push(Bind {
@@ -171,7 +175,7 @@ fn sheet_with(
     if left_out > 0 {
         let keys = if left_out == 1 { "key" } else { "keys" };
         notes.push(format!(
-            "leaving out {left_out} {keys} with no keysym (a control or non-ASCII byte)"
+            "leaving out {left_out} {keys} that can't be sent or that nnn never reads (no keysym, such as a control or non-ASCII byte; or a `,` bookmark, which `b ,` never reaches)"
         ));
     }
     Ok((sheet, notes))
@@ -193,15 +197,12 @@ fn parse_kv(v: &[u8]) -> Option<Vec<(u8, String)>> {
     let mut rest = v;
     let mut count = 0;
     while let Some((&key, after)) = rest.split_first() {
-        if count == 100 {
-            break;
-        }
         let after = after.strip_prefix(b":")?;
         if after.first().is_none_or(|&b| b == b';') {
             return None;
         }
         count += 1;
-        // nnn stops at its 100th key before cutting its value at a `;`: that value runs to the end.
+        // nnn stops at its 100th key before cutting its value at a `;`: that value runs to the end, and the loop with it.
         let end = match count {
             100 => None,
             _ => after.iter().position(|&b| b == b';'),
@@ -283,7 +284,8 @@ fn char_lit(s: &str) -> Option<char> {
             '\'' | '\\' => e,
             _ => return None,
         },
-        (c, None, _) => c,
+        // `'\'` is no literal: a lone backslash escapes the closing quote.
+        (c, None, _) if c != '\\' => c,
         _ => return None,
     };
     Some(c)
@@ -379,7 +381,65 @@ mod tests {
         assert_eq!(desc("SEL_BMOPEN"), "Select bookmark");
         assert_eq!(desc("SEL_CDHOME"), "Go HOME");
         assert_eq!(desc("SEL_CTX3"), "Go to/create context 3");
-        assert_eq!(desc("SEL_CTRL_D"), "Page down");
+        // Each desc is the comment above its entry in nnn.h, but where the comment only names a key (the help's or
+        // nnn.1's words) and for X, which shares x's comment.
+        let overrides = [
+            ("SEL_CTRL_D", "Page down"),
+            ("SEL_CTRL_U", "Page up"),
+            ("SEL_YOUNG", "Next young"),
+            ("SEL_BMOPEN", "Select bookmark"),
+            ("SEL_CDHOME", "Go HOME"),
+            ("SEL_RM_RF", "Delete (rm -rf)"),
+        ];
+        let mut comment = "";
+        let mut above = Vec::new();
+        for l in fixture.lines() {
+            if let Some(c) = l
+                .trim()
+                .strip_prefix("/* ")
+                .and_then(|c| c.strip_suffix(" */"))
+            {
+                comment = c;
+            } else if l.trim().starts_with("{ ")
+                && !l.contains("KEY_MOUSE")
+                && !l.contains("KEY_ENTER")
+            {
+                above.push(comment);
+            }
+        }
+        assert_eq!(above.len(), 91);
+        for (e, comment) in pin.bind.iter().zip(above) {
+            let want = match overrides.iter().find(|(a, _)| *a == e.action) {
+                Some((_, d)) => d.to_string(),
+                None => match e.action.strip_prefix("SEL_CTX") {
+                    Some(n) => format!("Go to/create context {n}"),
+                    None => comment.to_string(),
+                },
+            };
+            assert_eq!(e.desc, want, "{}", e.sym);
+        }
+        assert_eq!(desc("SEL_TRASH"), "Delete from selection buffer");
+        // KEY_HOME and KEY_END aren't on the help screen: NAVIGATION, beside g and G.
+        let category = |sym: &str| {
+            pin.bind
+                .iter()
+                .find(|e| e.sym == sym)
+                .unwrap()
+                .category
+                .clone()
+        };
+        for (sym, want) in [
+            ("KEY_HOME", "NAVIGATION"),
+            ("KEY_END", "NAVIGATION"),
+            ("'/'", "FILTER & PROMPT"),
+            ("'x'", "FILES"),
+            ("'?'", "MISC"),
+        ] {
+            assert_eq!(category(sym), want, "{sym}");
+        }
+        // The file's version is its registry key.
+        let v: toml::Value = toml::from_str(REGISTRY[0].1).unwrap();
+        assert_eq!(v["nnn_version"].as_str(), Some(REGISTRY[0].0));
     }
 
     #[test]
@@ -406,7 +466,14 @@ mod tests {
         ] {
             assert_eq!(notation(sym).as_deref(), Some(want), "{sym}");
         }
-        for sym in ["KEY_MOUSE", "KEY_F(1)", "'ab'", "''", "CONTROL('é')"] {
+        for sym in [
+            "KEY_MOUSE",
+            "KEY_F(1)",
+            "'ab'",
+            "''",
+            "'\\'",
+            "CONTROL('é')",
+        ] {
             assert_eq!(notation(sym), None, "{sym}");
         }
     }
@@ -508,11 +575,16 @@ mod tests {
             1,
             "{notes:?}"
         );
-        // A key byte with no keysym: left out and counted.
-        let (s, notes) = sheet_of(&[("NNN_PLUG", "\x01:x;\x7f:y;a:z")]);
-        assert_eq!(count(&s), 92);
+        // A key byte with no keysym, and a `,` bookmark (`b ,` is nnn's marked directory): left out and counted. A
+        // `,` plugin is read.
+        let (s, notes) = sheet_of(&[
+            ("NNN_PLUG", "\x01:x;\x7f:y;a:z;,:c"),
+            ("NNN_BMS", ",:/tmp;e:/etc"),
+        ]);
+        assert_eq!(count(&s), 94);
+        assert!(find(&s, "semicolon comma").is_some() && find(&s, "b comma").is_none());
         assert!(
-            notes.iter().any(|n| n.starts_with("leaving out 2 keys")),
+            notes.iter().any(|n| n.starts_with("leaving out 3 keys")),
             "{notes:?}"
         );
         let (_, notes) = sheet_of(&[]);
@@ -523,6 +595,35 @@ mod tests {
     }
 
     /// A stand-in `/proc` with a process at pid 4242 named `comm` and, if given, its `environ`.
+    /// The sheet's notes for an nnn at pid 4242 whose `exe` prints `version` for `-V`, with no nnn on PATH.
+    fn exe_notes(version: &str) -> Vec<String> {
+        let proc = fake_proc(&format!("exe-{version}"), "nnn", Some(b"A=1\0"));
+        // Written by `sh`, not by this process (ETXTBSY: see yazi's `fake_yazi`).
+        let ok = Command::new("sh")
+            .args([
+                "-c",
+                "printf '#!/bin/sh\\n[ \"$*\" = -V ] || exit 9; echo %s\\n' \"$2\" > \"$1\" && chmod 755 \"$1\"",
+                "sh",
+            ])
+            .arg(proc.join("4242/exe"))
+            .arg(version)
+            .status()
+            .unwrap();
+        assert!(ok.success());
+        sheet_with(REGISTRY, no_nnn, Some(4242), &proc, &env_of(&[]))
+            .unwrap()
+            .1
+    }
+
+    #[test]
+    fn version_from_the_focused_binary() {
+        assert_eq!(
+            exe_notes("5.4"),
+            ["nnn 5.4: using the defaults of 5.3; add data/nnn/5.4.toml"]
+        );
+        assert!(exe_notes("5.3").is_empty());
+    }
+
     fn fake_proc(name: &str, comm: &str, environ: Option<&[u8]>) -> PathBuf {
         let proc = tmp(name);
         let dir = proc.join("4242");

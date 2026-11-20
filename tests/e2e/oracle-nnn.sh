@@ -4,8 +4,10 @@
 # file out. Prints the help. Every wait is bounded; the tmux server is killed on exit.
 D=$(mktemp -d)
 trap 'tmux -L nnn-oracle kill-server 2>/dev/null; rm -rf "${D:?}"' EXIT
-printf '#!/bin/sh\ncp "$1" %s/help && touch %s/done\n' "$D" "$D" > "$D/pager"
+trap 'exit 1' INT TERM
+printf '#!/bin/sh\ncp "$1" '"'%s/help'"' && touch '"'%s/done'"'\n' "$D" "$D" > "$D/pager"
 chmod 755 "$D/pager"
+tmux -L nnn-oracle kill-server 2>/dev/null
 PAGER="$D/pager" tmux -L nnn-oracle -f /dev/null new-session -d -x 200 -y 50 nnn /tmp
 up=""
 for _ in $(seq 100); do

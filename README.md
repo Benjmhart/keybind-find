@@ -459,7 +459,9 @@ with it), each with one line; a key with no keysym (a control or non-ASCII byte)
 commands and paths are shown, never run. Not listed: Esc and Alt+key (nnn reads them by timing, outside its key
 table), and the second keys nnn's help doesn't list (`b ,`, `b Return`, `; Return`). With type-to-nav on (`-n`, `n` in
 `NNN_OPTS`, or `^N`), a picked letter is typed into the filter: press Esc first. While nnn runs a plugin, a `!` shell,
-the editor or the pager, its keys aren't listed: that program is in front.
+the editor or the pager, its keys aren't listed: that program is in front. nnn is found as the program leading the
+terminal: started from the shell, by nnn's `n` function or a script that `exec`s it; a wrapper script that runs nnn
+as a child leads instead, so nnn isn't found.
 
 ### helix
 

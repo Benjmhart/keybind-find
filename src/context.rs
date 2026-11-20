@@ -829,6 +829,7 @@ fn providers_for(
             Some("lazygit") if group.iter().all(|c| c == "lazygit") => providers.push("lazygit"),
             // nnn waits for its plugins, `!` shell, editor, pager and opener in its own group, with the terminal as their
             // input (`spawn`/`xfork`, nnn.c:2575-2700; a detached one `setsid`s): its keys only when it is alone.
+            // ponytail: the editor or pager nnn waits on isn't read then, though it is in front; name it from `group`.
             Some("nnn") if group.iter().all(|c| c == "nnn") => providers.push("nnn"),
             // `hx` upstream and on Debian; Arch installs it as `helix`.
             Some("hx" | "helix") => providers.push("helix"),
