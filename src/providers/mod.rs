@@ -29,6 +29,7 @@ mod mpv;
 mod nano;
 mod ncmpcpp;
 mod niri;
+mod nnn;
 mod nvim;
 mod obsidian;
 mod pinned;
@@ -107,6 +108,7 @@ pub const KNOWN: &[&str] = &[
     "niri",
     "lf",
     "lazygit",
+    "nnn",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -155,6 +157,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "niri" => niri::sheet(ctx),
         "lf" => lf::sheet(),
         "lazygit" => lazygit::sheet(),
+        "nnn" => nnn::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
