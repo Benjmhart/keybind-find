@@ -471,26 +471,28 @@ from Kakoune's source: the normal-mode commands with their own descriptions; the
 insert and prompt keys, worded as `:doc keys` words them) with your mappings on top, a mapping replacing the built-in
 key of its mode and key. Kakoune doesn't say which mode a client is in, so every mode's keys show, each tagged with
 the mode it is typed in: a goto, view, object or user mode key as the sequence that reaches it from normal mode (`g
-q`, `v z`, `alt+i q` and `alt+a q`, `space x`); an insert, prompt, menu or combine key alone; a user mode your config
+q` and `shift+g q`, `v z` and `shift+v z`, `alt+i q` and `alt+a q`, `space x`; object's keys aren't repeated after
+its other leads, `[`, `]`, `{`, `}`, their `alt+` forms, `alt+shift+i` and `alt+shift+a`); an insert, prompt, menu or combine key alone; a user mode your config
 declares (`declare-user-mode`) under its own name, without the key that enters it (keybind-find can't know it). When
 your config maps one of those leading keys in normal mode, the sub-mode's keys follow the normal mapping that runs
-exactly that key (`map global normal , <space>` puts user keys at `comma x`), and are left out with a count when none
-does. A mapping is described by its docstring, else its keys.
+exactly that key (with `map global normal , <space>` and `map global normal <space> ,`, user keys are at `comma
+x`), and are left out with a count when none does. A mapping is described by its docstring, else its keys.
 
 The mappings come from the running session: keybind-find finds the session of the kak in front (`-c`, `-C` or `-s`
 on its command line, else its pid) and sends it a short script with that kak's own binary, `kak -p`. In the client
 whose pid that is, the script writes a marker, `debug mappings` and an end marker to `*debug*`, then copies `*debug*`
-and Kakoune's version to a private directory (in kak's `$XDG_RUNTIME_DIR` when that is yours and closed to others,
-else the temporary directory), which keybind-find reads and removes. So every map the session has counts: your kakrc, autoload
+and Kakoune's version to a private directory in kak's `$XDG_RUNTIME_DIR`, else keybind-find's own, whichever is
+yours and closed to others (with neither, the session isn't asked), which keybind-find reads and removes. The script
+then empties its command. So every map the session has counts: your kakrc, autoload
 plugins, filetype hooks and window and buffer maps. Each Super+/ adds those lines to your `*debug*` buffer and leaves
-one hidden command, `keybind-find-report-<pid>`, defined in the session (Kakoune can't remove a command); nothing
+one hidden command, `keybind-find-report-<pid>` (doing nothing), defined in the session (Kakoune can't remove a command); nothing
 else in the session changes. A session renamed with `rename-session` can't be found: keybind-find knows only the name
 on kak's command line, and Kakoune renames the socket file while the kernel keeps listing it under its first name
 (`/proc/net/unix`), so finding it would mean asking other sessions. When the session can't be asked (renamed, no
-answer within 2 s), one line says why and keybind-find reads your config instead, as Kakoune sources it at start:
+private runtime directory, no answer within 2 s), one line says why and keybind-find reads your config instead, as Kakoune sources it at start:
 every `*.kak` under `<config>/autoload` (else the runtime's `autoload`; Kakoune takes them in directory order, which
 keybind-find approximates by name), then the runtime's `kakrc.local`, then `<config>/kakrc` unless `kakrc.local`
-failed (`<config>` is `$KAKOUNE_CONFIG_DIR`, else `$XDG_CONFIG_HOME/kak`, else `~/.config/kak`). Their commands are split as
+failed, all of it only when the runtime has its `kakrc` (`<config>` is `$KAKOUNE_CONFIG_DIR`, else `$XDG_CONFIG_HOME/kak`, else `~/.config/kak`). Their commands are split as
 Kakoune parses them and `map`, `unmap`, `declare-user-mode`, `try` and `evaluate-commands` are followed; a command
 Kakoune refuses at start (`map window …`) ends that file, as in Kakoune. Not read, since they need Kakoune running:
 `hook` and `define-command` bodies, `source`, and any command with a `%sh{}`, `%val{}`, `%opt{}` or other expansion

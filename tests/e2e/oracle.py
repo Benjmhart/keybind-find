@@ -452,8 +452,8 @@ KAK_NAMES = {"ret": "Return", "space": "space", "tab": "Tab", "lt": "less", "gt"
              "minus": "minus", "semicolon": "semicolon", "percent": "percent", "quote": "apostrophe",
              "dquote": "quotedbl"}
 KAK_MODS = {"c": "ctrl", "a": "alt", "s": "shift"}
-# The keys that reach a mode from normal mode; its keys are then typed in normal mode.
-KAK_LEADS = {"goto": ["g"], "view": ["v"], "object": ["alt+i", "alt+a"], "user": ["space"]}
+# The keys that reach a mode from normal mode (normal.cc:2486-2490, 2571-2572); its keys are then typed in normal mode.
+KAK_LEADS = {"goto": ["g", "shift+g"], "view": ["v", "shift+v"], "object": ["alt+i", "alt+a"], "user": ["space"]}
 KAK_MARKER = "KEYBIND-FIND-ORACLE"
 
 
@@ -838,12 +838,12 @@ def self_test():
               "mode=insert\tctrl+x shift+w", "mode=normal\tx"):
         assert k in r, (k, sorted(r)[:20])
     assert "mode=normal\tspace z" not in r and "mode=normal\tHome" not in r and "mode=normal\tlines" not in r
-    # Five new keys: object q is a built-in key already (single quote string).
-    assert len(r) == 150 + 13 + 11 + 28 * 2 + 22 + 42 + 5, len(r)
+    # Six new keys: g q and shift+g q; object q is a built-in key already (single quote string).
+    assert len(r) == 150 + 13 * 2 + 11 * 2 + 28 * 2 + 22 + 42 + 6, len(r)
     assert kakoune_report(f"{KAK_MARKER}\nMappings:\n") == {"!line:Mappings:"}
     assert kakoune_report("no marker\n") == {"!marker"}
     assert kakoune_report(f"{KAK_MARKER}\nversion: 1999.01.01\nMappings:\n") == {"!version:1999.01.01"}
-    assert len(kakoune_report(f"{KAK_MARKER}\nversion: v2026.05.21-12-g36ad52e\nMappings:\n")) == len(r) - 5
+    assert len(kakoune_report(f"{KAK_MARKER}\nversion: v2026.05.21-12-g36ad52e\nMappings:\n")) == len(r) - 6
     kk = KNOWN["kakoune"]
     examples = {"*[?]*": "mode=normal\t?é"}
     for p, *_ in kk:

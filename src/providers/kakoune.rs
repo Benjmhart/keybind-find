@@ -24,7 +24,8 @@ const REGISTRY: &[(&str, &str)] = &[(
     )),
 )];
 
-/// The live read (`kak -p` and the wait for its answer) and `kak -version` each end within this (`sheet_with`'s `wait`).
+/// The live read (`kak -p` and the wait for its answer) and `kak -version` each end within this (`sheet_with`'s
+/// `wait`).
 const TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Kakoune's nine modes (`commands.cc:1616`); any other mode name is a user mode the config declared.
@@ -72,7 +73,6 @@ pub fn sheet() -> anyhow::Result<Sheet> {
         crate::context::editor_pid(),
         Path::new("/proc"),
         "kak",
-        &std::env::temp_dir(),
         &|k| std::env::var(k).ok(),
         TIMEOUT,
     )?;
@@ -83,15 +83,13 @@ pub fn sheet() -> anyhow::Result<Sheet> {
 }
 
 /// The sheet for the kak at `pid` (none: `dump kakoune` from a shell), its process read under `proc`, asking its
-/// session with its binary (`exe`), else the program `kak`, through a directory made in a runtime directory or under
-/// `tmp`; `env` is keybind-find's own environment; each run of kak ends within `wait` (test seams). Also the notes
-/// for stderr.
+/// session with its binary (`exe`), else the program `kak`, through a directory made in a runtime directory; `env` is
+/// keybind-find's own environment; each run of kak ends within `wait` (test seams). Also the notes for stderr.
 fn sheet_with(
     registry: &[(&'static str, &'static str)],
     pid: Option<u32>,
     proc: &Path,
     kak: &str,
-    tmp: &Path,
     env: Env,
     wait: Duration,
 ) -> anyhow::Result<(Sheet, Vec<String>)> {
@@ -99,12 +97,11 @@ fn sheet_with(
         std::fs::read_to_string(d.join("comm")).is_ok_and(|c| c.trim_end_matches('\n') == "kak")
     };
     // The editor pid context found is kak's only when kak leads the terminal; check its comm, and again after reading
-    // its environ (a pid reused meanwhile, or a zombie's empty environ, isn't kak's).
+    // its environ (a pid reused meanwhile, or a zombie's empty environ, isn't kak's: then nothing of it is used).
     let dir = pid.map(|p| proc.join(p.to_string())).filter(|d| is_kak(d));
-    let environ = dir
-        .as_deref()
-        .and_then(environ)
-        .filter(|_| dir.as_deref().is_some_and(is_kak));
+    let environ = dir.as_deref().and_then(environ);
+    let dir = dir.filter(|d| is_kak(d));
+    let environ = environ.filter(|_| dir.is_some());
     let args = dir
         .as_ref()
         .and_then(|d| std::fs::read(d.join("cmdline")).ok())
@@ -112,6 +109,8 @@ fn sheet_with(
         .unwrap_or_default();
     let mut notes = Vec::new();
     let mut answer = None;
+    // A session that didn't answer in time isn't asked its version either: the pin is used with a note.
+    let mut timed_out = false;
     if let (Some(pid), Some(d)) = (pid, &dir) {
         if let Some(session) = session(args.get(1..).unwrap_or_default(), pid) {
             // The focused kak's own binary, as for the version; `kak` from PATH when it can't be found.
@@ -121,19 +120,26 @@ fn sheet_with(
             } else {
                 PathBuf::from(kak)
             };
-            // Kakoune's runtime directory, else ours, else `tmp`.
+            // Kakoune's runtime directory, else ours.
             let runtime = environ
                 .as_ref()
                 .and_then(|e| e.get("XDG_RUNTIME_DIR").cloned());
-            let bases = [runtime, env("XDG_RUNTIME_DIR")];
-            match live(pid, &session, &program, environ.as_ref(), &bases, tmp, wait) {
-                Ok(a) => answer = Some(a),
-                Err(e) => notes.push(format!("{e:#}; reading kakrc instead")),
+            let start = Instant::now();
+            match private_base(&[runtime, env("XDG_RUNTIME_DIR")]) {
+                None => notes.push("no private runtime dir: reading kakrc instead".into()),
+                Some(base) => match live(pid, &session, &program, environ.as_ref(), &base, wait) {
+                    Ok(a) => answer = Some(a),
+                    Err(e) => {
+                        timed_out = start.elapsed() >= wait;
+                        notes.push(format!("{e:#}; reading kakrc instead"));
+                    }
+                },
             }
         }
     }
     let version = match &answer {
         Some((v, _)) => Some(v.clone()),
+        None if timed_out => None,
         None => {
             let ask = |program: &Path| {
                 let mut cmd = Command::new(program);
@@ -281,43 +287,20 @@ fn session(args: &[String], pid: u32) -> Option<String> {
 /// every client (`-client *`, commands.cc:2205-2212), which exists only for the one whose `%val{client_pid}` it is (a
 /// plain kak's is the server's own pid, a `kak -c` client's its own: `main.cc:810-812`, `remote.cc:662-670`). That
 /// client writes a marker, its `debug mappings` and an end marker to `*debug*` (`commands.cc:1702-1717`), copies
-/// `*debug*` to `maps` and then its version to `done` in a private directory (`private_dir`). `kak -p` finds the socket
-/// by `XDG_RUNTIME_DIR` or `TMPDIR` (`file.cc:127-134`, `remote.cc:609-633`): kak's own, when its environ could be
-/// read. The version and the mappings.
+/// `*debug*` to `maps` and then its version to `done` in a private directory made under `base`. `kak -p` finds the
+/// socket by `XDG_RUNTIME_DIR` or `TMPDIR` (`file.cc:127-134`, `remote.cc:609-633`): kak's own, when its environ could
+/// be read. The version and the mappings.
 fn live(
     pid: u32,
     session: &str,
     kak: &Path,
     environ: Option<&BTreeMap<String, String>>,
-    bases: &[Option<String>],
-    tmp: &Path,
+    base: &Path,
     wait: Duration,
 ) -> anyhow::Result<(String, Vec<Mapping>)> {
     let start = Instant::now();
-    let dir = private_dir(bases, tmp)?;
-    let out = ask(pid, session, kak, environ, &dir, start, wait);
-    let _ = std::fs::remove_dir_all(&dir);
-    out
-}
-
-/// A new directory only we can enter, named with a random part, in the first of `bases` that is absolute, ours and
-/// closed to others (a runtime directory: kak's answer can come after we gave up and removed the directory, and then
-/// nobody else can have put anything at its path), else under `tmp`. Creating it fails rather than reuse one.
-fn private_dir(bases: &[Option<String>], tmp: &Path) -> anyhow::Result<PathBuf> {
-    use std::hash::{BuildHasher, Hasher};
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    let uid = crate::context::own_uid();
-    let base = bases
-        .iter()
-        .flatten()
-        .map(PathBuf::from)
-        .find(|b| {
-            b.is_absolute()
-                && std::fs::metadata(b)
-                    .is_ok_and(|m| m.is_dir() && Some(m.uid()) == uid && m.mode() & 0o077 == 0)
-        })
-        .unwrap_or_else(|| tmp.to_path_buf());
     // Random keys from the OS (std's `RandomState`), so the name can't be guessed.
+    use std::hash::{BuildHasher, Hasher};
     let random = std::collections::hash_map::RandomState::new()
         .build_hasher()
         .finish();
@@ -325,11 +308,31 @@ fn private_dir(bases: &[Option<String>], tmp: &Path) -> anyhow::Result<PathBuf> 
         "keybind-find-kak-{}-{random:016x}",
         std::process::id()
     ));
+    create_private(&dir)?;
+    let out = ask(pid, session, kak, environ, &dir, start, wait);
+    let _ = std::fs::remove_dir_all(&dir);
+    out
+}
+
+/// The first of `bases` that is absolute, ours and closed to others: a runtime directory, where kak's answer can come
+/// after we gave up and removed our directory and nobody else can have put anything at its path.
+fn private_base(bases: &[Option<String>]) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let uid = crate::context::own_uid();
+    bases.iter().flatten().map(PathBuf::from).find(|b| {
+        b.is_absolute()
+            && std::fs::metadata(b)
+                .is_ok_and(|m| m.is_dir() && Some(m.uid()) == uid && m.mode() & 0o077 == 0)
+    })
+}
+
+/// Creates `dir` only we can enter; fails rather than reuse one that exists.
+fn create_private(dir: &Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new()
         .mode(0o700)
-        .create(&dir)
-        .with_context(|| format!("creating {}", dir.display()))?;
-    Ok(dir)
+        .create(dir)
+        .with_context(|| format!("creating {}", dir.display()))
 }
 
 fn ask(
@@ -358,7 +361,9 @@ fn ask(
         .map(|d| d.subsec_nanos())
         .unwrap_or_default();
     let marker = format!("KEYBIND-FIND-{}-{nanos}", std::process::id());
-    // `write` isn't used for the copy: it runs BufWritePre/BufWritePost hooks (commands.cc:599-629).
+    // `write` isn't used for the copy: it runs BufWritePre/BufWritePost hooks (commands.cc:599-629). The command is
+    // emptied once every client ran it, so a later read can't run this body again; not from inside its body, since a
+    // command redefined while it runs frees the body being read (commands.cc:1436-1449, command_manager.cc:40-45).
     let script = format!(
         "define-command -override -hidden keybind-find-report-{pid} %{{
     echo -debug {marker}
@@ -373,6 +378,7 @@ fn ask(
 evaluate-commands -no-hooks -client * %{{
     try %{{ evaluate-commands \"keybind-find-report-%val{{client_pid}}\" }}
 }}
+define-command -override -hidden keybind-find-report-{pid} nop
 "
     );
     let mut cmd = Command::new(kak);
@@ -416,19 +422,33 @@ evaluate-commands -no-hooks -client * %{{
 /// further line of the docstring before it. The keys never hold a `'`: `to_string` writes it `<quote>`
 /// (keys.cc:186-224). A user mode named by a prefix of a built-in mode (`declare-user-mode us`: keymap_manager.cc:66-75
 /// checks only the full names) is listed again with that mode's mappings (`parse_keymap_mode`, commands.cc:1598-1606)
-/// and no key can reach it; its lines are dropped.
+/// and no key can reach it; its lines are dropped. The `debug` option's `commands` and `profile` lines for the
+/// script's own commands (command_manager.cc:536-542) are skipped.
+/// ponytail: a docstring's further line that reads like ` * mode key: '…'` is taken for a mapping.
 fn parse_debug(text: &str, marker: &str) -> anyhow::Result<Vec<Mapping>> {
     let lines: Vec<&str> = text.lines().collect();
     let at = lines
         .iter()
         .rposition(|l| *l == marker)
         .context("no marker in *debug*")?;
-    let mut rest = lines[at + 1..].iter();
+    let rest = lines[at + 1..].iter();
+    let end = format!("{marker}-END");
+    let trace = |l: &str| {
+        l == "command debug mappings"
+            || l == format!("command echo -debug {end}")
+            || ["command echo took ", "command debug took "]
+                .iter()
+                .any(|p| {
+                    l.strip_prefix(p)
+                        .and_then(|r| r.strip_suffix(" us"))
+                        .is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit()))
+                })
+    };
+    let mut rest = rest.filter(|l| !trace(l));
     ensure!(
         rest.next() == Some(&"Mappings:"),
         "no `Mappings:` after the marker"
     );
-    let end = format!("{marker}-END");
     let mut out: Vec<Mapping> = Vec::new();
     loop {
         let line = *rest.next().context("no end marker after the mappings")?;
@@ -470,8 +490,9 @@ fn parse_debug(text: &str, marker: &str) -> anyhow::Result<Vec<Mapping>> {
 /// run as Kakoune runs it, `source` being followed there only. Every `*.kak` under `<config>/autoload` when that is a
 /// directory, else under `<runtime>/autoload`, each in its own `try` (a path with a `"` fails there, as in Kakoune);
 /// then `<runtime>/kakrc.local` and `<config>/kakrc`, the second not read when the first fails (one
-/// `evaluate-commands`). Over the global default maps. `dir`: kak's `/proc/<pid>` (none: no kak), whose `exe` places
-/// the runtime as `runtime_directory` does (main.cc:110-131). Also the count of maps left out.
+/// `evaluate-commands`); nothing without `<runtime>/kakrc`, which runs that script. Over the global default maps.
+/// `dir`: kak's `/proc/<pid>` (none: no kak), whose `exe` places the runtime as `runtime_directory` does
+/// (main.cc:110-131). Also the count of maps left out.
 /// ponytail: a kak run with `-n` sources none of them, but they are read anyway; check its args if that matters.
 fn fallback(
     pin: &Pinned,
@@ -484,8 +505,9 @@ fn fallback(
         .map(PathBuf::from)
         .or_else(|| set("XDG_CONFIG_HOME").map(|x| Path::new(&x).join("kak")))
         .or_else(|| set("HOME").map(|h| Path::new(&h).join(".config/kak")));
+    // Set, even empty, it is the runtime (`source {}/kakrc`: an empty one is `/`).
     let runtime = getenv("KAKOUNE_RUNTIME")
-        .map(PathBuf::from)
+        .map(|r| PathBuf::from(if r.is_empty() { "/".into() } else { r }))
         .unwrap_or_else(|| {
             let exe = dir
                 .and_then(|d| std::fs::canonicalize(d.join("exe")).ok())
@@ -512,6 +534,14 @@ fn fallback(
         notes: Vec::new(),
         startup: true,
     };
+    // Kakoune starts by sourcing `<runtime>/kakrc` (main.cc:735-741), which sources everything else.
+    if !runtime.join("kakrc").is_file() {
+        notes.push(format!(
+            "no kakrc in Kakoune's runtime {}: Kakoune reads no config",
+            runtime.display()
+        ));
+        return (ev.maps, 0);
+    }
     let autoload = match config.as_ref().map(|c| c.join("autoload")) {
         Some(a) if a.is_dir() => a,
         _ => runtime.join("autoload"),
@@ -1241,12 +1271,14 @@ fn notation(s: &str) -> Option<String> {
 
 // --- the sheet -----------------------------------------------------------------------------------------------------
 
-/// The built-in keys (Kakoune's) that reach a mode from normal mode, and the mode its keys are typed in (AC: a
-/// sub-mode's keys are a sequence typed in normal mode). No lead: the mode's keys are typed alone.
+/// The built-in keys (Kakoune's) that reach a mode from normal mode (normal.cc:2486-2490, 2571-2572), and the mode
+/// its keys are typed in (AC: a sub-mode's keys are a sequence typed in normal mode). No lead: typed alone.
+/// ponytail: object's other leads (`[ ] { }`, `<a-[>`…, `<a-I>` `<a-A>`: 2573-2582) aren't listed, twelve more
+/// copies of its keys; README says so.
 fn reached(mode: &str) -> (&'static [&'static str], &str) {
     match mode {
-        "goto" => (&["g"], "normal"),
-        "view" => (&["v"], "normal"),
+        "goto" => (&["g", "G"], "normal"),
+        "view" => (&["v", "V"], "normal"),
         "object" => (&["<a-i>", "<a-a>"], "normal"),
         "user" => (&["<space>"], "normal"),
         m => (&[], m),
@@ -1518,8 +1550,8 @@ mod tests {
         // Every key parses and translates: nothing left out, and every bind lands in the sheet.
         let (s, left_out) = sheet_of(&p, "Kakoune 2026.05.21", &[]);
         assert_eq!(left_out, 0);
-        // object's keys twice (after alt+i and alt+a); no map rows without mappings.
-        assert_eq!(count(&s), 150 + 13 + 11 + 28 * 2 + 22 + 42);
+        // goto's after g and G, view's after v and V, object's after alt+i and alt+a; no map rows without mappings.
+        assert_eq!(count(&s), 150 + 13 * 2 + 11 * 2 + 28 * 2 + 22 + 42);
         assert_eq!(s.title, "Kakoune 2026.05.21");
         assert_eq!(s.provider, "kakoune");
     }
@@ -1637,6 +1669,14 @@ mod tests {
             "an empty docstring: its keys"
         );
         assert_eq!(normal(&s, "Home"), None);
+        // The `debug` option's lines for the script's own commands (`commands` and `profile`) are skipped.
+        let traced =
+            "M\ncommand echo took 12 us\ncommand debug mappings\nMappings:\n * user a: 'b' doc\n\
+                      command debug took 345 us\ncommand echo -debug M-END\nM-END\n";
+        assert_eq!(
+            parse_debug(traced, "M").unwrap(),
+            [mapping("user", "a", "b", "doc")]
+        );
         // Blank lines anywhere; a ` * ` line that isn't a mapping continues a docstring; the end marker ends the list.
         let p = |t: &str| parse_debug(t, "M");
         assert_eq!(p("M\nMappings:\n\nM-END\n\n").unwrap(), []);
@@ -1719,6 +1759,7 @@ mod tests {
             mapping("normal", ",", "<space>", ""),
             mapping("user", "k", ":quit<ret>", "quit"),
             mapping("normal", "g", "x", "goto gone"),
+            mapping("normal", "G", "x", "extend gone"),
             mapping("normal", "<a-i>", "x", "inner gone"),
         ];
         let (s, left_out) = sheet_of(&pin(), "Kakoune 2026.05.21", &maps);
@@ -1728,9 +1769,12 @@ mod tests {
         );
         assert!(find(&s, "space k").is_empty());
         assert_eq!(normal(&s, "space"), Some("swapped"));
-        // goto's 13 keys: `g` runs `x`, and no mapping runs `g`.
+        // goto's 13 keys: `g` and `G` run `x`, and no mapping runs either.
         assert_eq!(left_out, 13);
-        assert!(find(&s, "g g").is_empty() && normal(&s, "g") == Some("goto gone"));
+        assert!(find(&s, "g g").is_empty() && find(&s, "shift+g g").is_empty());
+        assert_eq!(normal(&s, "g"), Some("goto gone"));
+        // view: both leads still there.
+        assert_eq!(find(&s, "shift+v m")[0].1, "normal");
         // object: still `alt+a`.
         assert!(find(&s, "alt+i w").is_empty());
         assert_eq!(find(&s, "alt+a w")[0].2, "word");
@@ -1843,6 +1887,9 @@ mod tests {
         let (m, _, _) = eval("map global normal <a-;> x\nunmap global normal <a-semicolon> x");
         assert!(m.is_empty());
         // A declared user mode; then a map to it.
+        // A user mode named by a prefix of a built-in mode: its maps are the built-in mode's.
+        let (m, _, err) = eval("declare-user-mode us\nmap global us b x");
+        assert_eq!((keys_of(&m), err), (vec!["user b x".to_string()], None));
         let (m, _, err) = eval("declare-user-mode e2e\nmap global e2e q ':quit<ret>'");
         assert_eq!(
             (keys_of(&m), err),
@@ -1957,6 +2004,7 @@ mod tests {
         std::os::unix::fs::symlink(rt.join("autoload"), rt.join("autoload/sub/loop")).unwrap();
         write(&rt.join("autoload/q\"uote.kak"), &map("q"));
         write(&rt.join("kakrc.local"), &map("l"));
+        write(&rt.join("kakrc"), "");
         write(&cfg.join("kakrc"), &map("r"));
         let s = |p: &Path| p.display().to_string();
         let runtime = ("KAKOUNE_RUNTIME", s(&rt));
@@ -2037,7 +2085,7 @@ mod tests {
             notes[0].ends_with("Kakoune reads no further in it"),
             "{notes:?}"
         );
-        // An unreadable kakrc is one note; the others still count.
+        // A kakrc that is a directory isn't sourced (`-f`), silently; the others still count.
         std::fs::remove_file(d.join("xdg/kak/kakrc")).unwrap();
         std::fs::create_dir_all(d.join("xdg/kak/kakrc")).unwrap();
         let (m, _, notes) = read_config(&d, &vars);
@@ -2095,21 +2143,20 @@ mod tests {
     }
 
     /// A fake `kak` at `d/kak` (written through `sh`: ETXTBSY, see `plugins.rs`'s `write_script`): `-version` prints
-    /// `Kakoune <version>`; `-p S` logs `S`, its `XDG_RUNTIME_DIR` and `TMPDIR` and `$dir` (the directory named in the
-    /// script on its stdin) to `d/log`, then runs `body` with `$dir` and `$marker`. It exits 7 without
-    /// `MISE_NOT_FOUND_AUTO_INSTALL=0`.
+    /// `Kakoune <version>`; `-p S` keeps its script in `d/stdin`, logs `S`, its `XDG_RUNTIME_DIR` and `TMPDIR` and
+    /// `$dir` (the directory named in the script) to `d/log`, then runs `body` with `$dir` and `$marker`. It exits 7
+    /// without `MISE_NOT_FOUND_AUTO_INSTALL=0`.
     fn fake_kak_at(d: &Path, version: &str, body: &str) -> PathBuf {
         use std::io::Write;
         std::fs::create_dir_all(d).unwrap();
-        let log = d.join("log");
         let script = format!(
             "#!/bin/sh\n[ \"$MISE_NOT_FOUND_AUTO_INSTALL\" = 0 ] || exit 7\n\
              [ \"$1\" = -version ] && {{ echo 'Kakoune {version}'; exit 0; }}\n\
-             in=$(cat)\n\
+             in=$(cat)\nprintf '%s\\n' \"$in\" > '{d}/stdin'\n\
              dir=$(printf '%s\\n' \"$in\" | sed -n \"s/.*echo -to-file '\\(.*\\)\\/done'.*/\\1/p\")\n\
              marker=$(printf '%s\\n' \"$in\" | sed -n 's/.*echo -debug \\(KEYBIND-FIND-[0-9-]*\\)$/\\1/p')\n\
-             printf '%s %s %s %s\\n' \"$2\" \"${{XDG_RUNTIME_DIR-unset}}\" \"${{TMPDIR-unset}}\" \"$dir\" >> '{}'\n{body}\n",
-            log.display()
+             printf '%s %s %s %s\\n' \"$2\" \"${{XDG_RUNTIME_DIR-unset}}\" \"${{TMPDIR-unset}}\" \"$dir\" >> '{d}/log'\n{body}\n",
+            d = d.display()
         );
         let path = d.join("kak");
         let mut sh = Command::new("sh")
@@ -2142,6 +2189,21 @@ mod tests {
         proc
     }
 
+    /// A new directory `d/name` with `mode`.
+    fn dir_with_mode(d: &Path, name: &str, mode: u32) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let p = d.join(name);
+        std::fs::create_dir_all(&p).unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(mode)).unwrap();
+        p
+    }
+
+    /// A runtime directory with an empty kakrc and nothing else.
+    fn empty_runtime(d: &Path) -> PathBuf {
+        write(&d.join("empty-runtime/kakrc"), "");
+        d.join("empty-runtime")
+    }
+
     /// The last line of a fake kak's log, split: session, XDG_RUNTIME_DIR, TMPDIR, the private directory.
     fn last_ask(log: &Path) -> Vec<String> {
         let text = std::fs::read_to_string(log).unwrap();
@@ -2149,58 +2211,79 @@ mod tests {
         line.split(' ').map(str::to_string).collect()
     }
 
+    /// The private directory: only under a runtime directory that is absolute, ours and 0700; made 0700, never reused.
+    #[test]
+    fn the_private_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = fresh("private");
+        let ok = dir_with_mode(&d, "ok", 0o700);
+        let open = dir_with_mode(&d, "open", 0o755);
+        let s = |p: &Path| Some(p.display().to_string());
+        assert_eq!(private_base(&[s(&open), None, s(&ok)]), Some(ok.clone()));
+        assert_eq!(private_base(&[Some("relative".into()), s(&open)]), None);
+        assert_eq!(private_base(&[s(&d.join("missing"))]), None);
+        let made = ok.join("x");
+        create_private(&made).unwrap();
+        let mode = std::fs::metadata(&made).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        assert!(
+            create_private(&made).is_err(),
+            "an existing path isn't reused"
+        );
+    }
+
     /// AC #4: the live read through a fake `kak`, and each way it falls back.
     #[test]
     fn the_live_read() {
         use std::os::unix::fs::PermissionsExt;
         let d = fresh("live");
-        let (cfg, tmp, run_dir) = (d.join("cfg"), d.join("tmp"), d.join("run"));
+        let cfg = d.join("cfg");
+        let run_dir = dir_with_mode(&d, "run", 0o700);
         write(
             &cfg.join("kakrc"),
             "map global user r x -docstring 'from kakrc'\n",
         );
-        std::fs::create_dir_all(&tmp).unwrap();
-        std::fs::create_dir_all(&run_dir).unwrap();
-        std::fs::set_permissions(&run_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let rt = empty_runtime(&d);
         let environ = [
             format!("KAKOUNE_CONFIG_DIR={}", cfg.display()),
-            format!("KAKOUNE_RUNTIME={}", d.join("no-runtime").display()),
+            format!("KAKOUNE_RUNTIME={}", rt.display()),
             format!("XDG_RUNTIME_DIR={}", run_dir.display()),
+            "XDG_RUNTIME_DIR=/the-second-is-ignored".into(),
         ];
         let proc = fake_proc(&d, &["kak", "-s", "sess", "f.c"], &environ);
         let none = |_: &str| None;
-        let run = |kak: &Path| {
-            let started = Instant::now();
+        let run_env = |kak: &Path, env: Env| {
             let out = sheet_with(
                 REGISTRY,
                 Some(4242),
                 &proc,
                 &kak.display().to_string(),
-                &tmp,
-                &none,
+                env,
                 TIMEOUT,
             )
             .unwrap();
-            assert!(started.elapsed() < Duration::from_secs(3));
             // The private directory is gone on every path.
-            assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0);
             assert_eq!(std::fs::read_dir(&run_dir).unwrap().count(), 0);
             out
         };
-        let answer = "printf 'junk\\n%s\\nMappings:\\n\\n * user w: '\"'\"':echo<space>window<ret>'\"'\"' e2e window\\n%s-END\\n\\n' \
-                      \"$marker\" \"$marker\" > \"$dir/maps\"; printf '2026.05.21\\n' > \"$dir/done\"";
-        let kak = fake_kak(&d, answer);
+        let run = |kak: &Path| run_env(kak, &none);
+        let answer = |version: &str| {
+            format!(
+                "printf 'junk\\n%s\\ncommand debug mappings\\nMappings:\\n\\n * user w: '\"'\"':echo<space>window<ret>'\"'\"' \
+                 e2e window\\n%s-END\\n\\n' \"$marker\" \"$marker\" > \"$dir/maps\"; printf '{version}\\n' > \"$dir/done\""
+            )
+        };
+        let kak = fake_kak(&d, &answer("2026.05.21"));
         let (s, notes) = run(&kak);
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(find(&s, "space w")[0].2, "e2e window");
         // The session's list is all there is: no kakrc, no default map it doesn't list.
         assert!(find(&s, "space r").is_empty() && normal(&s, "Left").is_none());
         assert_eq!(s.title, "Kakoune 2026.05.21");
-        // kak's XDG_RUNTIME_DIR for the socket, and the private directory made in it (ours, 0700), its name not
-        // guessable.
+        // kak's (first) XDG_RUNTIME_DIR for the socket, and the private directory made in it, its name random.
         let ask = last_ask(&d.join("log"));
         assert_eq!(ask[..3], ["sess", run_dir.to_str().unwrap(), "unset"]);
-        let made = Path::new(&ask[3]);
+        let made = PathBuf::from(&ask[3]);
         assert_eq!(made.parent(), Some(run_dir.as_path()));
         let name = made.file_name().unwrap().to_str().unwrap();
         let random = name.rsplit('-').next().unwrap();
@@ -2208,50 +2291,77 @@ mod tests {
             name.starts_with("keybind-find-kak-") && random.len() == 16,
             "{name}"
         );
-        // A runtime directory others can enter isn't used: `tmp` is.
-        std::fs::set_permissions(&run_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
-        run(&kak);
-        assert_eq!(
-            Path::new(&last_ask(&d.join("log"))[3]).parent(),
-            Some(tmp.as_path())
+        // The script: every client, the report command, emptied after.
+        let script = std::fs::read_to_string(d.join("stdin")).unwrap();
+        for part in [
+            "evaluate-commands -no-hooks -client * %{",
+            "keybind-find-report-%val{client_pid}",
+            "define-command -override -hidden keybind-find-report-4242 %{",
+        ] {
+            assert!(script.contains(part), "{part}: {script}");
+        }
+        assert!(
+            script
+                .trim_end()
+                .ends_with("define-command -override -hidden keybind-find-report-4242 nop"),
+            "{script}"
         );
-        // Without XDG_RUNTIME_DIR, kak's TMPDIR finds the socket (file.cc:127-134), and the directory goes under `tmp`.
+        // Each run's directory has its own name.
+        run(&kak);
+        assert_ne!(last_ask(&d.join("log"))[3], ask[3]);
+        // A git build's version: its release's keys, no note.
+        let kak = fake_kak(&d, &answer("2026.05.21-12-gabc"));
+        let (s, notes) = run(&kak);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(s.title, "Kakoune 2026.05.21");
+        // A runtime directory others can enter isn't used, nor is any other place: the kakrc, with a note.
+        std::fs::set_permissions(&run_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let (s, notes) = run(&kak);
+        assert_eq!(notes, ["no private runtime dir: reading kakrc instead"]);
+        assert_eq!(find(&s, "space r")[0].2, "from kakrc");
+        std::fs::set_permissions(&run_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // Without XDG_RUNTIME_DIR in kak's environ, its TMPDIR finds the socket (file.cc:127-134), and the directory
+        // goes in keybind-find's own runtime directory.
         std::fs::write(
             proc.join("4242/environ"),
             format!("KAKOUNE_CONFIG_DIR={}\0TMPDIR=/x\0", cfg.display()),
         )
         .unwrap();
-        run(&kak);
+        let ours = |k: &str| (k == "XDG_RUNTIME_DIR").then(|| run_dir.display().to_string());
+        run_env(&kak, &ours);
         let ask = last_ask(&d.join("log"));
         assert_eq!(ask[..3], ["sess", "unset", "/x"]);
-        assert_eq!(Path::new(&ask[3]).parent(), Some(tmp.as_path()));
+        assert_eq!(Path::new(&ask[3]).parent(), Some(run_dir.as_path()));
         std::fs::write(proc.join("4242/environ"), environ.join("\0") + "\0").unwrap();
-        // Each failure falls back to the kakrc with one note.
+        // Each failure falls back to the kakrc with one note; one that took the whole wait isn't asked its version.
         for (name, body, says) in [
-            ("exit", "exit 1", "asking kak's session sess"),
+            ("exit", "exit 1", vec!["asking kak's session sess"]),
             (
                 "silent",
                 "exit 0",
-                "no answer from kak's session sess within 2 s",
+                vec![
+                    "no answer from kak's session sess within 2 s",
+                    "version is unknown",
+                ],
             ),
             (
                 "garbage",
                 "echo garbage > \"$dir/maps\"; echo 2026.05.21 > \"$dir/done\"",
-                "no marker",
+                vec!["no marker"],
             ),
             (
                 "no end",
                 "printf '%s\\nMappings:\\n' \"$marker\" > \"$dir/maps\"; echo 2026.05.21 > \"$dir/done\"",
-                "no end marker",
+                vec!["no end marker"],
             ),
         ] {
             let kak = fake_kak(&d, body);
             let (s, notes) = run(&kak);
-            assert_eq!(notes.len(), 1, "{name}: {notes:?}");
-            assert!(
-                notes[0].contains(says) && notes[0].ends_with("; reading kakrc instead"),
-                "{name}: {notes:?}"
-            );
+            assert_eq!(notes.len(), says.len(), "{name}: {notes:?}");
+            assert!(notes[0].ends_with("; reading kakrc instead"), "{name}: {notes:?}");
+            for (n, want) in notes.iter().zip(&says) {
+                assert!(n.contains(want), "{name}: {notes:?}");
+            }
             assert_eq!(find(&s, "space r")[0].2, "from kakrc", "{name}");
             assert_eq!(normal(&s, "Left"), Some("h"), "{name}");
         }
@@ -2264,20 +2374,9 @@ mod tests {
         assert!(run(&kak).1.is_empty());
         std::fs::write(proc.join("4242/cmdline"), "kak\0").unwrap();
         std::fs::write(proc.join("4242/comm"), "zsh\n").unwrap();
-        // keybind-find's own environment, its runtime an empty directory (no system runtime read).
-        let empty = d.join("empty-runtime");
-        std::fs::create_dir_all(&empty).unwrap();
-        let own = |k: &str| (k == "KAKOUNE_RUNTIME").then(|| empty.display().to_string());
-        let (s, notes) = sheet_with(
-            REGISTRY,
-            Some(4242),
-            &proc,
-            &kak.display().to_string(),
-            &tmp,
-            &own,
-            TIMEOUT,
-        )
-        .unwrap();
+        // keybind-find's own environment, its runtime holding only an empty kakrc.
+        let own = |k: &str| (k == "KAKOUNE_RUNTIME").then(|| rt.display().to_string());
+        let (s, notes) = run_env(&kak, &own);
         assert!(notes.is_empty(), "{notes:?}");
         assert!(
             find(&s, "space r").is_empty(),
@@ -2291,24 +2390,22 @@ mod tests {
     #[test]
     fn through_kaks_binary() {
         let d = fresh("exe");
+        let run_dir = dir_with_mode(&d, "run", 0o700);
         let bin = fake_kak_at(&d.join("bin"), "2026.06.01", "exit 1");
+        write(&d.join("share/kak/kakrc"), "");
         write(
             &d.join("share/kak/autoload/x.kak"),
             "map global user y x -docstring 'from the runtime'\n",
         );
-        let proc = fake_proc(&d, &["kak"], &["HOME=/nonexistent".into()]);
+        let environ = [
+            "HOME=/nonexistent".into(),
+            format!("XDG_RUNTIME_DIR={}", run_dir.display()),
+        ];
+        let proc = fake_proc(&d, &["kak"], &environ);
         std::os::unix::fs::symlink(&bin, proc.join("4242/exe")).unwrap();
         let none = |_: &str| None;
-        let (s, notes) = sheet_with(
-            REGISTRY,
-            Some(4242),
-            &proc,
-            "no-such-kak",
-            &d,
-            &none,
-            TIMEOUT,
-        )
-        .unwrap();
+        let (s, notes) =
+            sheet_with(REGISTRY, Some(4242), &proc, "no-such-kak", &none, TIMEOUT).unwrap();
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert!(
             notes[0].contains(&format!("({}/4242/exe -p 4242)", proc.display())),
@@ -2321,6 +2418,16 @@ mod tests {
         assert_eq!(last_ask(&d.join("bin/log"))[0], "4242");
         assert_eq!(s.title, "Kakoune 2026.06.01");
         assert_eq!(find(&s, "space y")[0].2, "from the runtime");
+        // No kakrc in the runtime: Kakoune reads no config at all.
+        std::fs::remove_file(d.join("share/kak/kakrc")).unwrap();
+        let (s, notes) =
+            sheet_with(REGISTRY, Some(4242), &proc, "no-such-kak", &none, TIMEOUT).unwrap();
+        assert!(
+            notes[2].starts_with("no kakrc in Kakoune's runtime "),
+            "{notes:?}"
+        );
+        assert!(find(&s, "space y").is_empty());
+        assert_eq!(normal(&s, "Left"), Some("h"));
     }
 
     /// A git build's version (Makefile:36-37).
@@ -2333,16 +2440,23 @@ mod tests {
         assert_eq!(release("2026.05.21-x-gabc"), "2026.05.21-x-gabc");
     }
 
-    /// A `kak -p` that hangs: ended at the deadline, its process group killed, the kakrc read instead.
+    /// A `kak -p` that hangs: ended at the deadline, its process group killed, the kakrc read instead, no `-version`
+    /// run after it.
     #[test]
     fn a_hung_session() {
         let d = fresh("hang");
+        let run_dir = dir_with_mode(&d, "run", 0o700);
+        let rt = empty_runtime(&d);
         let pid_file = d.join("sleep.pid");
         let kak = fake_kak(
             &d,
             &format!("sleep 30 & echo $! > '{}'; wait", pid_file.display()),
         );
-        let proc = fake_proc(&d, &["kak"], &["HOME=/nonexistent".into()]);
+        let environ = [
+            format!("KAKOUNE_RUNTIME={}", rt.display()),
+            format!("XDG_RUNTIME_DIR={}", run_dir.display()),
+        ];
+        let proc = fake_proc(&d, &["kak"], &environ);
         let none = |_: &str| None;
         let started = Instant::now();
         let (_, notes) = sheet_with(
@@ -2350,13 +2464,14 @@ mod tests {
             Some(4242),
             &proc,
             &kak.display().to_string(),
-            &d,
             &none,
             Duration::from_secs(1),
         )
         .unwrap();
-        assert!(started.elapsed() < Duration::from_secs(20));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(notes.len(), 2, "{notes:?}");
         assert!(notes[0].contains("asking kak's session 4242"), "{notes:?}");
+        assert!(notes[1].contains("version is unknown"), "{notes:?}");
         let pid = std::fs::read_to_string(&pid_file).unwrap();
         let stat = Path::new("/proc").join(pid.trim()).join("stat");
         // Gone, or a zombie until its new parent reaps it.
@@ -2388,11 +2503,13 @@ mod tests {
             name: String,
             procs: Vec<std::process::Child>,
             dir: PathBuf,
+            run_dir: PathBuf,
         }
         impl Drop for Session {
             fn drop(&mut self) {
                 let mut kill = Command::new("kak");
-                kill.args(["-p", &self.name]);
+                kill.args(["-p", &self.name])
+                    .env("XDG_RUNTIME_DIR", &self.run_dir);
                 let _ = run_for_input(kill, TIMEOUT, Some(b"kill!".to_vec()));
                 for p in &mut self.procs {
                     let _ = p.kill();
@@ -2402,16 +2519,21 @@ mod tests {
             }
         }
         let d = fresh("real");
-        let (cfg, tmp) = (d.join("cfg"), d.join("tmp"));
+        let cfg = d.join("cfg");
+        // The runtime directory kak and keybind-find share: the test's own, else one made here.
+        let run_dir = std::env::var("XDG_RUNTIME_DIR")
+            .ok()
+            .and_then(|r| private_base(&[Some(r)]))
+            .unwrap_or_else(|| dir_with_mode(&d, "run", 0o700));
         write(
             &cfg.join("kakrc"),
             "map global user k ':quit<ret>' -docstring 'real test map'\n",
         );
-        std::fs::create_dir_all(&tmp).unwrap();
         let mut s = Session {
             name: format!("kbf-test-{}", std::process::id()),
             procs: Vec::new(),
             dir: d.clone(),
+            run_dir: run_dir.clone(),
         };
         let name = s.name.clone();
         let null = std::process::Stdio::null;
@@ -2419,18 +2541,19 @@ mod tests {
             Command::new("kak")
                 .args(["-d", "-s", &name])
                 .env("KAKOUNE_CONFIG_DIR", &cfg)
+                .env("XDG_RUNTIME_DIR", &run_dir)
                 .stdin(null())
                 .stdout(null())
                 .stderr(null())
                 .spawn()
                 .unwrap(),
         );
-        // The session's clients, as it lists them (empty while it isn't up).
+        // The session's clients, as it lists them (none while it isn't up).
         let list = d.join("clients");
         let clients = || {
             let _ = std::fs::remove_file(&list);
             let mut l = Command::new("kak");
-            l.args(["-p", &name]);
+            l.args(["-p", &name]).env("XDG_RUNTIME_DIR", &run_dir);
             let script = format!("echo -to-file '{}' %val{{client_list}}\n", list.display());
             run_for_input(l, TIMEOUT, Some(script.into_bytes())).ok()?;
             (0..50).find_map(|_| {
@@ -2451,6 +2574,7 @@ mod tests {
         s.procs.push(
             Command::new("kak")
                 .args(["-c", &name, "-ui", "dummy"])
+                .env("XDG_RUNTIME_DIR", &run_dir)
                 .stdin(null())
                 .stdout(null())
                 .stderr(null())
@@ -2471,7 +2595,6 @@ mod tests {
             Some(client),
             Path::new("/proc"),
             "kak",
-            &tmp,
             &none,
             TIMEOUT,
         )
@@ -2479,13 +2602,27 @@ mod tests {
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(find(&sheet, "space k")[0].2, "real test map");
         assert_eq!(normal(&sheet, "Left"), Some("h"));
-        let proc = fake_proc(&d, &["kak", "-c", &name], &[]);
-        let (_, notes) =
-            sheet_with(REGISTRY, Some(4242), &proc, "kak", &tmp, &none, TIMEOUT).unwrap();
+        // A pid no client has: no answer, then the kakrc of an empty runtime.
+        let rt = empty_runtime(&d);
+        let environ = [
+            format!("KAKOUNE_RUNTIME={}", rt.display()),
+            format!("XDG_RUNTIME_DIR={}", run_dir.display()),
+        ];
+        let proc = fake_proc(&d, &["kak", "-c", &name], &environ);
+        let (_, notes) = sheet_with(REGISTRY, Some(4242), &proc, "kak", &none, TIMEOUT).unwrap();
         assert!(
             notes[0].contains("no answer from kak's session"),
             "{notes:?}"
         );
-        assert_eq!(std::fs::read_dir(&tmp).unwrap().count(), 0);
+        let left: Vec<_> = std::fs::read_dir(&run_dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("keybind-find-kak-")
+            })
+            .collect();
+        assert!(left.is_empty(), "{left:?}");
     }
 }
