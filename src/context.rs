@@ -818,8 +818,11 @@ fn providers_for(
             Some("ncmpcpp") => providers.push("ncmpcpp"),
             // A Python script: its comm is the script's name.
             Some("ranger") => providers.push("ranger"),
-            // lf's client; its `-server` daemon has comm `lf` too but no terminal, so it never leads one.
-            Some("lf") => providers.push("lf"),
+            // lf's client; its `-server` daemon has comm `lf` too but no terminal, so it never leads one. lf runs `$`
+            // and `!` commands (the default `e`, `i`, `w`: an editor, a pager, a shell) in its own group, so lf still
+            // leads while they run: its keys only when it is alone in the group.
+            // ponytail: the program lf started isn't read then (as before lf had a provider); name it from `group`.
+            Some("lf") if group.iter().all(|c| c == "lf") => providers.push("lf"),
             // `hx` upstream and on Debian; Arch installs it as `helix`.
             Some("hx" | "helix") => providers.push("helix"),
             _ => {}
@@ -1991,6 +1994,27 @@ mod tests {
             ["espanso", "alacritty", "nvim", "sheets"]
         );
         assert_eq!(providers_for(None, None, None, &[]), ["espanso", "sheets"]);
+    }
+
+    /// lf runs `$` and `!` commands in its own group: while one runs (an editor from `e`), lf still leads, and its
+    /// keys aren't what the user is typing into.
+    #[test]
+    fn lf_only_when_alone_in_its_group() {
+        let group = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        let lf =
+            |g: &[&str]| providers_for(Some("xmonad"), Some("Alacritty"), Some("lf"), &group(g));
+        assert_eq!(
+            lf(&["lf"]),
+            ["xmonad", "espanso", "alacritty", "lf", "sheets"]
+        );
+        assert_eq!(
+            lf(&["lf", "sh", "vim"]),
+            ["xmonad", "espanso", "alacritty", "sheets"]
+        );
+        assert_eq!(
+            lf(&["lf", "sh", "less"]),
+            ["xmonad", "espanso", "alacritty", "less", "sheets"]
+        );
     }
 
     #[test]

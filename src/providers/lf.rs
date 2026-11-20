@@ -55,21 +55,31 @@ fn sheet_with(
             .is_ok_and(|c| c.trim_end_matches('\n') == "lf")
     });
     let mut notes = Vec::new();
+    let dir = pid.map(|p| proc.join(p.to_string()));
+    let environ = dir.as_deref().and_then(environ);
     if let Some(pid) = pid {
-        match live(pid, lf) {
+        match live(pid, lf, environ.as_ref()) {
             Ok(Some(table)) => return finish(&table, notes),
             // lf has its maps only once it has run a shell command: nothing to say.
             Ok(None) => {}
             Err(e) => notes.push(format!("{e:#}; reading lfrc instead")),
         }
     }
-    let table = fallback(
-        pid.map(|p| proc.join(p.to_string())),
-        system,
-        env,
-        &mut notes,
-    );
+    let table = fallback(dir, environ.as_ref(), system, env, &mut notes);
     finish(&table, notes)
+}
+
+type Environ = BTreeMap<String, String>;
+
+/// A process's environment (`/proc/<pid>/environ`), `None` when it can't be read.
+fn environ(dir: &Path) -> Option<Environ> {
+    let b = std::fs::read(dir.join("environ")).ok()?;
+    Some(
+        nul_split(&b)
+            .into_iter()
+            .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))
+            .collect(),
+    )
 }
 
 /// lf's keys by mode: lf's key string → the bound expression's text (`String()`).
@@ -83,14 +93,21 @@ struct Table {
 // --- live ---------------------------------------------------------------------------------------------------------
 
 /// The running lf's own answer (`listBinds`, ui.go:1220-1254), or `None` when it has none yet (it fills it only in
-/// `runShell`, app.go:566-579).
-fn live(pid: u32, lf: &str) -> anyhow::Result<Option<Table>> {
+/// `runShell`, app.go:566-579). lf finds its server's socket by `XDG_RUNTIME_DIR` (os.go:115-134): lf's own, when its
+/// `environ` could be read.
+/// ponytail: `lf` from PATH, not the focused lf's executable as vim's provider does; do that if versions ever differ.
+fn live(pid: u32, lf: &str, environ: Option<&Environ>) -> anyhow::Result<Option<Table>> {
     let ask = |what: &str| -> anyhow::Result<String> {
         let query = format!("query {pid} {what}");
         let mut cmd = Command::new(lf);
         cmd.args(["-remote", &query])
             .env("LC_ALL", "C.UTF-8")
             .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
+        match environ.map(|e| e.get("XDG_RUNTIME_DIR")) {
+            Some(Some(dir)) => cmd.env("XDG_RUNTIME_DIR", dir),
+            Some(None) => cmd.env_remove("XDG_RUNTIME_DIR"),
+            None => &mut cmd,
+        };
         run_for(cmd, TIMEOUT).with_context(|| format!("asking lf ({lf} -remote \"{query}\")"))
     };
     let Some(maps) = rows(&ask("maps")?).context("lf's maps")? else {
@@ -207,23 +224,25 @@ fn flags(args: &[String]) -> (Option<String>, Vec<String>) {
 
 /// lf's keys from its config, as `run()` loads it (app.go:280-303): the defaults, then `-config`'s file alone or
 /// `/etc/lf/lfrc` and `<config home>/lf/lfrc`, then each `-command`. `dir` is lf's `/proc/<pid>` (none: no lf).
-fn fallback(dir: Option<PathBuf>, system: &Path, env: Env, notes: &mut Vec<String>) -> Table {
+fn fallback(
+    dir: Option<PathBuf>,
+    environ: Option<&Environ>,
+    system: &Path,
+    env: Env,
+    notes: &mut Vec<String>,
+) -> Table {
     let args: Vec<String> = dir
         .as_ref()
         .and_then(|d| std::fs::read(d.join("cmdline")).ok())
         .map(|b| nul_split(&b))
         .unwrap_or_default();
     let (config, commands) = flags(args.get(1..).unwrap_or_default());
-    let environ: Option<BTreeMap<String, String>> = dir
-        .as_ref()
-        .and_then(|d| std::fs::read(d.join("environ")).ok())
-        .map(|b| {
-            nul_split(&b)
-                .into_iter()
-                .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))
-                .collect()
-        });
-    let getenv = |k: &str| match &environ {
+    // An empty `-config` is none (app.go:280).
+    let config = config.filter(|c| !c.is_empty());
+    if dir.is_some() && environ.is_none() {
+        notes.push("can't read lf's environment; using keybind-find's for its config paths".into());
+    }
+    let getenv = |k: &str| match environ {
         Some(m) => m.get(k).cloned(),
         None => env(k),
     };
@@ -244,7 +263,7 @@ fn fallback(dir: Option<PathBuf>, system: &Path, env: Env, notes: &mut Vec<Strin
             let home = ["LF_CONFIG_HOME", "XDG_CONFIG_HOME"]
                 .iter()
                 .find_map(|k| getenv(k).filter(|v| !v.is_empty()))
-                .map(PathBuf::from)
+                .and_then(|h| ev.resolve(&h, "config home"))
                 .or_else(|| ev.home.as_ref().map(|h| Path::new(h).join(".config")));
             [Some(system.to_path_buf()), home.map(|h| h.join("lf/lfrc"))]
                 .into_iter()
@@ -266,9 +285,13 @@ fn fallback(dir: Option<PathBuf>, system: &Path, env: Env, notes: &mut Vec<Strin
     ev.table
 }
 
+/// NUL-terminated strings, empty ones kept (`lf -config ""` has an empty argument).
 fn nul_split(b: &[u8]) -> Vec<String> {
+    let b = b.strip_suffix(&[0]).unwrap_or(b);
+    if b.is_empty() {
+        return Vec::new();
+    }
     b.split(|&c| c == 0)
-        .filter(|s| !s.is_empty())
         .map(|s| String::from_utf8_lossy(s).into_owned())
         .collect()
 }
@@ -982,7 +1005,8 @@ fn angle(inner: &str) -> Option<Key> {
         end: 0,
         rune: is_char && matches!(modifier, None | Some("s-")),
         digit: false,
-        esc: modifier.is_none() && base == "esc",
+        // ui.go:1394 checks the key, whatever its modifiers.
+        esc: base == "esc",
         chord: chord(&mods, &sym),
     })
 }
@@ -1043,22 +1067,29 @@ fn finish(t: &Table, mut notes: Vec<String>) -> (Sheet, Vec<String>) {
     };
     let nv: std::collections::BTreeSet<&String> = t.normal.keys().chain(t.visual.keys()).collect();
     for key in nv {
-        let Some(ks) = keys(key) else {
-            left_out += 1;
+        let ks = keys(key);
+        let ok = |t: &BTreeMap<String, String>| ks.as_ref().is_some_and(|ks| reachable(t, key, ks));
+        let n = t.normal.get(key).filter(|_| ok(&t.normal));
+        let v = t.visual.get(key).filter(|_| ok(&t.visual));
+        // Unreachable in a mode it is bound in: counted once per bind (one, when both modes bind the same text).
+        let bound = [t.normal.get(key), t.visual.get(key)];
+        let Some(ks) = ks.as_deref().filter(|_| n.is_some() || v.is_some()) else {
+            let same = bound[0].is_some() && bound[0] == bound[1];
+            left_out += if same {
+                1
+            } else {
+                bound.iter().flatten().count()
+            };
             continue;
         };
-        let n = t.normal.get(key).filter(|_| reachable(&t.normal, key, &ks));
-        let v = t.visual.get(key).filter(|_| reachable(&t.visual, key, &ks));
-        // Unreachable in a mode it is bound in: counted once per bind.
-        let bound = [t.normal.get(key), t.visual.get(key)];
         match (n, v) {
-            (Some(a), Some(b)) if a == b => add(&ks, a, &["normal", "visual"]),
+            (Some(a), Some(b)) if a == b => add(ks, a, &["normal", "visual"]),
             _ => {
                 if let Some(a) = n {
-                    add(&ks, a, &["normal"]);
+                    add(ks, a, &["normal"]);
                 }
                 if let Some(b) = v {
-                    add(&ks, b, &["visual"]);
+                    add(ks, b, &["visual"]);
                 }
                 let same = bound[0].is_some() && bound[0] == bound[1];
                 let missing = usize::from(bound[0].is_some() && n.is_none())
@@ -1200,7 +1231,7 @@ mod tests {
         assert_eq!(find(&s, "z h", "normal,visual")[0].0, "set");
         // Left out: the four pointer keys (<m-up> <m-down> <c-m-up> <c-m-down>) and the command line's <space>.
         assert_eq!(left_out(&notes), 5, "{notes:?}");
-        // 75 shared keys less the 4 pointer keys, V twice, v, <space>, <esc>, o; 33 command-line keys.
+        // 71 shared keys (75 less the 4 pointer keys), V twice, v, <space>, <esc>, o; 33 command-line keys.
         assert_eq!(count(&s), 71 + 2 + 4 + 33);
     }
 
@@ -1430,21 +1461,40 @@ mod tests {
         let (mut want, notes) = eval(&[DEFAULTS, E2E_LFRC]);
         assert!(notes.is_empty(), "{notes:?}");
         want.normal.insert("Y".into(), "e2e-live".into());
+        let root = homes("live");
+        let log = root.join("queries");
         let lf = fake_lf(
             "answer",
             &format!(
-            "case \"$2\" in *maps) [ \"$2\" = 'query 4242 maps' ] && cat '{}' || cat '{}' ;; esac",
-            fixture_path("maps.txt").display(),
-            fixture_path("cmaps.txt").display(),
-        ),
+                "printf '%s %s\\n' \"$2\" \"$XDG_RUNTIME_DIR\" >> '{}'\ncase \"$2\" in 'query 4242 maps') cat '{}' ;; 'query 4242 cmaps') cat '{}' ;; *) exit 3 ;; esac",
+                log.display(),
+                fixture_path("maps.txt").display(),
+                fixture_path("cmaps.txt").display(),
+            ),
         );
-        let got = live(4242, &lf.display().to_string()).unwrap().unwrap();
+        let lf = lf.display().to_string();
+        let lf_env = Environ::from([("XDG_RUNTIME_DIR".into(), "/lf-run".into())]);
+        let got = live(4242, &lf, Some(&lf_env)).unwrap().unwrap();
         assert_eq!(got, want);
+        // Two queries and nothing else, with lf's own runtime directory (its socket's).
+        assert_eq!(
+            std::fs::read_to_string(&log).unwrap(),
+            "query 4242 maps /lf-run\nquery 4242 cmaps /lf-run\n"
+        );
+        // Through `sheet_with`: the answer is the sheet, and the home's lfrc (`map a home`) isn't read.
+        let home = format!("HOME={}/home", root.display());
+        let proc = fake_proc("live", &["lf"], Some(&[home.as_str()]), &root.join("cwd"));
+        let (s, notes) = sheet_with(Some(4242), &proc, &lf, &root.join("etc/lfrc"), &|_| None);
+        assert!(find(&s, "a", "normal,visual").is_empty());
+        assert_eq!(left_out(&notes), 7, "{notes:?}");
+        assert_eq!(notes.len(), 1, "{notes:?}");
         let (s, notes) = finish(&got, Vec::new());
         assert_eq!(desc(&s, "shift+y", "normal"), "e2e-live");
         assert_eq!(desc(&s, "shift+x", "normal"), "quit");
         assert_eq!(desc(&s, "k", "normal,visual"), "up");
         assert_eq!(desc(&s, "alt+x", "command-line"), "cmd-escape");
+        // A user `cmd`'s name is its category.
+        assert_eq!(find(&s, "shift+y", "normal")[0].0, "e2e-live");
         // The pointer keys, <space>, 1 (a count) and Qa (after Q).
         assert_eq!(left_out(&notes), 7, "{notes:?}");
     }
@@ -1453,6 +1503,8 @@ mod tests {
     fn answers_that_fall_back() {
         assert_eq!(rows("").unwrap(), None);
         assert_eq!(rows("mode\tkey\tcommand\n").unwrap(), None);
+        let err = rows("remote command: bad\n").unwrap_err();
+        assert!(err.to_string().contains("remote command"), "{err}");
         let err = rows("listen: query: no such client id is connected\n").unwrap_err();
         assert!(err.to_string().contains("no such client"), "{err}");
         assert!(rows("n\tk\tup\n").is_err());
@@ -1632,9 +1684,11 @@ mod tests {
     ) -> (Table, Vec<String>) {
         let environ: Option<Vec<&str>> = environ.map(|e| e.iter().map(String::as_str).collect());
         let proc = fake_proc(name, cmdline, environ.as_deref(), &root.join("cwd"));
+        let dir = proc.join("4242");
         let mut notes = Vec::new();
         let t = fallback(
-            Some(proc.join("4242")),
+            Some(dir.clone()),
+            super::environ(&dir).as_ref(),
             &root.join("etc/lfrc"),
             own,
             &mut notes,
@@ -1795,5 +1849,187 @@ mod tests {
         let (s, notes) = sheet_with(None, &root, "/nonexistent/lf", &root.join("etc/lfrc"), &env);
         assert_eq!(desc(&s, "a", "normal,visual"), "home");
         assert_eq!(left_out(&notes), 5, "{notes:?}");
+    }
+
+    #[test]
+    fn every_bind_is_described_by_its_command() {
+        let example = fixture("lfrc.example");
+        let (s, _) = sheet_of(&[DEFAULTS, &example, "map b %echo b\n"]);
+        assert!(s.binds.values().flatten().all(|b| b.action == b.desc));
+        for (key, cat) in [
+            ("grave", "shell"),
+            ("o", "shell"),
+            ("b", "shell"),
+            ("x", "shell"),
+            ("a", "list"),
+        ] {
+            assert_eq!(find(&s, key, "normal,visual")[0].0, cat, "{key}");
+        }
+        // Exactly the pointer keys and the command line's <space> are left out of the defaults.
+        let (t, _) = eval(&[DEFAULTS]);
+        let (s, _) = finish(&t, Vec::new());
+        let listed: std::collections::BTreeSet<(String, String)> = s
+            .binds
+            .values()
+            .flatten()
+            .map(|b| (b.key.clone(), modes(b)))
+            .collect();
+        let mut out = Vec::new();
+        for (mode, table) in [("n", &t.normal), ("v", &t.visual), ("c", &t.command)] {
+            for k in table.keys() {
+                let chord = notation(k);
+                let shown = chord.as_ref().is_some_and(|c| {
+                    listed.iter().any(|(key, m)| {
+                        key == c
+                            && m.contains(match mode {
+                                "n" => "normal",
+                                "v" => "visual",
+                                _ => "command-line",
+                            })
+                    })
+                });
+                if !shown {
+                    out.push(format!("{mode} {k}"));
+                }
+            }
+        }
+        assert_eq!(
+            out,
+            [
+                "n <c-m-down>",
+                "n <c-m-up>",
+                "n <m-down>",
+                "n <m-up>",
+                "v <c-m-down>",
+                "v <c-m-up>",
+                "v <m-down>",
+                "v <m-up>",
+                "c <space>"
+            ]
+        );
+    }
+
+    #[test]
+    fn more_lfrc_forms() {
+        // A `:` list without braces runs to the line end.
+        let (t, notes) = eval(&[": nmap a up; vmap b down\nmap z top\n"]);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(
+            (
+                t.normal["a"].as_str(),
+                t.visual["b"].as_str(),
+                t.normal["z"].as_str()
+            ),
+            ("up", "down", "top")
+        );
+        // Every escape lf's double quotes read.
+        assert_eq!(
+            parse_one(r#"map c echo "\\\a\b\f\n\r\v\x""#),
+            Expr::Map {
+                kind: "map",
+                keys: "c".into(),
+                expr: call("echo", &["\\\x07\x08\x0c\n\r\x0b\\x"])
+            }
+        );
+    }
+
+    #[test]
+    fn more_key_names() {
+        for (lf, want) in [
+            ("<tab>", "Tab"),
+            ("<delete>", "Delete"),
+            ("<insert>", "Insert"),
+            ("<home>", "Home"),
+            ("<end>", "End"),
+            ("<clear>", "Clear"),
+            ("<pause>", "Pause"),
+            ("<print>", "Print"),
+            ("<enter>", "Return"),
+            ("<esc>", "Escape"),
+            ("<space>", "space"),
+            ("<s-tab>", "shift+Tab"),
+            ("<c-space>", "ctrl+space"),
+        ] {
+            assert_eq!(notation(lf).as_deref(), Some(want), "{lf}");
+        }
+        // <esc> with a modifier after the first key cancels too (ui.go:1394 checks the key, not its modifiers).
+        let (s, notes) = sheet_of(&["map g<a-esc> up\nmap h up\n"]);
+        assert_eq!((count(&s), left_out(&notes)), (1, 1));
+    }
+
+    #[test]
+    fn an_unknown_mode_letter_falls_back() {
+        let lf = fake_lf("mode", "printf 'mode\\tkey\\tcommand\\nx\\tk\\tup\\n'");
+        let err = live(4242, &lf.display().to_string(), None).unwrap_err();
+        assert!(err.to_string().contains("unknown mode"), "{err}");
+    }
+
+    #[test]
+    fn unreadable_files_and_odd_arguments() {
+        let root = homes("odd");
+        let r = root.display().to_string();
+        let none = |_: &str| None;
+        let home = vec![format!("HOME={r}/home")];
+        // /etc/lf/lfrc that can't be read (a directory): one note, and the user's lfrc still counts.
+        let proc = fake_proc(
+            "unreadable",
+            &["lf"],
+            Some(&[home[0].as_str()]),
+            &root.join("cwd"),
+        );
+        let dir = proc.join("4242");
+        let mut notes = Vec::new();
+        let t = fallback(
+            Some(dir.clone()),
+            super::environ(&dir).as_ref(),
+            &root,
+            &none,
+            &mut notes,
+        );
+        assert_eq!(t.normal["a"], "home");
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].starts_with("can't read"), "{notes:?}");
+        // An empty `-config` is none, and the argument after it is still a flag.
+        let (t, n) = discover(
+            &root,
+            "emptycfg",
+            &["lf", "-config", "", "-command", "map c x"],
+            Some(&home),
+            &none,
+        );
+        assert_eq!(
+            (t.normal["a"].as_str(), t.normal["c"].as_str(), n.len()),
+            ("home", "x", 0)
+        );
+        // A relative config home is relative to lf's directory.
+        let env = vec![home[0].clone(), "XDG_CONFIG_HOME=../xdg".into()];
+        let (t, _) = discover(&root, "relxdg", &["lf"], Some(&env), &none);
+        assert_eq!(t.normal["a"], "xdg");
+        // lf's environment unreadable: keybind-find's own, with a note.
+        let (_, n) = discover(&root, "noenv", &["lf"], None, &none);
+        assert!(
+            n.iter().any(|n| n.contains("can't read lf's environment")),
+            "{n:?}"
+        );
+    }
+
+    #[test]
+    fn at_most_64_sourced_files() {
+        let root = homes("loads");
+        let leaf = root.join("leaf.lfrc");
+        std::fs::write(&leaf, "map l leaf").unwrap();
+        let text = format!("source {}\n", leaf.display()).repeat(70);
+        let mut notes = Vec::new();
+        let mut ev = Eval {
+            table: Table::default(),
+            home: None,
+            cwd: None,
+            loads: 0,
+            notes: &mut notes,
+        };
+        ev.run(&text, "t", 0);
+        assert_eq!(ev.loads, 64);
+        assert_eq!(notes.len(), 6, "{notes:?}");
+        assert!(notes[0].contains("64 files"), "{notes:?}");
     }
 }

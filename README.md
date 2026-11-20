@@ -377,15 +377,17 @@ Over lf in a terminal, keybind-find lists lf's keys in normal, visual and comman
 (a key bound to the same command in normal and visual mode is one entry with both), described by the command as lf
 writes it (`set hidden!`, `:{{ toggle; down; }}`, `${{ mimeopen --ask "$f" }}`) and filed by its first word (`shell`
 for a shell command, `list` for a `:` list). It asks the running lf first, with `lf -remote "query <pid> maps"` and
-`cmaps`: lf's own list, with everything your `lfrc`, `-command`s, hooks and typed `map`s did. lf fills that list only
-when it runs a shell command (opening a file with the default `open`, `:maps`, an `on-cd` or `on-init` hook), so a
+`cmaps`: lf's own list, with everything your `lfrc`, `-command`s, hooks and typed `map`s did, as of the last shell
+command lf ran. lf fills that list only when it runs a shell command (opening a file with the default `open`, `:maps`, an `on-cd` or `on-init` hook), so a
 fresh lf that hasn't run one yet, an lf started with `-single` (no server) or one that doesn't answer within a second
 is read from its config instead, with a line saying why (nothing for the fresh lf). keybind-find sends lf nothing.
 
 The config read is lf r42's built-in keys (built in), then the files lf loads, as lf reads them: with `-config FILE` on
 lf's command line only that file, else `/etc/lf/lfrc` and `$LF_CONFIG_HOME/lf/lfrc` (else `$XDG_CONFIG_HOME/lf/lfrc`,
 else `~/.config/lf/lfrc`), then each `-command`. The flags, `LF_CONFIG_HOME`, `XDG_CONFIG_HOME` and `HOME` come from
-the focused lf's process (keybind-find's own environment for `keybind-find dump lf`). `map`, `nmap`, `vmap`, `cmap`,
+the focused lf's process (keybind-find's own environment for `keybind-find dump lf`); lf itself takes your home from
+the password database, which differs only when `HOME` was changed. A relative path (`-config my.lfrc`, `source
+rel.lfrc`) is taken from lf's current directory, which is the one you have browsed to, not the one lf started in. `map`, `nmap`, `vmap`, `cmap`,
 `map KEY` with nothing after it (how lf deletes a key), `clearmaps`, `source` and top-level `:` lists are followed;
 hooks and shell commands are never run. A file lf would stop reading at a syntax error stops there too, with one line.
 
@@ -394,7 +396,8 @@ Left out, with a count: pointer events (`<m-up>`, lf's default wheel keys), keys
 as a count), a key with `<esc>` after its first key, and a key whose shorter start is itself bound (lf runs the shorter
 one at once: `Q` hides `Qa`); in command-line mode a key of more than one key, and a character without alt (lf types
 it, so the default `<space>` isn't listed). `<c-h>`, `<c-i>`, `<c-m>` and `<c-j>` are listed and sent as ctrl+h etc.;
-many terminals send BackSpace, Tab and Return for them, which lf reads as those keys.
+many terminals send BackSpace, Tab and Return for them, which lf reads as those keys. While lf runs a `$` or `!`
+command (an editor from `e`, a pager from `i`, a shell from `w`), lf's keys aren't listed: that program is in front.
 
 ### helix
 
