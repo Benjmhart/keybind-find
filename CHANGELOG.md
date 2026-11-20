@@ -11,6 +11,7 @@ All notable changes to keybind-find are listed here. The format follows
 - lazygit: its keys by panel, as its keybindings cheatsheet lists them, lazygit 0.66.2's defaults with your `config.yml` files and the repo's `.lazygit.yml`/`.git/lazygit.yml` applied as lazygit applies them (their `keybinding:` section, read with a strict YAML subset); custom commands aren't listed yet ([#56](https://github.com/Benjmhart/keybind-find/issues/56)).
 - nnn: its keys as built (nnn 5.3's key table), plus the plugin (`;` + key) and bookmark (`b` + key) keys of the running nnn's `NNN_PLUG` and `NNN_BMS`, read from its environment as nnn parses them ([#55](https://github.com/Benjmhart/keybind-find/issues/55)).
 - Kakoune: its built-in keys by mode (Kakoune 2026.05.21's, from its source) with the running session's mappings on top, asked through `kak -p` (`debug mappings`: kakrc, plugins, hooks, window and buffer maps), else your kakrc and autoload files read as Kakoune parses them ([#58](https://github.com/Benjmhart/keybind-find/issues/58)).
+- Openbox (alone, or under LXDE or LXQt): the keybinds of the `rc.xml` Openbox loaded (the one its `_OB_CONFIG_FILE` names, else the XDG lookup Openbox does), each with its actions, chains as key sequences, grouped under the comments that head them ([#52](https://github.com/Benjmhart/keybind-find/issues/52)).
 
 ## [1.2.0] - 2026-11-19
 

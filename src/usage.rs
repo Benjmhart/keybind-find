@@ -101,6 +101,7 @@ fn alternate(entries: &mut [Entry]) {
                     | "i3"
                     | "gnome"
                     | "awesome"
+                    | "openbox"
                     | "sxhkd"
             )
         });
@@ -322,6 +323,10 @@ mod tests {
         assert_eq!(
             ranked(&[("awesome", 1), ("espanso", 1), ("nvim", 1)], ""),
             ["nvim0", "awesome0", "espanso0"]
+        );
+        assert_eq!(
+            ranked(&[("openbox", 1), ("espanso", 1), ("nvim", 1)], ""),
+            ["nvim0", "openbox0", "espanso0"]
         );
     }
 

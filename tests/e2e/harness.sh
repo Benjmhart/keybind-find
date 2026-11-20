@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs inside the e2e image (tests/e2e/run starts it): builds keybind-find from /src, then for each case in `cases`
-# starts the program for real (X11: Xvfb + i3, then awesome; Wayland: headless sway), waits until it has focus, runs
-# `keybind-find dump` and checks it with check.py. Prints a table; exits 1 if any case failed or was skipped.
+# starts the program for real (X11: Xvfb + i3, then awesome, then Openbox; Wayland: headless sway), waits until it has
+# focus, runs `keybind-find dump` and checks it with check.py. Prints a table; exits 1 if any case failed or was skipped.
 # `harness.sh build` only builds (run gives that step the network; the cases run without one).
 set -u
 E=/src/tests/e2e
@@ -201,8 +201,8 @@ focused() {
   fi
 }
 
-# x NAME "PROVIDERS" "PROVIDER|KEY|DESC" [SETTLE] -- COMMAND...: an X11 case under i3 (or awesome in its phase, where
-# `i3-msg kill` fails harmlessly and the process-group kill closes the window).
+# x NAME "PROVIDERS" "PROVIDER|KEY|DESC" [SETTLE] -- COMMAND...: an X11 case under i3 (or awesome or Openbox in its
+# phase, where `i3-msg kill` fails harmlessly and the process-group kill closes the window).
 x() {
   local name=$1 providers=$2 key=$3 settle=1
   shift 3
@@ -448,6 +448,33 @@ if wanted awesome-phase || [[ " ${CASES:-} " == *" awesome"* ]]; then
   kill "$AWESOME" 2>/dev/null
   timeout 5 tail --pid="$AWESOME" -f /dev/null || kill -9 "$AWESOME" 2>/dev/null
   wait "$AWESOME" 2>/dev/null
+  stop_daemons
+fi
+
+# --- X11: Openbox on the same display ----------------------------------------------------------------------------
+# Its rc.xml is tests/e2e/home/.config/openbox/rc.xml (the XDG lookup). Openbox sets _OB_VERSION on the root window once
+# it manages the screen (openbox/screen.c:317 at release-3.6.1). Only when the phase or an openbox case is wanted.
+if wanted openbox-phase || [[ " ${CASES:-} " == *" openbox"* ]]; then
+  stop_daemons
+  openbox >"$OUT/openbox.log" 2>&1 &
+  OPENBOX=$!
+  up=""
+  for _ in $(seq 100); do
+    xprop -root _OB_VERSION 2>/dev/null | grep -q ' = ' && { up=1; break; }
+    kill -0 "$OPENBOX" 2>/dev/null || break
+    sleep 0.1
+  done
+  if [ -n "$up" ]; then
+    PHASE=openbox . "$E/cases"
+  else
+    record openbox-phase "FAIL	openbox didn't start	$(tail -c 300 "$OUT/openbox.log" | tr '\n\t' '  ')"
+    FAILED=1
+  fi
+  # Stopped before anything else runs: up to 5 s for it to exit, then killed; a survivor fails the run.
+  kill "$OPENBOX" 2>/dev/null
+  timeout 5 tail --pid="$OPENBOX" -f /dev/null || kill -9 "$OPENBOX" 2>/dev/null
+  wait "$OPENBOX" 2>/dev/null
+  pkill -9 -x openbox 2>/dev/null && { record openbox-stop "FAIL	an openbox survived the phase"; FAILED=1; }
   stop_daemons
 fi
 kill "$XVFB" 2>/dev/null

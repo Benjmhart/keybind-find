@@ -22,7 +22,8 @@ The lists are read from the programs' real configuration, your own bindings incl
 | GNOME | its window, shell, mutter and media-key shortcuts, your custom shortcuts and the overlay key, from `gsettings`; on X11 also the focused window | `gsettings`; on Wayland picks are sent through the desktop's portal, after one approval, and the list opens in fzf ([below](#gnome)) |
 | sxhkd (bspwm, or any X11 window manager) | the hotkeys of your running sxhkd, from the config files it loaded, with each one's comment, `{a,b}` sequences expanded and chains as key sequences | none ([below](#sxhkd)) |
 | awesome | its keys from the running awesome over D-Bus (the hotkeys its own popup shows), with each key's description and group | none for the stock config; your `rc.lua` must `require("awful")` ([below](#awesome)) |
-| any other X11 window manager (openbox, qtile, dwm, …) | the focused window, so every app below works; not the window manager's own keys, but sxhkd's when it runs | an EWMH window manager (it sets `_NET_ACTIVE_WINDOW`) |
+| Openbox (alone, or under LXDE or LXQt) | the keybinds of the `rc.xml` Openbox loaded, each with its actions, chains as key sequences, grouped under the comments that head them | none ([below](#openbox)) |
+| any other X11 window manager (qtile, dwm, …) | the focused window, so every app below works; not the window manager's own keys, but sxhkd's when it runs | an EWMH window manager (it sets `_NET_ACTIVE_WINDOW`) |
 | niri | its binds from your `config.kdl` (following `include`), each with its `hotkey-overlay-title` or else its action, and the focused window from `niri msg` | none; niri's own binds are listed, not sent ([below](#niri)) |
 | other Wayland compositors (river, labwc, wayfire, …) | espanso only: the focused window isn't read, so no app below | untested |
 | alacritty | its keys: alacritty's defaults merged with your `[[keyboard.bindings]]` | none |
@@ -869,6 +870,35 @@ built with D-Bus, and keybind-find runs on awesome's session bus. Bind keybind-f
 not `os.execute` or `io.popen`: awesome runs one thing at a time, so while it waits for keybind-find it can't answer
 it. Without any of that, without `dbus-send`, or when awesome doesn't answer in 2 s, that is one line naming the cause
 and the list goes on without awesome's keys.
+
+### Openbox
+
+Under Openbox (alone, or as LXDE's or LXQt's window manager), keybind-find lists the keybinds of the `rc.xml` Openbox
+loaded, found as Openbox 3.6.1 finds it: the file Openbox was started with (`--config-file`, as LXDE and LXQt start
+it), which Openbox names in the root window's `_OB_CONFIG_FILE` property; else the first `openbox/rc.xml` of
+`$XDG_CONFIG_HOME` (or `~/.config`) and `$XDG_CONFIG_DIRS` (or `/etc/xdg`), from keybind-find's own environment. A file
+that exists but doesn't load is one line, and the next is tried; with none, Openbox's three built-in keys (`Alt+Tab`,
+`Alt+Shift+Tab`, `Alt+F4`) are listed, as Openbox binds them. `keybind-find dump openbox` works without Openbox running.
+
+Only the last `<keyboard>` counts, as in Openbox. Each keybind is listed with its actions as text (`GoToDesktop to=left
+wrap=no`, `Execute xterm`), several joined by `;`; nothing is run. A keybind with nested keybinds is a chain, listed as
+a key sequence (`super+a t`) and sent as one; `key="W-a W-b"` lists both keys. Keybinds are grouped under the last
+comment before them inside `<keyboard>` (`<!-- Keybindings for windows -->`, as the stock `rc.xml` has; a comment
+holding `<` is commented-out XML, not a title), else `openbox`. Modifiers show as `super` (`W`, `Super`, `Mod4`), `alt`
+(`A`, `Alt`, `Mod1`), `ctrl` and `shift`; a single upper-case letter as its lower-case key, since Openbox binds its
+key, unshifted. Left out, counted in one line: keys with a `Meta`, `Hyper`, `Mod2`, `Mod3` or `Mod5` modifier (which
+can't be sent on X11), keycodes (`0x26`), an unknown modifier or key name (Openbox binds nothing for it), a keybind in
+conflict with an earlier one (a key that is both a chain's start and a key of its own, which Openbox drops), and
+`xi:include` elements.
+
+Limits: Openbox has no command that prints its bindings, so the list is not checked against a report of Openbox's own
+(the e2e test checks a key and a chain of its test config, and its demo the pick). The file is read as it is now: an
+edit Openbox hasn't loaded yet (`openbox --reconfigure`) is listed early. The XML is read strictly: a file Openbox reads
+with libxml2's error recovery is skipped here with its line, and a DOCTYPE with its own entities or an `xi:include`
+isn't followed. A file over 4 MiB or with elements nested deeper than 256 (libxml2's own limit) is skipped, and after
+5000 keys and actions (each key of a chain, each action each time it is bound) the rest are left out, in one line. An action name
+Openbox doesn't know is listed, though Openbox binds nothing for it. A shifted symbol other than a letter (`W-exclam`)
+is listed as written, but Openbox binds its key unshifted while the pick sends Shift with it, so it may not fire.
 
 ### sxhkd
 

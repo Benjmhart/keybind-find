@@ -33,6 +33,7 @@ mod niri;
 mod nnn;
 mod nvim;
 mod obsidian;
+mod openbox;
 mod pinned;
 mod ranger;
 // `src/plugins.rs`, declared here because `main.rs` is not this story's to edit.
@@ -111,6 +112,7 @@ pub const KNOWN: &[&str] = &[
     "lazygit",
     "nnn",
     "kakoune",
+    "openbox",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -161,6 +163,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "lazygit" => lazygit::sheet(),
         "nnn" => nnn::sheet(),
         "kakoune" => kakoune::sheet(),
+        "openbox" => openbox::sheet(ctx),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
