@@ -5,6 +5,7 @@
 //! is never read differently from how yaml.v3 reads it.
 
 use anyhow::bail;
+use std::collections::HashSet;
 
 /// A parsed value. A mapping keeps its keys in order, each with its line.
 #[derive(Debug, Clone, PartialEq)]
@@ -18,8 +19,17 @@ pub(crate) enum Node {
 /// How deep mappings and sequences may nest (as `kdl_v1` caps its parser): no lazygit file nests past 3.
 const DEPTH: usize = 64;
 
+/// `keybinding` over a file's bytes: text that isn't UTF-8 is refused, as yaml.v3 refuses it.
+pub(crate) fn keybinding_of(bytes: &[u8]) -> anyhow::Result<Option<Node>> {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => keybinding(text),
+        Err(e) => bail!("not UTF-8 text (byte {})", e.valid_up_to() + 1),
+    }
+}
+
 /// The value of the document's top-level `keybinding` entry, `None` when it has none. A failure is `line N: …`.
 pub(crate) fn keybinding(text: &str) -> anyhow::Result<Option<Node>> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let lines: Vec<&str> = text
         .split('\n')
         .map(|l| l.strip_suffix('\r').unwrap_or(l))
@@ -33,6 +43,8 @@ pub(crate) fn keybinding(text: &str) -> anyhow::Result<Option<Node>> {
             .is_some_and(|r| r.is_empty() || r.starts_with([' ', '\t']))
     };
     let mut first = true;
+    // A `%YAML` or `%TAG` directive before the document's `---`.
+    let mut directive = false;
     let mut entry: Option<usize> = None;
     let mut end = lines.len();
     for (i, l) in lines.iter().enumerate() {
@@ -45,7 +57,15 @@ pub(crate) fn keybinding(text: &str) -> anyhow::Result<Option<Node>> {
                 bail!("line {n}: a second document, or text after `---`");
             }
             first = false;
+            directive = false;
             continue;
+        }
+        if first && l.starts_with('%') {
+            directive = true;
+            continue;
+        }
+        if directive {
+            bail!("line {n}: a directive (`%`) not followed by `---`");
         }
         if first && l.trim_start().starts_with(['{', '[']) {
             bail!("line {n}: a flow mapping or sequence as the whole document");
@@ -121,9 +141,10 @@ fn block(body: &[Line], pos: &mut usize, parent: usize, depth: usize) -> anyhow:
         bail!("line {n}: a block must be indented more than its key");
     }
     if is_item(content) {
-        return seq(body, pos, indent, depth);
+        return seq(body, pos, indent, depth, false);
     }
     let mut entries: Vec<(String, Node, usize)> = Vec::new();
+    let mut keys = HashSet::new();
     while let Some(&(n, i, c)) = body.get(*pos) {
         if i < indent {
             break;
@@ -138,7 +159,7 @@ fn block(body: &[Line], pos: &mut usize, parent: usize, depth: usize) -> anyhow:
         if key == "<<" {
             bail!("line {n}: a merge key (`<<`)");
         }
-        if entries.iter().any(|(k, _, _)| *k == key) {
+        if !keys.insert(key.clone()) {
             bail!("line {n}: the key {key:?} twice");
         }
         *pos += 1;
@@ -147,6 +168,16 @@ fn block(body: &[Line], pos: &mut usize, parent: usize, depth: usize) -> anyhow:
             None if body.get(*pos).is_some_and(|&(_, i, _)| i > indent) => {
                 block(body, pos, indent, depth + 1)?
             }
+            // `key:` then `- a` at the key's own column: the key's list (YAML allows it).
+            None if body
+                .get(*pos)
+                .is_some_and(|&(_, i, c)| i == indent && is_item(c)) =>
+            {
+                if depth + 1 > DEPTH {
+                    bail!("line {n}: nested deeper than {DEPTH} levels");
+                }
+                seq(body, pos, indent, depth + 1, true)?
+            }
             None => Node::Null,
         };
         entries.push((key, value, n));
@@ -154,15 +185,22 @@ fn block(body: &[Line], pos: &mut usize, parent: usize, depth: usize) -> anyhow:
     Ok(Node::Map(entries))
 }
 
-/// A block sequence of scalars at `indent`.
-fn seq(body: &[Line], pos: &mut usize, indent: usize, depth: usize) -> anyhow::Result<Node> {
+/// A block sequence at `indent`: of scalars, or of lists (`jumpToBlock`'s key lists), never of mappings. `compact`:
+/// a mapping's value at its key's column, ended by the next key.
+fn seq(
+    body: &[Line],
+    pos: &mut usize,
+    indent: usize,
+    depth: usize,
+    compact: bool,
+) -> anyhow::Result<Node> {
     let mut items = Vec::new();
     while let Some(&(n, i, c)) = body.get(*pos) {
-        if i < indent {
+        if i < indent || (compact && !is_item(c)) {
             break;
         }
         if i > indent {
-            bail!("line {n}: unexpected indentation (a sequence holds only one-line values here)");
+            bail!("line {n}: unexpected indentation");
         }
         if !is_item(c) {
             bail!("line {n}: a key where a sequence item belongs");
@@ -172,11 +210,14 @@ fn seq(body: &[Line], pos: &mut usize, indent: usize, depth: usize) -> anyhow::R
             bail!("line {n}: a sequence holding a mapping");
         }
         *pos += 1;
-        let item = match line_value(rest, n, depth)? {
-            Some(v @ (Node::Scalar(_) | Node::Null)) => v,
-            Some(_) => bail!("line {n}: a sequence holding a collection"),
+        let item = match line_value(rest, n, depth + 1)? {
+            Some(Node::Map(_)) => bail!("line {n}: a sequence holding a mapping"),
+            Some(v) => v,
             None if body.get(*pos).is_some_and(|&(_, i, _)| i > indent) => {
-                bail!("line {n}: a sequence holding a block")
+                match block(body, pos, indent, depth + 1)? {
+                    Node::Map(_) => bail!("line {n}: a sequence holding a mapping"),
+                    v => v,
+                }
             }
             None => Node::Null,
         };
@@ -298,19 +339,19 @@ impl Cur<'_> {
                 while let Some(c) = self.peek() {
                     let next = self.at(1);
                     let blank_next = matches!(next, None | Some(' ' | '\t'));
+                    // yaml.v3's plain scalar (scannerc.go:2726-2733): `:` ends it before a blank; in a flow
+                    // collection so do `,` `?` `[` `]` `{` `}`, and what follows must then be a separator.
                     match c {
                         ' ' | '\t' if next == Some('#') => break,
-                        ',' | ']' | '}' if flow => break,
-                        ':' if blank_next || (flow && matches!(next, Some(',' | ']' | '}'))) => {
-                            bail!("line {n}: a mapping where a value belongs")
-                        }
+                        ',' | '?' | '[' | ']' | '{' | '}' if flow => break,
+                        ':' if blank_next => bail!("line {n}: a mapping where a value belongs"),
                         _ => self.i += 1,
                     }
                 }
                 let text = self.text(start, self.i).trim_end();
+                // yaml.v3's core-schema nulls (resolve.go:54); the empty value is the caller's.
                 Ok(match text {
-                    "~" => Node::Null,
-                    t if t.eq_ignore_ascii_case("null") => Node::Null,
+                    "~" | "null" | "Null" | "NULL" => Node::Null,
                     t => Node::Scalar(t.to_string()),
                 })
             }
@@ -367,7 +408,9 @@ impl Cur<'_> {
                         'x' | 'u' => {
                             let len = if e == 'x' { 2 } else { 4 };
                             let hex: String = (0..len).filter_map(|k| self.at(k)).collect();
-                            let c = (hex.len() == len)
+                            let hex_ok =
+                                hex.len() == len && hex.chars().all(|c| c.is_ascii_hexdigit());
+                            let c = hex_ok
                                 .then(|| u32::from_str_radix(&hex, 16).ok())
                                 .flatten()
                                 .and_then(char::from_u32);
@@ -412,7 +455,7 @@ impl Cur<'_> {
                     self.i += 1;
                     return Ok(Node::Seq(items));
                 }
-                Some('[' | '{') => bail!("line {n}: a flow sequence holding a collection"),
+                Some('{') => bail!("line {n}: a flow sequence holding a mapping"),
                 None | Some('#') => bail!("line {n}: a flow collection over several lines"),
                 _ => {}
             }
@@ -427,6 +470,7 @@ impl Cur<'_> {
         let n = self.n;
         self.i += 1;
         let mut entries: Vec<(String, Node, usize)> = Vec::new();
+        let mut keys = HashSet::new();
         loop {
             self.spaces();
             let key = match self.peek() {
@@ -439,27 +483,38 @@ impl Cur<'_> {
                 _ => {
                     self.plain_start()?;
                     let start = self.i;
-                    while !matches!(self.peek(), None | Some(':' | ',' | '}' | '[' | ']' | '{')) {
-                        self.i += 1;
+                    // As a flow plain scalar ends (above): `{a:b}` is the key `a:b`.
+                    loop {
+                        match self.peek() {
+                            None | Some(',' | '?' | '[' | ']' | '{' | '}') => break,
+                            Some(':') if matches!(self.at(1), None | Some(' ' | '\t')) => break,
+                            Some(' ' | '\t') if self.at(1) == Some('#') => break,
+                            _ => self.i += 1,
+                        }
                     }
                     self.text(start, self.i).trim_end().to_string()
                 }
             };
             self.spaces();
-            if self.peek() != Some(':') {
-                bail!("line {n}: expected `:` after a key in a flow mapping");
-            }
-            self.i += 1;
             if key == "<<" {
                 bail!("line {n}: a merge key (`<<`)");
             }
-            if entries.iter().any(|(k, _, _)| *k == key) {
+            if !keys.insert(key.clone()) {
                 bail!("line {n}: the key {key:?} twice");
             }
-            self.spaces();
             let value = match self.peek() {
+                // A key with no `:` has a null value.
                 Some(',' | '}') => Node::Null,
-                _ => self.value(true, depth + 1)?,
+                Some(':') => {
+                    self.i += 1;
+                    self.spaces();
+                    match self.peek() {
+                        Some(',' | '}') => Node::Null,
+                        _ => self.value(true, depth + 1)?,
+                    }
+                }
+                None | Some('#') => bail!("line {n}: a flow collection over several lines"),
+                Some(c) => bail!("line {n}: unexpected {c:?} in a flow mapping"),
             };
             entries.push((key, value, n));
             if self.flow_end('}')? {
@@ -527,7 +582,7 @@ mod tests {
                 ]),
             ),
             ("~", Node::Null),
-            ("NuLL", Node::Null),
+            ("Null", Node::Null),
             ("'null'", s("null")),
             ("", Node::Null),
             ("# only a comment", Node::Null),
@@ -644,19 +699,19 @@ gui: |
                 "holding a mapping",
             ),
             (
-                "keybinding:\n  u:\n    quit:\n      - [a]\n",
+                "keybinding:\n  u:\n    quit:\n      - { a: b }\n",
                 4,
-                "collection",
+                "holding a mapping",
             ),
             (
-                "keybinding:\n  u:\n    quit:\n      -\n        x\n",
+                "keybinding:\n  u:\n    quit:\n      -\n        a: b\n",
                 4,
-                "holding a block",
+                "holding a mapping",
             ),
             (
-                "keybinding:\n  u:\n    quit: [[a]]\n",
+                "keybinding:\n  u:\n    quit: [[a], {a: b}]\n",
                 3,
-                "holding a collection",
+                "holding a mapping",
             ),
             (
                 "keybinding:\n  u:\n    quit: a: b\n",
@@ -693,6 +748,85 @@ gui: |
             let e = err(text);
             assert!(e.starts_with(&format!("line {line}: ")), "{text:?}: {e}");
             assert!(e.contains(what), "{text:?}: {e}");
+        }
+    }
+
+    #[test]
+    fn yaml_v3_corners() {
+        // A list at its key's column is the key's value; the next key ends it.
+        let text = "keybinding:\n  u:\n    quit:\n    - a\n    - b\n    edit: e\n";
+        assert_eq!(
+            keybinding(text).unwrap(),
+            Some(Node::Map(vec![(
+                "u".into(),
+                Node::Map(vec![
+                    ("quit".into(), Node::Seq(vec![s("a"), s("b")]), 3),
+                    ("edit".into(), s("e"), 6),
+                ]),
+                2
+            )]))
+        );
+        // Lists of lists (jumpToBlock): flow in flow, flow items, block items.
+        let ab = || Node::Seq(vec![s("1"), s("!")]);
+        assert_eq!(
+            field("[['1', '!'], '2']").unwrap(),
+            Node::Seq(vec![ab(), s("2")])
+        );
+        let text = "keybinding:\n  u:\n    j:\n      - ['1', '!']\n      -\n        - '1'\n        - '!'\n      - '2'\n";
+        let Some(Node::Map(top)) = keybinding(text).unwrap() else {
+            panic!()
+        };
+        let Node::Map(u) = &top[0].1 else { panic!() };
+        assert_eq!(u[0].1, Node::Seq(vec![ab(), ab(), s("2")]));
+        // A BOM; text that isn't UTF-8.
+        assert!(keybinding_of(b"\xef\xbb\xbfkeybinding:\n  u:\n    q: x\n")
+            .unwrap()
+            .is_some());
+        let e = keybinding_of(b"keybinding:\n  u:\n    q: \xff\n").unwrap_err();
+        assert!(format!("{e}").contains("not UTF-8"), "{e}");
+        // Flow keys end at `:` before a blank or at a flow indicator: `{a:b}` is a key with no value.
+        assert_eq!(
+            field("{a:b, c: d, e}").unwrap(),
+            Node::Map(vec![
+                ("a:b".into(), Node::Null, 3),
+                ("c".into(), s("d"), 3),
+                ("e".into(), Node::Null, 3)
+            ])
+        );
+        assert_eq!(field("[a:b]").unwrap(), Node::Seq(vec![s("a:b")]));
+        // A `[` or `{` inside a flow plain scalar ends it, and nothing may follow.
+        for v in ["[a[b]", "[a{b]", "{a{b: c}", "[a?b]"] {
+            assert!(field(v).is_err(), "{v}");
+        }
+        // Escapes take hex digits only.
+        for v in [r#""\x+4""#, r#""\u+041""#, r#""\x4g""#] {
+            assert!(
+                format!("{:#}", field(v).unwrap_err()).contains("escape"),
+                "{v}"
+            );
+        }
+        assert_eq!(field(r#""\u0041\x42""#).unwrap(), s("AB"));
+        // Directives before the first `---`.
+        assert!(
+            keybinding("%YAML 1.2\n%TAG ! tag:x,2000:\n---\nkeybinding:\n  u:\n    q: x\n")
+                .unwrap()
+                .is_some()
+        );
+        assert!(err("%YAML 1.2\nkeybinding:\n").contains("line 2: a directive"));
+        // yaml.v3's nulls only.
+        for v in ["~", "null", "Null", "NULL"] {
+            assert_eq!(field(v).unwrap(), Node::Null, "{v}");
+        }
+        for v in ["nULL", "nuLL", "NUll"] {
+            assert_eq!(field(v).unwrap(), s(v), "{v}");
+        }
+        // A `...` document end is skipped.
+        assert!(keybinding("keybinding:\n  u:\n    q: x\n...\n")
+            .unwrap()
+            .is_some());
+        // Indicators that can't start a plain value.
+        for v in ["? x", ": x", "%x", "!x", ",x", "]x"] {
+            assert!(field(v).is_err(), "{v}");
         }
     }
 

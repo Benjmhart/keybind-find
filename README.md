@@ -424,8 +424,9 @@ unbind; a row left with no key isn't listed. lazygit re-reads its files when the
 
 The files are YAML, and keybind-find reads only their `keybinding:` section, with a small reader of the YAML lazygit's
 own docs use there: nested `key: value` lines, plain and quoted values, one-line `[a, b]` lists and `{ a: b }`
-mappings, `- a` lists and comments (the rest of the file is skipped unread). Inside `keybinding:` anchors, aliases,
-tags, `|` and `>` blocks, a list or mapping over several lines, a duplicate key, or a mapping where keys belong make
+mappings, `- a` lists (also at the key's own column) and comments (the rest of the file is skipped unread). Inside `keybinding:` anchors, aliases,
+tags, `|` and `>` blocks, a list or mapping over several lines, a duplicate key, a mapping where keys belong, a
+section left empty (lazygit refuses its null) or text that isn't UTF-8 make
 keybind-find skip that file's keys, with one line naming the file and line; the other files still count. A section
 or key lazygit doesn't have gets one line and is ignored, as lazygit ignores it (an old name lazygit renames when it
 loads a file, such as `executeCustomCommand`, is one: lazygit writes the new name back into the file). There is no
