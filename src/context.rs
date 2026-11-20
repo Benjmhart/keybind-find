@@ -1383,7 +1383,7 @@ fn foreground_of(child: &str, proc: &std::path::Path) -> Option<Foreground> {
     let stat = std::fs::read_to_string(proc.join(format!("{child}/stat"))).ok();
     let tpgid = stat.as_deref().and_then(tpgid);
     // Without a terminal (`tpgid` -1), the child's own group.
-    let group = tpgid
+    let members = tpgid
         .or_else(|| stat.as_deref().and_then(|s| stat_field(s, 2)))
         .map(group_comms)
         .unwrap_or_default();
@@ -1398,10 +1398,23 @@ fn foreground_of(child: &str, proc: &std::path::Path) -> Option<Foreground> {
             if let (Ok(pid), true) = (pid.parse(), is_editor_comm(&comm)) {
                 found_editor(pid);
             }
+            let group = in_front(&comm, members);
             return Some(Foreground { comm, group });
         }
     }
     None
+}
+
+/// The group's programs the user can be typing into. lf runs `$` and `!` commands in its own group with the terminal
+/// as their input, but also its previewer, its cleaner and what a `$` command leaves running in the background (a
+/// GUI app opened with `&`), with other input: under lf, only lf and what reads the terminal count.
+/// `members` is each process's comm and whether its standard input is a terminal.
+fn in_front(leader: &str, members: Vec<(String, bool)>) -> Vec<String> {
+    members
+        .into_iter()
+        .filter(|(c, tty)| leader != "lf" || c == "lf" || *tty)
+        .map(|(c, _)| c)
+        .collect()
 }
 
 /// The rest of the several-children warning when kitty can't be asked.
@@ -1617,7 +1630,7 @@ fn kitty_focused_pid(ls: &str, x_window: Option<&str>) -> anyhow::Result<Option<
 /// The `comm` of every process in process group `pgrp`, from `/proc/*/stat`. Debian's man runs less as `pager`
 /// (an alternatives link), so a `pager` is named by the program it runs.
 /// ponytail: reads every process's stat, a few ms; fine once per keypress.
-fn group_comms(pgrp: u32) -> Vec<String> {
+fn group_comms(pgrp: u32) -> Vec<(String, bool)> {
     let Ok(procs) = std::fs::read_dir("/proc") else {
         return Vec::new();
     };
@@ -1636,10 +1649,14 @@ fn group_comms(pgrp: u32) -> Vec<String> {
                 if let Some(name) = exe.ok().as_deref().and_then(std::path::Path::file_name) {
                     // A binary replaced since it started (an upgrade) reads `less (deleted)`.
                     let name = name.to_string_lossy();
-                    return Some(name.trim_end_matches(" (deleted)").to_string());
+                    return Some((name.trim_end_matches(" (deleted)").to_string(), false));
                 }
             }
-            Some(comm.to_string())
+            // Another user's fd can't be read: not a terminal.
+            let tty = std::fs::read_link(p.path().join("fd/0")).is_ok_and(|t| {
+                t.starts_with("/dev/pts/") || t.to_string_lossy().starts_with("/dev/tty")
+            });
+            Some((comm.to_string(), tty))
         })
         .collect()
 }
@@ -2014,6 +2031,25 @@ mod tests {
         assert_eq!(
             lf(&["lf", "sh", "less"]),
             ["xmonad", "espanso", "alacritty", "less", "sheets"]
+        );
+        // Under lf, a process not reading the terminal (a previewer, a GUI app left by `$ … &`) is left out of the
+        // group; under any other leader, nothing is.
+        let m = |v: &[(&str, bool)]| {
+            v.iter()
+                .map(|(c, t)| (c.to_string(), *t))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            in_front("lf", m(&[("lf", true), ("sh", false), ("chafa", false)])),
+            ["lf"]
+        );
+        assert_eq!(
+            in_front("lf", m(&[("lf", true), ("sh", true), ("vim", true)])),
+            ["lf", "sh", "vim"]
+        );
+        assert_eq!(
+            in_front("man", m(&[("man", true), ("less", false)])),
+            ["man", "less"]
         );
     }
 

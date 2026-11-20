@@ -74,12 +74,14 @@ type Environ = BTreeMap<String, String>;
 /// A process's environment (`/proc/<pid>/environ`), `None` when it can't be read.
 fn environ(dir: &Path) -> Option<Environ> {
     let b = std::fs::read(dir.join("environ")).ok()?;
-    Some(
-        nul_split(&b)
-            .into_iter()
-            .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))
-            .collect(),
-    )
+    let mut env = Environ::new();
+    for kv in nul_split(&b) {
+        if let Some((k, v)) = kv.split_once('=') {
+            // Go's `os.Getenv` takes the first of a name given twice.
+            env.entry(k.into()).or_insert_with(|| v.into());
+        }
+    }
+    Some(env)
 }
 
 /// lf's keys by mode: lf's key string → the bound expression's text (`String()`).
@@ -103,11 +105,14 @@ fn live(pid: u32, lf: &str, environ: Option<&Environ>) -> anyhow::Result<Option<
         cmd.args(["-remote", &query])
             .env("LC_ALL", "C.UTF-8")
             .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
-        match environ.map(|e| e.get("XDG_RUNTIME_DIR")) {
-            Some(Some(dir)) => cmd.env("XDG_RUNTIME_DIR", dir),
-            Some(None) => cmd.env_remove("XDG_RUNTIME_DIR"),
-            None => &mut cmd,
-        };
+        // Without `XDG_RUNTIME_DIR`, lf's socket is under `os.TempDir()`, which is `TMPDIR`'s.
+        for var in ["XDG_RUNTIME_DIR", "TMPDIR"] {
+            match environ.map(|e| e.get(var)) {
+                Some(Some(v)) => cmd.env(var, v),
+                Some(None) => cmd.env_remove(var),
+                None => &mut cmd,
+            };
+        }
         run_for(cmd, TIMEOUT).with_context(|| format!("asking lf ({lf} -remote \"{query}\")"))
     };
     let Some(maps) = rows(&ask("maps")?).context("lf's maps")? else {
@@ -260,11 +265,21 @@ fn fallback(
         Some(c) => ev.resolve(&c, "-config").into_iter().collect(),
         None => {
             // `cmp.Or`: the first that is set and not empty (os.go:86-90).
-            let home = ["LF_CONFIG_HOME", "XDG_CONFIG_HOME"]
+            // A relative one that can't be resolved reads no user lfrc: lf would not read `~/.config`'s.
+            let home = match ["LF_CONFIG_HOME", "XDG_CONFIG_HOME"]
                 .iter()
                 .find_map(|k| getenv(k).filter(|v| !v.is_empty()))
-                .and_then(|h| ev.resolve(&h, "config home"))
-                .or_else(|| ev.home.as_ref().map(|h| Path::new(h).join(".config")));
+            {
+                Some(h) => ev.resolve(&h, "config home"),
+                None => {
+                    let h = ev.home.as_ref().map(|h| Path::new(h).join(".config"));
+                    if h.is_none() {
+                        ev.notes
+                            .push("no home directory: the user's lfrc isn't read".into());
+                    }
+                    h
+                }
+            };
             [Some(system.to_path_buf()), home.map(|h| h.join("lf/lfrc"))]
                 .into_iter()
                 .flatten()
@@ -1466,20 +1481,23 @@ mod tests {
         let lf = fake_lf(
             "answer",
             &format!(
-                "printf '%s %s\\n' \"$2\" \"$XDG_RUNTIME_DIR\" >> '{}'\ncase \"$2\" in 'query 4242 maps') cat '{}' ;; 'query 4242 cmaps') cat '{}' ;; *) exit 3 ;; esac",
+                "printf '%s %s %s\\n' \"$2\" \"$XDG_RUNTIME_DIR\" \"$TMPDIR\" >> '{}'\ncase \"$2\" in 'query 4242 maps') cat '{}' ;; 'query 4242 cmaps') cat '{}' ;; *) exit 3 ;; esac",
                 log.display(),
                 fixture_path("maps.txt").display(),
                 fixture_path("cmaps.txt").display(),
             ),
         );
         let lf = lf.display().to_string();
-        let lf_env = Environ::from([("XDG_RUNTIME_DIR".into(), "/lf-run".into())]);
+        let lf_env = Environ::from([
+            ("XDG_RUNTIME_DIR".into(), "/lf-run".into()),
+            ("TMPDIR".into(), "/lf-tmp".into()),
+        ]);
         let got = live(4242, &lf, Some(&lf_env)).unwrap().unwrap();
         assert_eq!(got, want);
         // Two queries and nothing else, with lf's own runtime directory (its socket's).
         assert_eq!(
             std::fs::read_to_string(&log).unwrap(),
-            "query 4242 maps /lf-run\nquery 4242 cmaps /lf-run\n"
+            "query 4242 maps /lf-run /lf-tmp\nquery 4242 cmaps /lf-run /lf-tmp\n"
         );
         // Through `sheet_with`: the answer is the sheet, and the home's lfrc (`map a home`) isn't read.
         let home = format!("HOME={}/home", root.display());
@@ -1488,6 +1506,30 @@ mod tests {
         assert!(find(&s, "a", "normal,visual").is_empty());
         assert_eq!(left_out(&notes), 7, "{notes:?}");
         assert_eq!(notes.len(), 1, "{notes:?}");
+        // lf's environment has neither variable: both removed, whatever keybind-find's own are.
+        assert!(std::fs::read_to_string(&log)
+            .unwrap()
+            .ends_with("query 4242 maps  \nquery 4242 cmaps  \n"),);
+        // `cmaps` failing after a good `maps`: the whole answer is dropped, with one note.
+        let half = fake_lf(
+            "half",
+            &format!(
+                "case \"$2\" in *' maps') cat '{}' ;; *) exit 1 ;; esac",
+                fixture_path("maps.txt").display()
+            ),
+        );
+        let (s, notes) = sheet_with(
+            Some(4242),
+            &proc,
+            &half.display().to_string(),
+            &root.join("etc/lfrc"),
+            &|_| None,
+        );
+        assert_eq!(desc(&s, "a", "normal,visual"), "home");
+        assert!(
+            notes[0].contains("cmaps") && notes[0].ends_with("reading lfrc instead"),
+            "{notes:?}"
+        );
         let (s, notes) = finish(&got, Vec::new());
         assert_eq!(desc(&s, "shift+y", "normal"), "e2e-live");
         assert_eq!(desc(&s, "shift+x", "normal"), "quit");
@@ -1568,6 +1610,8 @@ mod tests {
         let empty = crate::test_tmp().join(format!("kbf-lf-empty-{}", std::process::id()));
         std::fs::create_dir_all(&empty).unwrap();
         let none = |_: &str| None;
+        let home = format!("HOME={}", empty.display());
+        let home = [home.as_str()];
         for (name, body, says) in [
             ("exit", "exit 1", "asking lf"),
             ("hang", "exec sleep 5", "asking lf"),
@@ -1583,7 +1627,7 @@ mod tests {
             ),
         ] {
             let lf = fake_lf(name, body);
-            let proc = fake_proc(name, &["lf"], Some(&[]), &empty);
+            let proc = fake_proc(name, &["lf"], Some(&home), &empty);
             let started = std::time::Instant::now();
             let (s, notes) = sheet_with(
                 Some(4242),
@@ -1602,7 +1646,7 @@ mod tests {
         }
         // An empty answer (lf hasn't run a shell command yet) falls back without a word; lf not on PATH says so.
         let lf = fake_lf("empty", "exit 0");
-        let proc = fake_proc("empty", &["lf"], Some(&[]), &empty);
+        let proc = fake_proc("empty", &["lf"], Some(&home), &empty);
         let (_, notes) = sheet_with(
             Some(4242),
             &proc,
@@ -1628,7 +1672,9 @@ mod tests {
             &empty.join("no"),
             &none,
         );
-        assert_eq!(notes.len(), 1, "{notes:?}");
+        // Not asked: only the left-out count, and keybind-find's own (empty) environment has no home.
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert!(notes[0].contains("no home directory"), "{notes:?}");
     }
 
     #[test]
@@ -1849,6 +1895,34 @@ mod tests {
         let (s, notes) = sheet_with(None, &root, "/nonexistent/lf", &root.join("etc/lfrc"), &env);
         assert_eq!(desc(&s, "a", "normal,visual"), "home");
         assert_eq!(left_out(&notes), 5, "{notes:?}");
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        // No home at all: the system file only, and a line saying so.
+        let (_, notes) = sheet_with(
+            None,
+            &root,
+            "/nonexistent/lf",
+            &root.join("etc/lfrc"),
+            &|_| None,
+        );
+        assert!(
+            notes.iter().any(|n| n.contains("no home directory")),
+            "{notes:?}"
+        );
+        // A relative config home with lf's directory unknown: no user lfrc, not `~/.config`'s.
+        let home = format!("{}/home", root.display());
+        let env = move |k: &str| match k {
+            "HOME" => Some(home.clone()),
+            "LF_CONFIG_HOME" => Some("rel".into()),
+            _ => None,
+        };
+        let (s, notes) = sheet_with(None, &root, "/nonexistent/lf", &root.join("etc/lfrc"), &env);
+        assert_eq!(desc(&s, "a", "normal,visual"), "etc");
+        assert!(
+            notes
+                .iter()
+                .any(|n| n.contains("lf's directory is unknown")),
+            "{notes:?}"
+        );
     }
 
     #[test]
