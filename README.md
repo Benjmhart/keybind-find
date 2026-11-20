@@ -892,7 +892,7 @@ conflict with an earlier one (a key that is both a chain's start and a key of it
 `xi:include` elements.
 
 Limits: Openbox has no command that prints its bindings, so the list is not checked against a report of Openbox's own
-(the e2e test checks one key and the pick). The file is read as it is now: an edit Openbox hasn't loaded yet
+(the e2e test checks a key, a chain and the pick, with Openbox started with `--config-file`). The file is read as it is now: an edit Openbox hasn't loaded yet
 (`openbox --reconfigure`) is listed early. The XML is read strictly: a file Openbox reads with libxml2's error recovery
 is skipped here with its line, and a DOCTYPE with its own entities or an `xi:include` isn't followed. An action name
 Openbox doesn't know is listed, though Openbox binds nothing for it. A shifted symbol other than a letter (`W-exclam`)

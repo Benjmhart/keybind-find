@@ -1738,20 +1738,38 @@ fn parse_xprop(text: &str) -> Props {
     props
 }
 
-/// The double-quoted strings in an xprop value, with xprop's `\"` and `\\` escapes undone.
+/// The double-quoted strings in an xprop value, with xprop's escapes undone: `\"`, `\\`, `\n`, `\t`, and `\ooo`, the
+/// octal byte it writes for a character it can't print (xprop's `_format_char`).
 pub(crate) fn quoted(value: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut chars = value.chars();
     while chars.by_ref().any(|c| c == '"') {
-        let mut s = String::new();
+        let mut s = Vec::new();
+        let push =
+            |s: &mut Vec<u8>, c: char| s.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
         while let Some(c) = chars.next() {
             match c {
                 '"' => break,
-                '\\' => s.extend(chars.next()),
-                c => s.push(c),
+                '\\' => match chars.next() {
+                    Some('n') => s.push(b'\n'),
+                    Some('t') => s.push(b'\t'),
+                    Some(d @ '0'..='3') => {
+                        let rest = chars.as_str().as_bytes();
+                        match rest.get(..2) {
+                            Some([a @ b'0'..=b'7', b @ b'0'..=b'7']) => {
+                                s.push((d as u8 - b'0') << 6 | (a - b'0') << 3 | (b - b'0'));
+                                chars.nth(1);
+                            }
+                            _ => push(&mut s, d),
+                        }
+                    }
+                    Some(c) => push(&mut s, c),
+                    None => {}
+                },
+                c => push(&mut s, c),
             }
         }
-        out.push(s);
+        out.push(String::from_utf8_lossy(&s).into_owned());
     }
     out
 }
@@ -3983,6 +4001,15 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         let p = parse_xprop(text);
         assert_eq!(p.class.as_deref(), Some("Vivaldi-stable"));
         assert_eq!(p.title.as_deref(), Some(r#"a\b"c é — "quoted", too"#));
+    }
+
+    #[test]
+    fn xprop_octal_and_control_escapes() {
+        // xprop writes a byte it can't print as `\ooo`, and a newline and a tab as `\n` and `\t`.
+        assert_eq!(
+            quoted(r#""\303\251\n\t\033x\7" "\\303""#),
+            ["é\n\t\u{1b}x7", "\\303"]
+        );
     }
 
     #[test]

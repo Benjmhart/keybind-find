@@ -11,11 +11,21 @@
 
 use crate::context::{quoted, run, Context};
 use crate::sheet::{chord, Bind, Sheet};
+use std::collections::{HashMap, HashSet};
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// A file bigger than this isn't read.
 const MAX_SIZE: u64 = 4 << 20;
+
+/// Elements nested deeper than this don't load: libxml2's limit without `XML_PARSE_HUGE` (`parser.c:1993` `nodePush`
+/// at v2.15.1; Openbox passes `NOBLANKS | RECOVER` only, `obt/xml.c:153-156`).
+const MAX_DEPTH: usize = 256;
+
+/// Keys read (each key of a chain counted) before the rest are left out: `key="a b c …"` alternatives multiply down a
+/// chain.
+const MAX_KEYS: usize = 5000;
 
 /// Openbox's own keys when no rc.xml has a `<keyboard>` (or none loads): `bind_default_keyboard`,
 /// `openbox/config.c:988-1001` at `release-3.6.1`.
@@ -30,36 +40,59 @@ const CATEGORY: &str = "openbox";
 type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 
 pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
-    // No X, no xprop or no property: the XDG lookup, as Openbox does without `--config-file`.
-    let prop = run("xprop", &["-root", "_OB_CONFIG_FILE"]).ok();
-    let (sheet, notes) = read(prop.as_deref(), &|k| std::env::var(k).ok());
+    // No property: the XDG lookup, as Openbox does without `--config-file`.
+    let prop = run("xprop", &["-root", "_OB_CONFIG_FILE"]).map_err(|e| format!("{e:#}"));
+    let (sheet, notes) = read(prop.as_deref().map_err(String::as_str), &|k| {
+        std::env::var(k).ok()
+    });
     for note in notes {
-        eprintln!("keybind-find: openbox: {note}");
+        eprintln!("keybind-find: openbox: {}", printable(&note));
     }
     Ok(sheet)
 }
 
-/// The sheet from the file Openbox picks (`prop`: `xprop -root _OB_CONFIG_FILE`'s output; `env`: keybind-find's
-/// environment), and the stderr notes.
-fn read(prop: Option<&str>, env: Env) -> (Sheet, Vec<String>) {
+/// `s` with control characters escaped: a note quotes a file's text and a root-window property any X client can set.
+fn printable(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_control() {
+                c.escape_debug().to_string()
+            } else {
+                c.to_string()
+            }
+        })
+        .collect()
+}
+
+/// The sheet from the file Openbox picks (`prop`: `xprop -root _OB_CONFIG_FILE`'s output, or why it failed; `env`:
+/// keybind-find's environment), and the stderr notes.
+fn read(prop: Result<&str, &str>, env: Env) -> (Sheet, Vec<String>) {
     let mut notes = Vec::new();
     // `openbox/openbox.c:245-256`: the `--config-file` file, or else the first `openbox/rc.xml` of the config dirs.
+    // Each with whether its absence is said.
     let mut candidates = Vec::new();
-    match prop.and_then(property_path) {
-        Some(p) if p.is_absolute() => candidates.push(p),
-        Some(p) => notes.push(format!(
-            "_OB_CONFIG_FILE names a relative path ({}); reading rc.xml from the XDG config dirs",
+    match prop.map(property_path) {
+        Err(e) => notes.push(format!(
+            "couldn't read _OB_CONFIG_FILE ({e}); looking in the XDG config dirs"
+        )),
+        Ok(Some(p)) if p.is_absolute() => candidates.push((p, true)),
+        Ok(Some(p)) => notes.push(format!(
+            "_OB_CONFIG_FILE names a relative path ({}); looking in the XDG config dirs",
             p.display()
         )),
-        None => {}
+        Ok(None) => {}
     }
     candidates.extend(
         config_dirs(env)
             .into_iter()
-            .map(|d| d.join("openbox/rc.xml")),
+            .map(|d| (d.join("openbox/rc.xml"), false)),
     );
-    for path in candidates {
+    for (path, said) in candidates {
         match load(&path) {
+            Ok(None) if said => notes.push(format!(
+                "_OB_CONFIG_FILE names {}, which doesn't exist; looking in the XDG config dirs",
+                path.display()
+            )),
             Ok(None) => {}
             Ok(Some((root, includes))) => {
                 let (sheet, left) = keyboard(&root, includes);
@@ -209,8 +242,12 @@ fn parse_xml(text: &str) -> Result<(Element, usize), String> {
         };
         if let Some(body) = rest.strip_prefix("<!--") {
             let n = body
-                .find("-->")
+                .find("--")
                 .ok_or_else(|| err(pos, "unclosed comment".into()))?;
+            // XML has no `--` in a comment, nor a comment ending `--->`.
+            if !body[n..].starts_with("-->") {
+                return Err(err(pos, "`--` inside a comment".into()));
+            }
             if let Some((_, top, _)) = stack.last_mut() {
                 top.children.push(Node::Comment(body[..n].to_string()));
             }
@@ -227,11 +264,31 @@ fn parse_xml(text: &str) -> Result<(Element, usize), String> {
         } else if rest.starts_with("<?") {
             pos += until("?>", "processing instruction")? + 2;
         } else if rest.starts_with("<!DOCTYPE") {
-            let n = until(">", "DOCTYPE")?;
-            if rest[..n].contains('[') {
-                return Err(err(pos, "a DOCTYPE with an internal subset".into()));
+            // Its end: the first `>` outside a quoted system or public id.
+            let mut quote = None;
+            let mut end = None;
+            for (i, c) in rest.char_indices() {
+                match (quote, c) {
+                    (Some(q), c) if c == q => quote = None,
+                    (Some(_), _) => {}
+                    (None, '"' | '\'') => quote = Some(c),
+                    (None, '[') => {
+                        return Err(err(pos, "a DOCTYPE with an internal subset".into()))
+                    }
+                    (None, '>') => {
+                        end = Some(i);
+                        break;
+                    }
+                    _ => {}
+                }
             }
-            pos += n + 1;
+            pos += end.ok_or_else(|| err(pos, "unclosed DOCTYPE".into()))? + 1;
+        } else if rest.starts_with("<!") {
+            return Err(err(
+                pos,
+                "markup this reader doesn't take (`<!` other than a comment, CDATA or DOCTYPE)"
+                    .into(),
+            ));
         } else if let Some(body) = rest.strip_prefix("</") {
             let n = body
                 .find('>')
@@ -253,6 +310,13 @@ fn parse_xml(text: &str) -> Result<(Element, usize), String> {
             }
             if el.name == "include" {
                 includes += 1;
+            }
+            // Bounded, so dropping the tree and walking chains can't overflow the stack.
+            if stack.len() >= MAX_DEPTH {
+                return Err(err(
+                    start,
+                    format!("elements nested deeper than {MAX_DEPTH}"),
+                ));
             }
             if empty {
                 close(&mut stack, &mut root, el);
@@ -340,9 +404,11 @@ fn start_tag(s: &str) -> Result<(&str, Element, bool, usize), String> {
         if body[..end].contains('<') {
             return Err(format!("a `<` in an attribute value of <{qname}>"));
         }
+        // Attribute-value normalisation: a literal tab or newline is a space (a CR is already a newline).
+        let value = body[..end].replace(['\t', '\n'], " ");
         el.attrs.push((
             local(aname).to_string(),
-            unescape(&body[..end]).map_err(|(_, why)| why)?,
+            unescape(&value).map_err(|(_, why)| why)?,
         ));
         i = s.len() - body.len() + end + 1;
     }
@@ -354,37 +420,46 @@ fn unescape(s: &str) -> Result<String, (usize, String)> {
     let mut rest = s;
     while let Some(amp) = rest.find('&') {
         out.push_str(&rest[..amp]);
+        let at = s.len() - rest.len() + amp;
         let after = &rest[amp + 1..];
-        let semi = after.find(';').filter(|n| *n <= 10).ok_or_else(|| {
-            (
-                s.len() - rest.len() + amp,
-                "a `&` that starts no entity".to_string(),
-            )
-        })?;
-        let name = &after[..semi];
+        let n = after
+            .find(|c: char| !(c.is_alphanumeric() || "#_-.:".contains(c)))
+            .unwrap_or(after.len());
+        if n == 0 || !after[n..].starts_with(';') {
+            return Err((at, "a `&` that starts no entity (write `&amp;`)".into()));
+        }
+        let name = &after[..n];
         let c = match name {
-            "amp" => Some('&'),
-            "lt" => Some('<'),
-            "gt" => Some('>'),
-            "quot" => Some('"'),
-            "apos" => Some('\''),
-            _ => name
-                .strip_prefix("#x")
-                .map(|h| u32::from_str_radix(h, 16))
-                .or_else(|| name.strip_prefix('#').map(str::parse))
-                .and_then(Result::ok)
-                .and_then(char::from_u32),
+            "amp" => '&',
+            "lt" => '<',
+            "gt" => '>',
+            "quot" => '"',
+            "apos" => '\'',
+            _ if name.starts_with('#') => {
+                char_ref(name).ok_or_else(|| (at, format!("a bad character reference &{name};")))?
+            }
+            _ => return Err((at, format!("unknown entity &{name};"))),
         };
-        out.push(c.ok_or_else(|| {
-            (
-                s.len() - rest.len() + amp,
-                format!("unknown entity &{name};"),
-            )
-        })?);
-        rest = &after[semi + 1..];
+        out.push(c);
+        rest = &after[n + 1..];
     }
     out.push_str(rest);
     Ok(out)
+}
+
+/// `#N` or `#xN` (digits only) as a character XML allows (its `Char`: tab, newline, CR, and from U+0020 on, without
+/// surrogates, U+FFFE and U+FFFF).
+fn char_ref(name: &str) -> Option<char> {
+    let (digits, radix) = match name.strip_prefix("#x") {
+        Some(h) => (h, 16),
+        None => (name.strip_prefix('#')?, 10),
+    };
+    if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
+        return None;
+    }
+    let c = char::from_u32(u32::from_str_radix(digits, radix).ok()?)?;
+    matches!(c, '\t' | '\n' | '\r' | '\u{20}'..='\u{d7ff}' | '\u{e000}'..='\u{fffd}' | '\u{10000}'..)
+        .then_some(c)
 }
 
 // --- keybinds ----------------------------------------------------------------------------------------------------
@@ -396,6 +471,8 @@ struct LeftOut {
     unknown: usize,
     conflicts: usize,
     includes: usize,
+    /// More than `MAX_KEYS` keys: the rest weren't read.
+    capped: bool,
 }
 
 impl LeftOut {
@@ -414,11 +491,21 @@ impl LeftOut {
                 self.conflicts,
                 "in conflict with an earlier keybind (Openbox drops it)",
             ),
-            (self.includes, "xi:include elements not followed"),
+            (
+                self.includes,
+                if self.includes == 1 {
+                    "xi:include element not followed"
+                } else {
+                    "xi:include elements not followed"
+                },
+            ),
         ]
         .into_iter()
         .filter(|(n, _)| *n > 0)
         .map(|(n, why)| format!("{n} {why}"))
+        .chain(self.capped.then(|| {
+            format!("every key after the first {MAX_KEYS} (counting each key of a chain)")
+        }))
         .collect();
         (!parts.is_empty()).then(|| format!("leaving out: {}", parts.join(", ")))
     }
@@ -434,29 +521,53 @@ struct Bound {
 #[derive(Default)]
 struct Binds {
     bound: Vec<Bound>,
+    /// Each bound sequence's index in `bound`.
+    leaves: HashMap<Vec<String>, usize>,
+    /// Every sequence with keys bound after it: the proper prefixes of bound sequences, and stubs.
+    inner: HashSet<Vec<String>>,
     left: LeftOut,
+    /// Keys read so far (`MAX_KEYS`).
+    keys: usize,
 }
 
 impl Binds {
+    fn has_leaf_prefix(&self, chords: &[String]) -> bool {
+        (1..chords.len()).any(|n| self.leaves.contains_key(&chords[..n]))
+    }
+
+    /// `chords` and its proper prefixes as having keys after them.
+    fn add_inner(&mut self, chords: &[String]) {
+        for n in 1..=chords.len() {
+            self.inner.insert(chords[..n].to_vec());
+        }
+    }
+
     /// `keyboard_bind` (`openbox/keyboard.c:142-176`) with `tree_find` (`openbox/keytree.c:107-136`): the same
     /// sequence gets the actions appended; one that is a proper prefix of a bound one, or has one as a proper prefix,
     /// is dropped.
     fn bind(&mut self, chords: &[String], category: &str, actions: Vec<String>) {
-        let prefix = |a: &[String], b: &[String]| a.len() < b.len() && b.starts_with(a);
-        if let Some(b) = self.bound.iter_mut().find(|b| b.chords == chords) {
-            b.actions.extend(actions);
-        } else if self
-            .bound
-            .iter()
-            .any(|b| prefix(&b.chords, chords) || prefix(chords, &b.chords))
-        {
+        if let Some(&i) = self.leaves.get(chords) {
+            self.bound[i].actions.extend(actions);
+        } else if self.inner.contains(chords) || self.has_leaf_prefix(chords) {
             self.left.conflicts += 1;
         } else {
+            self.add_inner(&chords[..chords.len().saturating_sub(1)]);
+            self.leaves.insert(chords.to_vec(), self.bound.len());
             self.bound.push(Bound {
                 chords: chords.to_vec(),
                 category: category.into(),
                 actions,
             });
+        }
+    }
+
+    /// A chain whose next key didn't translate: Openbox still binds `chords` then a key-0 node (`tree_build`,
+    /// `openbox/keytree.c:47-66`), which never fires or matches (`:116-119`), so `chords` becomes a chain's start, and
+    /// a later key `chords` conflicts. Dropped, as Openbox drops it, when that is itself a conflict.
+    fn stub(&mut self, chords: &[String]) {
+        if !chords.is_empty() && !self.leaves.contains_key(chords) && !self.has_leaf_prefix(chords)
+        {
+            self.add_inner(chords);
         }
     }
 
@@ -467,7 +578,13 @@ impl Binds {
             return;
         };
         let nested: Vec<&Element> = kb.elements().filter(|e| e.name == "keybind").collect();
+        // `config.c:456`: split on single spaces (a newline in the attribute is one already).
         for k in keys.split(' ').filter(|k| !k.is_empty()) {
+            if self.keys >= MAX_KEYS {
+                self.left.capped = true;
+                return;
+            }
+            self.keys += 1;
             let c = match translate(k) {
                 Ok(c) => c,
                 Err(why) => {
@@ -476,6 +593,15 @@ impl Binds {
                         Why::Keycode => &mut self.left.keycodes,
                         Why::Unknown => &mut self.left.unknown,
                     } += 1;
+                    // ponytail: "binds something" is read one level deep (a nested keybind or a named action);
+                    // walk the whole subtree if a report shows a chain of only empty keybinds.
+                    if !nested.is_empty()
+                        || kb
+                            .elements()
+                            .any(|e| e.name == "action" && describe(e).is_some())
+                    {
+                        self.stub(chords);
+                    }
                     continue;
                 }
             };
@@ -597,16 +723,19 @@ enum Why {
 }
 
 /// The X keysym names `XStringToKeysym` takes (keysymdef.h's and XF86keysym.h's), from keybind-find's table.
+/// ponytail: libX11's other forms (`U20AC`, the Sun/DEC/HP vendor names) aren't taken. Add them if a report shows one.
 fn is_keysym(name: &str) -> bool {
-    if name.is_empty() {
-        return false;
-    }
-    // ponytail: a scan of ~3300 lines per key; libX11's other forms (`U20AC`, the Sun/DEC/HP vendor names) aren't
-    // taken. Add them if a report shows one.
-    crate::portal::KEYSYMS
-        .lines()
-        .filter(|l| !l.starts_with('#') && !l.starts_with("U+"))
-        .any(|l| l.split(' ').next() == Some(name))
+    static NAMES: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    NAMES
+        .get_or_init(|| {
+            crate::portal::KEYSYMS
+                .lines()
+                .filter(|l| !l.starts_with('#') && !l.starts_with("U+"))
+                .filter_map(|l| l.split(' ').next())
+                .filter(|n| !n.is_empty())
+                .collect()
+        })
+        .contains(name)
 }
 
 /// `translate_key` (`openbox/translate.c:105-160`, modifiers `:29-62`): `-`-separated, the last piece the key, the
@@ -632,7 +761,11 @@ fn translate(key: &str) -> Result<String, Why> {
             return Err(Why::Unknown);
         });
     }
-    if name.len() >= 2 && name[..2].eq_ignore_ascii_case("0x") {
+    if name
+        .as_bytes()
+        .get(..2)
+        .is_some_and(|b| b.eq_ignore_ascii_case(b"0x"))
+    {
         return Err(Why::Keycode);
     }
     if !is_keysym(name) {
@@ -930,7 +1063,7 @@ mod tests {
         assert_eq!(left.includes, 1);
         assert_eq!(
             left.note().unwrap(),
-            "leaving out: 1 xi:include elements not followed"
+            "leaving out: 1 xi:include element not followed"
         );
     }
 
@@ -1009,44 +1142,64 @@ mod tests {
         ];
         let env = move |k: &str| vars.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
         let reply = |p: &Path| format!("_OB_CONFIG_FILE(UTF8_STRING) = \"{}\"\n", p.display());
-        let go = |prop: Option<&str>| read(prop, &env);
+        const NONE: &str = "_OB_CONFIG_FILE:  not found.\n";
+        let go = |prop: Result<&str, &str>| read(prop, &env);
 
         // Nothing found: the defaults, and a note.
-        let (sheet, notes) = go(None);
+        let (sheet, notes) = go(Ok(NONE));
         assert_eq!(keys(&sheet), ["alt+Tab", "alt+shift+Tab", "alt+F4"]);
         assert_eq!(notes, ["no rc.xml loads; listing Openbox's built-in keys"]);
         // The property's file.
-        let (sheet, notes) = go(Some(&reply(&lxde)));
+        let (sheet, notes) = go(Ok(&reply(&lxde)));
         assert_eq!(
             (keys(&sheet), notes.len()),
             (vec!["super+l".to_string()], 0)
         );
 
         put(&etc, &rc("W-e"));
-        // The property naming a missing file, no property, or none set: the XDG lookup, silently.
-        for prop in [
-            reply(&d.join("missing.xml")),
-            "_OB_CONFIG_FILE:  not found.\n".to_string(),
-        ] {
-            let (sheet, notes) = go(Some(&prop));
-            assert_eq!(
-                (keys(&sheet), notes.len()),
-                (vec!["super+e".to_string()], 0),
-                "{prop}"
-            );
-        }
-        // A relative path: a note, then the XDG lookup.
-        let (sheet, notes) = go(Some("_OB_CONFIG_FILE(UTF8_STRING) = \"lxde-rc.xml\"\n"));
+        // No property: the XDG lookup, silently.
+        let (sheet, notes) = go(Ok(NONE));
+        assert_eq!(
+            (keys(&sheet), notes.len()),
+            (vec!["super+e".to_string()], 0)
+        );
+        // xprop failing, or the property naming a missing file: said, then the XDG lookup.
+        let (sheet, notes) = go(Err("xprop: unable to open display ''"));
         assert_eq!(keys(&sheet), ["super+e"]);
         assert_eq!(
             notes,
-            ["_OB_CONFIG_FILE names a relative path (lxde-rc.xml); reading rc.xml from the XDG config dirs"]
+            ["couldn't read _OB_CONFIG_FILE (xprop: unable to open display ''); looking in the XDG config dirs"]
         );
+        let missing = d.join("missing.xml");
+        let (sheet, notes) = go(Ok(&reply(&missing)));
+        assert_eq!(keys(&sheet), ["super+e"]);
+        assert_eq!(
+            notes,
+            [format!(
+                "_OB_CONFIG_FILE names {}, which doesn't exist; looking in the XDG config dirs",
+                missing.display()
+            )]
+        );
+        // A relative path: a note, then the XDG lookup.
+        let (sheet, notes) = go(Ok("_OB_CONFIG_FILE(UTF8_STRING) = \"lxde-rc.xml\"\n"));
+        assert_eq!(keys(&sheet), ["super+e"]);
+        assert_eq!(
+            notes,
+            ["_OB_CONFIG_FILE names a relative path (lxde-rc.xml); looking in the XDG config dirs"]
+        );
+        // xprop's octal escapes are undone: a file named `é.xml`.
+        let accent = d.join("é.xml");
+        std::fs::write(&accent, rc("W-z")).unwrap();
+        let escaped = format!(
+            "_OB_CONFIG_FILE(UTF8_STRING) = \"{}/\\303\\251.xml\"\n",
+            d.display()
+        );
+        assert_eq!(keys(&go(Ok(&escaped)).0), ["super+z"]);
         // The home's file first; one of another type is noted and passed over.
         let mine = put(&home, &rc("W-h"));
-        assert_eq!(keys(&go(None).0), ["super+h"]);
+        assert_eq!(keys(&go(Ok(NONE)).0), ["super+h"]);
         std::fs::write(&mine, "<openbox_menu/>").unwrap();
-        let (sheet, notes) = go(None);
+        let (sheet, notes) = go(Ok(NONE));
         assert_eq!(keys(&sheet), ["super+e"]);
         assert_eq!(
             notes,
@@ -1057,7 +1210,7 @@ mod tests {
         );
         // A malformed one too, with its line.
         std::fs::write(&mine, "<openbox_config>\n<keyboard>\n</openbox_config>").unwrap();
-        let (_, notes) = go(None);
+        let (_, notes) = go(Ok(NONE));
         assert_eq!(
             notes,
             [format!(
@@ -1065,10 +1218,276 @@ mod tests {
                 mine.display()
             )]
         );
-        // The property's file that doesn't load: noted, then the XDG lookup.
+        // The property's file that doesn't load: noted, then the XDG lookup (whose home file is still malformed).
+        std::fs::remove_file(&mine).unwrap();
         std::fs::write(&lxde, [0xffu8, 0xfe]).unwrap();
-        let (sheet, notes) = go(Some(&reply(&lxde)));
+        let (sheet, notes) = go(Ok(&reply(&lxde)));
         assert_eq!(keys(&sheet), ["super+e"]);
-        assert_eq!(notes[0], format!("{}: not UTF-8; skipped", lxde.display()));
+        assert_eq!(notes, [format!("{}: not UTF-8; skipped", lxde.display())]);
+        // A directory where the home's rc.xml would be: noted, and the next dir's is used.
+        std::fs::create_dir(&mine).unwrap();
+        let (sheet, notes) = go(Ok(NONE));
+        assert_eq!(keys(&sheet), ["super+e"]);
+        assert_eq!(
+            notes,
+            [format!("{}: not a regular file; skipped", mine.display())]
+        );
+    }
+
+    #[test]
+    fn config_dirs_in_order_and_the_size_cap() {
+        let d = tmp("dirs");
+        let (a, b) = (d.join("a"), d.join("b"));
+        let vars = [
+            (
+                "XDG_CONFIG_HOME".to_string(),
+                d.join("home").display().to_string(),
+            ),
+            (
+                "XDG_CONFIG_DIRS".to_string(),
+                format!("{}:{}", a.display(), b.display()),
+            ),
+        ];
+        let env = move |k: &str| vars.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        let go = || read(Ok("_OB_CONFIG_FILE:  not found.\n"), &env);
+        let first = put(&a, &rc("W-a"));
+        put(&b, &rc("W-b"));
+        assert_eq!(keys(&go().0), ["super+a"]);
+        // A bad first falls through to the second.
+        std::fs::write(&first, "<openbox_config>").unwrap();
+        let (sheet, notes) = go();
+        assert_eq!(keys(&sheet), ["super+b"]);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        // Over 4 MiB isn't read; exactly 4 MiB is.
+        let body = rc("W-c");
+        let pad = |n: usize| format!("{body}{}", " ".repeat(n - body.len()));
+        std::fs::write(&first, pad(MAX_SIZE as usize)).unwrap();
+        assert_eq!(keys(&go().0), ["super+c"]);
+        std::fs::write(&first, pad(MAX_SIZE as usize + 1)).unwrap();
+        let (sheet, notes) = go();
+        assert_eq!(keys(&sheet), ["super+b"]);
+        assert_eq!(
+            notes,
+            [format!("{}: larger than 4 MiB; skipped", first.display())]
+        );
+    }
+
+    #[test]
+    fn notes_escape_control_characters() {
+        assert_eq!(printable("a\u{1b}[31mb\nc é"), "a\\u{1b}[31mb\\nc é");
+    }
+
+    #[test]
+    fn non_ascii_keys_are_unknown() {
+        assert_eq!(translate("W-€"), Err(Why::Unknown));
+        assert_eq!(translate("€"), Err(Why::Unknown));
+        assert_eq!(translate("W-0X26"), Err(Why::Keycode));
+    }
+
+    #[test]
+    fn nesting_is_bounded() {
+        let deep = |n: usize| {
+            format!(
+                "<openbox_config>{}{}</openbox_config>",
+                "<keybind>".repeat(n),
+                "</keybind>".repeat(n)
+            )
+        };
+        assert!(parse_xml(&deep(255)).is_ok());
+        assert_eq!(
+            parse_xml(&deep(300)).unwrap_err(),
+            "line 1: elements nested deeper than 256"
+        );
+        // A chain as deep as the limit allows is read.
+        let chain = format!(
+            "<openbox_config><keyboard>{}<action name=\"Close\"/>{}</keyboard></openbox_config>",
+            "<keybind key=\"a\">".repeat(250),
+            "</keybind>".repeat(250)
+        );
+        let (sheet, _) = binds(&chain);
+        assert_eq!(keys(&sheet), [vec!["a"; 250].join(" ")]);
+    }
+
+    #[test]
+    fn chain_blow_up_is_capped() {
+        let start = std::time::Instant::now();
+        let level = |inner: &str| format!("<keybind key=\"a b c d e f g h\">{inner}</keybind>");
+        let mut body = "<action name=\"Close\"/>".to_string();
+        for _ in 0..8 {
+            body = level(&body);
+        }
+        let (sheet, left) = kb(&body);
+        // ponytail: generous for a debug build under load; the uncapped walk is 8^8 keys.
+        assert!(start.elapsed() < std::time::Duration::from_secs(20));
+        assert!(left.capped);
+        let rows = sheet.binds.values().flatten().count();
+        assert!(rows > 0 && rows < MAX_KEYS, "{rows}");
+        assert_eq!(
+            left.note().unwrap(),
+            "leaving out: every key after the first 5000 (counting each key of a chain)"
+        );
+    }
+
+    #[test]
+    fn a_chain_with_a_failed_key_still_starts_a_chain() {
+        // keytree.c:47-66: `W-a` then a key-0 node, so a later `W-a` conflicts.
+        let (sheet, left) = kb(r#"
+            <keybind key="W-a"><keybind key="Q-x"><action name="Close"/></keybind></keybind>
+            <keybind key="W-a"><action name="Lower"/></keybind>
+            <keybind key="W-a"><keybind key="t"><action name="Raise"/></keybind></keybind>
+        "#);
+        assert_eq!(rows(&sheet), [row("openbox", "super+a t", "Raise")]);
+        assert_eq!((left.unknown, left.conflicts), (1, 1));
+        // A bound key first: the failed chain after it changes nothing; a failed first key never conflicts.
+        let (sheet, left) = kb(r#"
+            <keybind key="W-a"><action name="Lower"/></keybind>
+            <keybind key="W-a"><keybind key="Q-x"><action name="Close"/></keybind></keybind>
+            <keybind key="Q-y"><keybind key="t"><action name="Close"/></keybind></keybind>
+            <keybind key="t"><action name="Raise"/></keybind>
+        "#);
+        assert_eq!(
+            rows(&sheet),
+            [
+                row("openbox", "super+a", "Lower"),
+                row("openbox", "t", "Raise")
+            ]
+        );
+        assert_eq!((left.unknown, left.conflicts), (2, 0));
+    }
+
+    #[test]
+    fn attribute_newlines_split_alternatives() {
+        let (sheet, _) = kb("<keybind key=\"W-a\n   W-b\"><action name=\"Close\"/></keybind>");
+        assert_eq!(keys(&sheet), ["super+a", "super+b"]);
+        let (root, _) = parse_xml("<a b=\"x\ty&#10;z\"/>").unwrap();
+        assert_eq!(root.attr("b"), Some("x y\nz"));
+    }
+
+    #[test]
+    fn character_references() {
+        for (text, want) in [
+            ("&#65;&#x41;&#x1F600;&#9;", Ok("AA😀\t".to_string())),
+            ("&#+65;", Err("a `&` that starts no entity (write `&amp;`)")),
+            (
+                "&#x+41;",
+                Err("a `&` that starts no entity (write `&amp;`)"),
+            ),
+            ("&#0;", Err("a bad character reference &#0;")),
+            ("&#1;", Err("a bad character reference &#1;")),
+            ("&#xD800;", Err("a bad character reference &#xD800;")),
+            ("&#xFFFE;", Err("a bad character reference &#xFFFE;")),
+            ("&#x110000;", Err("a bad character reference &#x110000;")),
+            (
+                "&#99999999999999999999;",
+                Err("a bad character reference &#99999999999999999999;"),
+            ),
+            ("&#;", Err("a bad character reference &#;")),
+            (
+                "&averyveryverylongname;",
+                Err("unknown entity &averyveryverylongname;"),
+            ),
+            ("a && b", Err("a `&` that starts no entity (write `&amp;`)")),
+            ("a &", Err("a `&` that starts no entity (write `&amp;`)")),
+        ] {
+            assert_eq!(
+                unescape(text).map_err(|(_, why)| why),
+                want.map_err(str::to_string),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn xml_error_rows() {
+        for (text, want) in [
+            ("<a><!-- x", "line 1: unclosed comment"),
+            ("<a><!-- x -- y --></a>", "line 1: `--` inside a comment"),
+            ("<a><!-- x ---></a>", "line 1: `--` inside a comment"),
+            ("<a><![CDATA[x</a>", "line 1: unclosed CDATA section"),
+            ("<?xml version='1.0'", "line 1: unclosed processing instruction"),
+            ("<!DOCTYPE a", "line 1: unclosed DOCTYPE"),
+            ("<!DOCTYPE a SYSTEM \"x[y>\" [\n<!ENTITY e 'f'>]>\n<a/>", "line 1: a DOCTYPE with an internal subset"),
+            ("<!ELEMENT a ANY>", "line 1: markup this reader doesn't take (`<!` other than a comment, CDATA or DOCTYPE)"),
+            ("<!doctype a>", "line 1: markup this reader doesn't take (`<!` other than a comment, CDATA or DOCTYPE)"),
+            ("<a></a", "line 1: unclosed end tag"),
+            ("</a>", "line 1: </a> with no open element"),
+            ("x<a/>", "line 1: text outside the root element"),
+            ("<![CDATA[x]]><a/>", "line 1: CDATA outside the root element"),
+            ("<a>\n<command>a && b</command></a>", "line 2: a `&` that starts no entity (write `&amp;`)"),
+            ("<a b=\"&nbsp;\"/>", "line 1: unknown entity &nbsp;"),
+            ("<a b=\"<\"/>", "line 1: a `<` in an attribute value of <a>"),
+            ("<a b=\"x/>", "line 1: an unclosed attribute value in <a>"),
+            ("<a =\"x\"/>", "line 1: a bad attribute in <a>"),
+            ("<a b=\"1\"c=\"2\"/>", "line 1: a bad attribute in <a>"),
+            ("<a>< b/></a>", "line 1: a `<` that starts no tag"),
+            ("<a>\r\n\r\n</b>", "line 3: </b> closes <a>"),
+        ] {
+            assert_eq!(parse_xml(text).unwrap_err(), want, "{text:?}");
+        }
+        // A BOM, and a DOCTYPE with a quoted `>`, are fine.
+        let (root, _) = parse_xml("\u{feff}<!DOCTYPE a SYSTEM \"a>b\"><a/>").unwrap();
+        assert_eq!(root.name, "a");
+    }
+
+    #[test]
+    fn names_are_case_sensitive() {
+        let (sheet, _) = binds(
+            "<openbox_config><Keyboard><keybind key=\"W-a\"><action name=\"Close\"/></keybind></Keyboard></openbox_config>",
+        );
+        assert_eq!(keys(&sheet), ["alt+Tab", "alt+shift+Tab", "alt+F4"]);
+    }
+
+    #[test]
+    fn empty_and_partial_keyboards() {
+        // An empty last <keyboard/> unbinds everything, the defaults too.
+        let (sheet, _) = binds(
+            "<openbox_config><keyboard><keybind key=\"W-a\"><action name=\"Close\"/></keybind></keyboard><keyboard/></openbox_config>",
+        );
+        assert!(sheet.binds.is_empty());
+        let (sheet, left) = kb(r#"
+            <keybind key="W-n"/>
+            <keybind key="W-n"><action name="Close"/></keybind>
+            <keybind key="W-c"><keybind key="a b"><action name="Close"/></keybind></keybind>
+        "#);
+        assert_eq!(keys(&sheet), ["super+n", "super+c a", "super+c b"]);
+        assert_eq!(left, LeftOut::default());
+    }
+
+    #[test]
+    fn category_comments() {
+        let (sheet, _) = kb(r#"
+            <!-- Window
+                 keys -->
+            <keybind key="W-a"><!-- inner --><keybind key="b"><!-- not a title --><action name="Close"/></keybind></keybind>
+            <!--   -->
+            <keybind key="W-c"><action name="Close"/></keybind>
+        "#);
+        assert_eq!(
+            rows(&sheet),
+            [
+                row("Window keys", "super+a b", "Close"),
+                row("Window keys", "super+c", "Close")
+            ]
+        );
+    }
+
+    #[test]
+    fn conflict_note() {
+        let (_, left) = kb(r#"
+            <keybind key="W-c"><action name="Close"/></keybind>
+            <keybind key="W-c"><keybind key="d"><action name="Lower"/></keybind></keybind>
+        "#);
+        assert_eq!(
+            left.note().unwrap(),
+            "leaving out: 1 in conflict with an earlier keybind (Openbox drops it)"
+        );
+        let two = LeftOut {
+            includes: 2,
+            ..LeftOut::default()
+        };
+        assert_eq!(
+            two.note().unwrap(),
+            "leaving out: 2 xi:include elements not followed"
+        );
     }
 }
