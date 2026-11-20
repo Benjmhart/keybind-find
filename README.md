@@ -44,6 +44,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | ranger | its file-browser keys: ranger's default rc.conf (1.9.4's built in, the same since 1.9.3) with `/etc/ranger/rc.conf` and yours on top | none ([below](#ranger)) |
 | lf | its keys in normal, visual and command-line mode, from the running lf when it has them, else lf r42's defaults with your `lfrc` on top | none ([below](#lf)) |
 | lazygit | its keys by panel, as its own keybindings cheatsheet lists them: lazygit 0.66.2's defaults with your `config.yml` and the repo's `.git/lazygit.yml` on top | none ([below](#lazygit)) |
+| nnn | its keys as built (nnn 5.3's), plus the plugin (`;` + key) and bookmark (`b` + key) keys of the running nnn's `NNN_PLUG` and `NNN_BMS` | none ([below](#nnn)) |
 | helix | its keys in normal, select and insert mode: helix's default keymap for its version (25.01.1 and 25.07.1 built in) with your `config.toml` keys merged in | none ([below](#helix)) |
 | ncmpcpp | its keys: ncmpcpp's defaults (0.10.1's built in, the same since 0.9.2) with your `bindings` files on top | none ([below](#ncmpcpp)) |
 | herdr | herdr's defaults for its version, your `config.toml` and plugin commands | none |
@@ -63,7 +64,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | espanso | `espanso match list`; picking a match types its trigger | none |
 | anything else | a sheet you write, or a script that prints one; a global sheet (`"provider": "*"`) lists things with no key, such as macros, that a pick runs (`"run": [argv]`) | [docs/sheets.md](docs/sheets.md) |
 
-nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, lf, lazygit, helix, herdr, tmux, zellij, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
+nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, lf, lazygit, nnn, helix, herdr, tmux, zellij, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
 sway `app_id`, Hyprland `class`); nvim also inside a herdr, tmux or zellij pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
@@ -443,6 +444,22 @@ default. A repo given with `--git-dir`, lazygit started inside a `.git` director
 lazygit is found as the program in the terminal, not inside a tmux, zellij or screen pane or nvim's terminal
 (lazygit.nvim). While lazygit runs an editor (`e`), a shell command (`:`) or a pager, its keys aren't listed: that
 program is in front.
+
+### nnn
+
+Over nnn in a terminal, keybind-find lists nnn's keys under its help screen's sections (`NAVIGATION`,
+`FILTER & PROMPT`, `FILES`, `MISC`). nnn's keys are compiled in, so they are its stock key table for your version
+(`nnn -V`, asked of the focused nnn's own binary, else `nnn` on PATH; 5.3's is built in, the nearest is used with a
+note for another version): a build with changed keys (`O_COLEMAK`, an edited `nnn.h`) isn't seen. On top come your
+plugin keys, `; <key>` under `PLUGIN KEYS` (described by the plugin, without nnn's leading `-`), and bookmark keys,
+`b <key>` under `BOOKMARKS`, from `NNN_PLUG` and `NNN_BMS` as the running nnn read them: from its own environment
+(`/proc/<pid>/environ`; keybind-find's own for `keybind-find dump nnn`, with a note). They are read as nnn reads them:
+a malformed `NNN_PLUG` gives no plugin keys (nnn runs none), a malformed `NNN_BMS` no bookmark keys (nnn won't start
+with it), each with one line; a key with no keysym (a control or non-ASCII byte) is left out with a count. Plugin
+commands and paths are shown, never run. Not listed: Esc and Alt+key (nnn reads them by timing, outside its key
+table), and the second keys nnn's help doesn't list (`b ,`, `b Return`, `; Return`). With type-to-nav on (`-n`, `n` in
+`NNN_OPTS`, or `^N`), a picked letter is typed into the filter: press Esc first. While nnn runs a plugin, a `!` shell,
+the editor or the pager, its keys aren't listed: that program is in front.
 
 ### helix
 

@@ -386,8 +386,60 @@ def lf_report(text):
     return keys
 
 
+# --- nnn --------------------------------------------------------------------------------------------------------------
+# nnn's help screen (show_help, nnn.c:6277-6400 at v5.3): its own token names. `2Esc` is Esc twice.
+NNN_NAMES = {"Up": "Up", "Dn": "Down", "Lt": "Left", "Rt": "Right", "Ret": "Return", "PgUp": "Prior", "PgDn": "Next",
+             "Esc": "Escape", "2Esc": "Escape", "Alt+Esc": "alt+Escape", "Alt": "alt", "Space": "space", "^/": "ctrl+slash",
+             "^]": "ctrl+bracketright", "(,)": "comma", "m-m": "m"}
+NNN_SECTIONS = ("NAVIGATION", "FILTER & PROMPT", "FILES", "MISC")
+
+
+def nnn_keys(tok):
+    """One help-screen key token as keybind-find's keys (a list: `1-8` and `(Sh)Tab` are several); `!token` if not
+    one the table knows."""
+    if tok in NNN_NAMES:
+        return [NNN_NAMES[tok]]
+    if tok == "1-8":
+        return [str(n) for n in range(1, 9)]
+    if tok == "(Sh)Tab":
+        return ["Tab", "shift+Tab"]
+    if len(tok) == 2 and tok[0] == "^" and tok[1].isascii() and tok[1].isalpha():
+        return ["ctrl+" + tok[1].lower()]
+    if len(tok) == 1:
+        mods = []
+        sym = lf_char(tok, mods)
+        if not sym.startswith("?"):
+            return ["+".join(mods + [sym])]
+    return ["!" + tok]
+
+
+def nnn_report(text):
+    """The help screen's keys: each section's `KEYS  description` pairs (split on runs of two or more spaces, the keys
+    on single spaces), then BOOKMARKS as `b KEY` and PLUGIN KEYS as `semicolon KEY` from ` KEY: value` lines; each
+    section ends at a blank line. The art, CONTEXTS, VOLUME, the variables and the version are skipped."""
+    keys, section = set(), None
+    for line in text.splitlines():
+        if not line.strip():
+            section = None
+        elif line.strip() in NNN_SECTIONS + ("BOOKMARKS", "PLUGIN KEYS"):
+            section = line.strip()
+        elif section in ("BOOKMARKS", "PLUGIN KEYS"):
+            m = re.fullmatch(r" (.): .*", line)
+            lead = "b" if section == "BOOKMARKS" else "semicolon"
+            keys.add(f"{lead} {nnn_keys(m.group(1))[0]}" if m else "!line:" + line)
+        elif section:
+            parts = re.split(r" {2,}", line.strip())
+            if len(parts) % 2:
+                keys.add("!line:" + line)
+                continue
+            for ks in parts[::2]:
+                for tok in ks.split(" "):
+                    keys.update(nnn_keys(tok))
+    return keys
+
+
 REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report, "zellij": zellij_report, "awesome": awesome_report,
-           "lf": lf_report}
+           "lf": lf_report, "nnn": nnn_report}
 
 KNOWN = {
     "kitty": [
@@ -428,6 +480,16 @@ KNOWN = {
         ("mode=normal\tmode=visual\t1", "a leading digit is a count (readNormalEvent): lf.rs leaves `map 1` out"),
         ("mode=normal\tmode=visual\tshift+q a", "Q runs before Qa can be typed (findBinds): lf.rs leaves Qa out"),
         ("mode=normal\tshift+y", "bound by on-init in the running lf; the dump's lfrc read runs no hooks"),
+    ],
+    # nextsel (nnn.c:3578-3690) reads Esc outside bindings[]: Esc then a key is `;` + that key (Alt+key), Esc Esc is
+    # `q`, a lone Esc writes NNN_FIFO and a second quits; Alt arrives as Esc only if the terminal sends it so, and the
+    # lone Esc depends on timing: nnn.rs lists none of them.
+    "nnn": [
+        ("Escape", "the help's Esc rows (quit, exit prompt, FIFO): nextsel's Esc handling, not bindings[]"),
+        ("alt+Escape", "the help's `q Alt+Esc`: Esc Esc is `q` in nextsel, not a bindings[] key"),
+        ("alt", "the help's `Alt ;`: Alt+key runs a plugin through nextsel's Esc handling"),
+        ("Home", "KEY_HOME is in bindings[]; the help lists only `g ^A`", "dump"),
+        ("End", "KEY_END is in bindings[]; the help lists only `G ^E`", "dump"),
     ],
 }
 
@@ -651,6 +713,26 @@ def self_test():
         assert fnmatch.fnmatchcase(examples.get(p, p), p), p
     for k in ("mode=normal\tmode=visual\tk", "mode=visual\tshift+y", "mode=command-line\talt+x"):
         assert not [p for p, *_ in lk if fnmatch.fnmatchcase(k, p)], k
+    for tok, want in (("Up", ["Up"]), ("PgDn", ["Next"]), ("Ret", ["Return"]), ("^U", ["ctrl+u"]),
+                      ("^y", ["ctrl+y"]), ("^/", ["ctrl+slash"]), ("^]", ["ctrl+bracketright"]),
+                      ("1-8", [str(n) for n in range(1, 9)]), ("(Sh)Tab", ["Tab", "shift+Tab"]), ("(,)", ["comma"]),
+                      ("m-m", ["m"]), ("Esc", ["Escape"]), ("2Esc", ["Escape"]), ("Alt+Esc", ["alt+Escape"]),
+                      ("Alt", ["alt"]), ("Space", ["space"]), ("'", ["apostrophe"]), ("G", ["shift+g"]),
+                      ("?", ["question"]), ("Fn", ["!Fn"]), ("é", ["!é"])):
+        assert nnn_keys(tok) == want, (tok, nnn_keys(tok))
+    help_text = ("  |V\\_\n (;^; ||\n\n NAVIGATION\n         Up k  Prev              PgUp ^U  Page up\n"
+                 "    q Alt+Esc  Quit context            d  Detail mode toggle\n\n FILTER & PROMPT\n"
+                 "            .  Toggle hidden\n\n MISC\n        Alt ;  Select plugin           =  Launch app\n"
+                 "       (Sh)Tab  Cycle\n stray\n\nCONTEXTS\n 1* /tmp\n\nVOLUME: avail:1G used:1G size:2G\n\n"
+                 "BOOKMARKS\n d: /tmp\n\nPLUGIN KEYS\n x: !echo e2e quit\n F: finder\n\nNNN_TRASH: 1\n\nv5.3\n")
+    assert nnn_report(help_text) == {"Up", "k", "Prior", "ctrl+u", "q", "alt+Escape", "d", "period", "alt",
+                                     "semicolon", "equal", "Tab", "shift+Tab", "!line: stray", "b d", "semicolon x",
+                                     "semicolon shift+f"}, nnn_report(help_text)
+    nk = KNOWN["nnn"]
+    for p, *_ in nk:
+        assert fnmatch.fnmatchcase(p, p), p
+    for k in ("semicolon", "q", "ctrl+q", "Return", "semicolon x", "b d"):
+        assert not [p for p, *_ in nk if fnmatch.fnmatchcase(k, p)], k
     print("oracle.py: self-test ok")
     return 0
 

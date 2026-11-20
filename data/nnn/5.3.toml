@@ -1,0 +1,554 @@
+# nnn's stock keys, read by keybind-find's nnn provider (story 9.3).
+# Source: nnn tag v5.3 (commit 5f1c78b2c591b12fcbdb5b84d16b7ecd28eb12dc), BSD-2-Clause:
+#   src/nnn.h  bindings[] (sym and action, in table order; desc: the comment above each entry)
+#   src/nnn.c  show_help() (category: the help screen section listing the key; desc where the comment only names a key)
+# As Arch builds it (mouse on, no patches). Left out: KEY_MOUSE (not a key) and KEY_ENTER (keypad Enter; '\r' is the
+# same action). Generated from the source at that tag; to support another nnn version, add a file next to this one.
+nnn_version = "5.3"
+source = "nnn@5f1c78b"
+
+[[bind]]
+sym = "KEY_LEFT"
+action = "SEL_BACK"
+desc = "Back"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'h'"
+action = "SEL_BACK"
+desc = "Back"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'\\r'"
+action = "SEL_OPEN"
+desc = "Inside or select"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "KEY_RIGHT"
+action = "SEL_NAV_IN"
+desc = "Pure navigate inside"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'l'"
+action = "SEL_NAV_IN"
+desc = "Pure navigate inside"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'j'"
+action = "SEL_NEXT"
+desc = "Next"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "KEY_DOWN"
+action = "SEL_NEXT"
+desc = "Next"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'k'"
+action = "SEL_PREV"
+desc = "Previous"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "KEY_UP"
+action = "SEL_PREV"
+desc = "Previous"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "KEY_NPAGE"
+action = "SEL_PGDN"
+desc = "Page down"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "KEY_PPAGE"
+action = "SEL_PGUP"
+desc = "Page up"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "CONTROL('D')"
+action = "SEL_CTRL_D"
+desc = "Page down"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "CONTROL('U')"
+action = "SEL_CTRL_U"
+desc = "Page up"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "KEY_HOME"
+action = "SEL_HOME"
+desc = "First entry"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'g'"
+action = "SEL_HOME"
+desc = "First entry"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "CONTROL('A')"
+action = "SEL_HOME"
+desc = "First entry"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "KEY_END"
+action = "SEL_END"
+desc = "Last entry"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'G'"
+action = "SEL_END"
+desc = "Last entry"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "CONTROL('E')"
+action = "SEL_END"
+desc = "Last entry"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'\\''"
+action = "SEL_FIRST"
+desc = "Go to first file"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'J'"
+action = "SEL_JUMP"
+desc = "Jump to an entry number/offset"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "CONTROL('Y')"
+action = "SEL_YOUNG"
+desc = "Next young"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'~'"
+action = "SEL_CDHOME"
+desc = "Go HOME"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'@'"
+action = "SEL_CDBEGIN"
+desc = "Initial directory"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'-'"
+action = "SEL_CDLAST"
+desc = "Last visited dir"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'`'"
+action = "SEL_CDROOT"
+desc = "Go to /"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'b'"
+action = "SEL_BMOPEN"
+desc = "Select bookmark"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "CONTROL('_')"
+action = "SEL_BMOPEN"
+desc = "Select bookmark"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'c'"
+action = "SEL_REMOTE"
+desc = "Connect to server over SSHFS"
+category = "MISC"
+
+[[bind]]
+sym = "'\\t'"
+action = "SEL_CYCLE"
+desc = "Cycle contexts in forward direction"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "KEY_BTAB"
+action = "SEL_CYCLER"
+desc = "Cycle contexts in reverse direction"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'1'"
+action = "SEL_CTX1"
+desc = "Go to/create context 1"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'2'"
+action = "SEL_CTX2"
+desc = "Go to/create context 2"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'3'"
+action = "SEL_CTX3"
+desc = "Go to/create context 3"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'4'"
+action = "SEL_CTX4"
+desc = "Go to/create context 4"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'5'"
+action = "SEL_CTX5"
+desc = "Go to/create context 5"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'6'"
+action = "SEL_CTX6"
+desc = "Go to/create context 6"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'7'"
+action = "SEL_CTX7"
+desc = "Go to/create context 7"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'8'"
+action = "SEL_CTX8"
+desc = "Go to/create context 8"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "','"
+action = "SEL_MARK"
+desc = "Mark a path to visit later"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'B'"
+action = "SEL_BMARK"
+desc = "Create a bookmark"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'/'"
+action = "SEL_FLTR"
+desc = "Filter"
+category = "FILTER & PROMPT"
+
+[[bind]]
+sym = "CONTROL('N')"
+action = "SEL_MFLTR"
+desc = "Toggle filter mode"
+category = "FILTER & PROMPT"
+
+[[bind]]
+sym = "'.'"
+action = "SEL_HIDDEN"
+desc = "Toggle hide .dot files"
+category = "FILTER & PROMPT"
+
+[[bind]]
+sym = "'d'"
+action = "SEL_DETAIL"
+desc = "Detailed listing"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'f'"
+action = "SEL_STATS"
+desc = "File details"
+category = "FILES"
+
+[[bind]]
+sym = "CONTROL('F')"
+action = "SEL_STATS"
+desc = "File details"
+category = "FILES"
+
+[[bind]]
+sym = "'*'"
+action = "SEL_CHMODX"
+desc = "Toggle executable status"
+category = "FILES"
+
+[[bind]]
+sym = "'z'"
+action = "SEL_ARCHIVE"
+desc = "Create archive"
+category = "FILES"
+
+[[bind]]
+sym = "'t'"
+action = "SEL_SORT"
+desc = "Sort toggles"
+category = "MISC"
+
+[[bind]]
+sym = "CONTROL('T')"
+action = "SEL_SORT"
+desc = "Sort toggles"
+category = "MISC"
+
+[[bind]]
+sym = "CONTROL('L')"
+action = "SEL_REDRAW"
+desc = "Redraw window"
+category = "MISC"
+
+[[bind]]
+sym = "' '"
+action = "SEL_SEL"
+desc = "Select current file path"
+category = "FILES"
+
+[[bind]]
+sym = "'+'"
+action = "SEL_SEL"
+desc = "Select current file path"
+category = "FILES"
+
+[[bind]]
+sym = "'m'"
+action = "SEL_SELMUL"
+desc = "Toggle select multiple files"
+category = "FILES"
+
+[[bind]]
+sym = "'a'"
+action = "SEL_SELALL"
+desc = "Select all files in current dir"
+category = "FILES"
+
+[[bind]]
+sym = "'A'"
+action = "SEL_SELINV"
+desc = "Invert selection in current dir"
+category = "FILES"
+
+[[bind]]
+sym = "'E'"
+action = "SEL_SELEDIT"
+desc = "List, edit selection"
+category = "FILES"
+
+[[bind]]
+sym = "'p'"
+action = "SEL_CP"
+desc = "Copy from selection buffer"
+category = "FILES"
+
+[[bind]]
+sym = "CONTROL('P')"
+action = "SEL_CP"
+desc = "Copy from selection buffer"
+category = "FILES"
+
+[[bind]]
+sym = "'v'"
+action = "SEL_MV"
+desc = "Move from selection buffer"
+category = "FILES"
+
+[[bind]]
+sym = "CONTROL('V')"
+action = "SEL_MV"
+desc = "Move from selection buffer"
+category = "FILES"
+
+[[bind]]
+sym = "'w'"
+action = "SEL_CPMVAS"
+desc = "Copy/move from selection buffer and rename"
+category = "FILES"
+
+[[bind]]
+sym = "CONTROL('W')"
+action = "SEL_CPMVAS"
+desc = "Copy/move from selection buffer and rename"
+category = "FILES"
+
+[[bind]]
+sym = "'x'"
+action = "SEL_TRASH"
+desc = "Delete from selection buffer"
+category = "FILES"
+
+[[bind]]
+sym = "CONTROL('X')"
+action = "SEL_TRASH"
+desc = "Delete from selection buffer"
+category = "FILES"
+
+[[bind]]
+sym = "'X'"
+action = "SEL_RM_RF"
+desc = "Delete from selection buffer"
+category = "FILES"
+
+[[bind]]
+sym = "'o'"
+action = "SEL_OPENWITH"
+desc = "Open in a custom application"
+category = "FILES"
+
+[[bind]]
+sym = "CONTROL('O')"
+action = "SEL_OPENWITH"
+desc = "Open in a custom application"
+category = "FILES"
+
+[[bind]]
+sym = "'n'"
+action = "SEL_NEW"
+desc = "Create a new file"
+category = "FILES"
+
+[[bind]]
+sym = "CONTROL('R')"
+action = "SEL_RENAME"
+desc = "Show rename prompt"
+category = "FILES"
+
+[[bind]]
+sym = "'r'"
+action = "SEL_RENAMEMUL"
+desc = "Rename contents of current dir"
+category = "FILES"
+
+[[bind]]
+sym = "'u'"
+action = "SEL_UMOUNT"
+desc = "Disconnect a SSHFS mount point"
+category = "MISC"
+
+[[bind]]
+sym = "'?'"
+action = "SEL_HELP"
+desc = "Show help"
+category = "MISC"
+
+[[bind]]
+sym = "CONTROL('J')"
+action = "SEL_AUTONEXT"
+desc = "Toggle auto-advance on file open"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'e'"
+action = "SEL_EDIT"
+desc = "Edit in EDITOR"
+category = "FILES"
+
+[[bind]]
+sym = "';'"
+action = "SEL_PLUGIN"
+desc = "Run a plugin"
+category = "MISC"
+
+[[bind]]
+sym = "'S'"
+action = "SEL_SELSIZE"
+desc = "Show total size of listed selection"
+category = "FILES"
+
+[[bind]]
+sym = "'!'"
+action = "SEL_SHELL"
+desc = "Run command"
+category = "MISC"
+
+[[bind]]
+sym = "CONTROL(']')"
+action = "SEL_SHELL"
+desc = "Run command"
+category = "MISC"
+
+[[bind]]
+sym = "'='"
+action = "SEL_LAUNCH"
+desc = "Launcher"
+category = "MISC"
+
+[[bind]]
+sym = "']'"
+action = "SEL_PROMPT"
+desc = "Show command prompt"
+category = "MISC"
+
+[[bind]]
+sym = "'0'"
+action = "SEL_LOCK"
+desc = "Lock screen"
+category = "MISC"
+
+[[bind]]
+sym = "'s'"
+action = "SEL_SESSIONS"
+desc = "Manage sessions"
+category = "MISC"
+
+[[bind]]
+sym = "'>'"
+action = "SEL_EXPORT"
+desc = "Export list"
+category = "FILES"
+
+[[bind]]
+sym = "'T'"
+action = "SEL_TIMETYPE"
+desc = "Set time type"
+category = "MISC"
+
+[[bind]]
+sym = "'P'"
+action = "SEL_PREVIEW"
+desc = "Toggle preview pane"
+category = "FILES"
+
+[[bind]]
+sym = "'q'"
+action = "SEL_QUITCTX"
+desc = "Quit a context"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "CONTROL('G')"
+action = "SEL_QUITCD"
+desc = "Change dir on quit"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "CONTROL('Q')"
+action = "SEL_QUIT"
+desc = "Quit"
+category = "NAVIGATION"
+
+[[bind]]
+sym = "'Q'"
+action = "SEL_QUITERR"
+desc = "Quit with an error code"
+category = "NAVIGATION"

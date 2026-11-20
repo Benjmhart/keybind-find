@@ -169,8 +169,8 @@ fn found_nvim(pid: u32) {
     let _ = NVIM_PID.set(pid);
 }
 
-/// The pid of the editor (or lf, or lazygit) found in the focused window, for a provider other than nvim's to ask it or
-/// read its `/proc`: Emacs, vim, lf or lazygit in the terminal's foreground, or an Emacs or gvim window's own pid (an `emacsclient -c` frame's is the daemon's).
+/// The pid of the editor (or lf, lazygit or nnn) found in the focused window, for a provider other than nvim's to ask it or
+/// read its `/proc`: Emacs, vim, lf, lazygit or nnn in the terminal's foreground, or an Emacs or gvim window's own pid (an `emacsclient -c` frame's is the daemon's).
 /// ponytail: beside `Context`, like `NVIM_PID`; first found wins.
 static EDITOR_PID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
 
@@ -198,9 +198,10 @@ fn is_emacs_window(class: &str) -> bool {
 }
 
 /// An editor leading a terminal's foreground group, by comm: Emacs, or vim (`vi` too: the vim provider's names), or
-/// lf (its provider asks it by pid), or lazygit (its provider reads its environment, arguments and directory).
+/// lf (its provider asks it by pid), or lazygit (its provider reads its environment, arguments and directory), or nnn
+/// (its provider reads its environment).
 fn is_editor_comm(comm: &str) -> bool {
-    EMACS_COMMS.contains(&comm) || matches!(comm, "vim" | "vi" | "lf" | "lazygit")
+    EMACS_COMMS.contains(&comm) || matches!(comm, "vim" | "vi" | "lf" | "lazygit" | "nnn")
 }
 
 /// The pid of an Emacs window (an `emacsclient -c` frame's is the daemon's) or a gvim window, for its provider to ask.
@@ -826,6 +827,9 @@ fn providers_for(
             // lazygit runs an editor (`e`), a shell command (`:`) or a pager in its own group, with the terminal as
             // their input: its keys only when it is alone in the group (its git commands read no terminal).
             Some("lazygit") if group.iter().all(|c| c == "lazygit") => providers.push("lazygit"),
+            // nnn waits for its plugins, `!` shell, editor, pager and opener in its own group, with the terminal as their
+            // input (`spawn`/`xfork`, nnn.c:2575-2700; a detached one `setsid`s): its keys only when it is alone.
+            Some("nnn") if group.iter().all(|c| c == "nnn") => providers.push("nnn"),
             // `hx` upstream and on Debian; Arch installs it as `helix`.
             Some("hx" | "helix") => providers.push("helix"),
             _ => {}
@@ -1412,12 +1416,12 @@ fn foreground_of(child: &str, proc: &std::path::Path) -> Option<Foreground> {
 /// as their input, but also its previewer, its cleaner and what a `$` command leaves running in the background (a
 /// GUI app opened with `&`), with other input: under lf, only lf and what reads the terminal count. lazygit runs its
 /// git commands in its group with no terminal input (pkg/gui/gui.go:1128-1136 gives one only to a subprocess the
-/// user works in): the same.
+/// user works in): the same. nnn too: what it runs with `/dev/null` as input (`F_NOSTDIN`) doesn't count.
 /// `members` is each process's comm and whether its standard input is a terminal.
 fn in_front(leader: &str, members: Vec<(String, bool)>) -> Vec<String> {
     members
         .into_iter()
-        .filter(|(c, tty)| !matches!(leader, "lf" | "lazygit") || c == leader || *tty)
+        .filter(|(c, tty)| !matches!(leader, "lf" | "lazygit" | "nnn") || c == leader || *tty)
         .map(|(c, _)| c)
         .collect()
 }
@@ -1809,6 +1813,15 @@ mod tests {
             x(Some("Alacritty"), Some("lf")),
             ["xmonad", "espanso", "alacritty", "lf", "sheets"]
         );
+        // nnn in a terminal, before `sheets`.
+        assert_eq!(
+            x(Some("Alacritty"), Some("nnn")),
+            ["xmonad", "espanso", "alacritty", "nnn", "sheets"]
+        );
+        assert_eq!(
+            providers_for(Some("i3"), Some("XTerm"), Some("nnn"), &[]),
+            ["i3", "espanso", "nnn", "sheets"]
+        );
         // lazygit in a terminal, after the terminal's own keys and before `sheets`.
         assert_eq!(
             x(Some("XTerm"), Some("lazygit")),
@@ -2093,6 +2106,18 @@ mod tests {
             ),
             ["lazygit", "sh", "vim"]
         );
+        // nnn the same: a plugin or `!` shell reading the terminal hides its keys, a detached or stdin-less one doesn't.
+        let nn = |g: &[&str]| providers_for(Some("i3"), Some("XTerm"), Some("nnn"), &group(g));
+        assert_eq!(nn(&["nnn"]), ["i3", "espanso", "nnn", "sheets"]);
+        assert_eq!(nn(&["nnn", "sh"]), ["i3", "espanso", "sheets"]);
+        assert_eq!(
+            in_front("nnn", m(&[("nnn", true), ("xdg-open", false)])),
+            ["nnn"]
+        );
+        assert_eq!(
+            in_front("nnn", m(&[("nnn", true), ("sh", true)])),
+            ["nnn", "sh"]
+        );
     }
 
     #[test]
@@ -2313,6 +2338,7 @@ mod tests {
                 (Some("ranger"), vec!["ranger"]),
                 (Some("lf"), vec!["lf"]),
                 (Some("lazygit"), vec!["lazygit"]),
+                (Some("nnn"), vec!["nnn"]),
                 (Some("hx"), vec!["helix"]),
                 (Some("helix"), vec!["helix"]),
                 (Some("python3"), vec![]),
@@ -4119,11 +4145,21 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             "emacs-nox",
             "lf",
             "lazygit",
+            "nnn",
         ] {
             assert!(is_editor_comm(comm), "{comm}");
         }
         // nvim has its own slot; others aren't editors with a provider to ask.
-        for comm in ["nvim", "gvim", "view", "zsh", "Vim", "lfx", "lazygit-x"] {
+        for comm in [
+            "nvim",
+            "gvim",
+            "view",
+            "zsh",
+            "Vim",
+            "lfx",
+            "lazygit-x",
+            "nnnx",
+        ] {
             assert!(!is_editor_comm(comm), "{comm}");
         }
     }
@@ -4136,6 +4172,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
     fn editor_pid_from_the_foreground_leader() {
         let proc = crate::test_tmp().join(format!("kbf-editor-proc-{}", std::process::id()));
         let (child0, lazygit) = (4_000_005u32, 4_000_006u32);
+        let (child3, nnn) = (4_000_007u32, 4_000_008u32);
         let (child, lf, child2, emacs) = (4_000_001u32, 4_000_002u32, 4_000_003u32, 4_000_004u32);
         for (pid, comm, tpgid) in [
             (child0, "zsh", lazygit),
@@ -4144,6 +4181,8 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             (lf, "lf", lf),
             (child2, "zsh", emacs),
             (emacs, "emacs", emacs),
+            (child3, "zsh", nnn),
+            (nnn, "nnn", nnn),
         ] {
             let dir = proc.join(pid.to_string());
             std::fs::create_dir_all(&dir).unwrap();
@@ -4157,7 +4196,9 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         let fg0 = foreground_of(&child0.to_string(), &proc);
         let fg = foreground_of(&child.to_string(), &proc);
         let fg2 = foreground_of(&child2.to_string(), &proc);
+        let fg3 = foreground_of(&child3.to_string(), &proc);
         let _ = std::fs::remove_dir_all(&proc);
+        assert_eq!(fg3.map(|f| f.comm).as_deref(), Some("nnn"));
         assert_eq!(fg0.map(|f| f.comm).as_deref(), Some("lazygit"));
         assert_eq!(fg.map(|f| f.comm).as_deref(), Some("lf"));
         assert_eq!(fg2.map(|f| f.comm).as_deref(), Some("emacs"));

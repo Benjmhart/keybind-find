@@ -27,6 +27,8 @@ RUN pacman -S --noconfirm --needed python-gobject && pacman -Scc --noconfirm
 RUN pacman -S --noconfirm --needed lf && pacman -Scc --noconfirm
 # lazygit for the lazygit case.
 RUN pacman -S --noconfirm --needed lazygit && pacman -Scc --noconfirm
+# nnn for the nnn cases.
+RUN pacman -S --noconfirm --needed nnn && pacman -Scc --noconfirm
 # sway ships with cap_sys_nice, which a container's capability set doesn't allow: its exec fails with EPERM.
 RUN setcap -r /usr/bin/sway
 # zellij 0.46.0, newer than the snapshot (which has 0.45.1): its keybinding presets are what keybind-find reads now; 0.45
