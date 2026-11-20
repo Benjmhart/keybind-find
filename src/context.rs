@@ -197,9 +197,10 @@ fn is_emacs_window(class: &str) -> bool {
     class.eq_ignore_ascii_case("emacs")
 }
 
-/// An editor leading a terminal's foreground group, by comm: Emacs, or vim (`vi` too: the vim provider's names).
+/// An editor leading a terminal's foreground group, by comm: Emacs, or vim (`vi` too: the vim provider's names), or
+/// lf (its provider asks it by pid).
 fn is_editor_comm(comm: &str) -> bool {
-    EMACS_COMMS.contains(&comm) || matches!(comm, "vim" | "vi")
+    EMACS_COMMS.contains(&comm) || matches!(comm, "vim" | "vi" | "lf")
 }
 
 /// The pid of an Emacs window (an `emacsclient -c` frame's is the daemon's) or a gvim window, for its provider to ask.
@@ -817,6 +818,8 @@ fn providers_for(
             Some("ncmpcpp") => providers.push("ncmpcpp"),
             // A Python script: its comm is the script's name.
             Some("ranger") => providers.push("ranger"),
+            // lf's client; its `-server` daemon has comm `lf` too but no terminal, so it never leads one.
+            Some("lf") => providers.push("lf"),
             // `hx` upstream and on Debian; Arch installs it as `helix`.
             Some("hx" | "helix") => providers.push("helix"),
             _ => {}
@@ -1776,6 +1779,11 @@ mod tests {
             x(Some("Alacritty"), Some("yazi")),
             ["xmonad", "espanso", "alacritty", "yazi", "sheets"]
         );
+        // lf in a terminal, before `sheets`.
+        assert_eq!(
+            x(Some("Alacritty"), Some("lf")),
+            ["xmonad", "espanso", "alacritty", "lf", "sheets"]
+        );
         // Emacs in a terminal (Debian's flavors by their own names, `emacsclient -t`), after the terminal's own keys and
         // before `sheets`; an Emacs window by class or app id, any case.
         for child in [
@@ -2201,6 +2209,7 @@ mod tests {
                 (Some("mcdiff"), vec!["mc"]),
                 (Some("ncmpcpp"), vec!["ncmpcpp"]),
                 (Some("ranger"), vec!["ranger"]),
+                (Some("lf"), vec!["lf"]),
                 (Some("hx"), vec!["helix"]),
                 (Some("helix"), vec!["helix"]),
                 (Some("python3"), vec![]),
@@ -3999,22 +4008,28 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
     /// Emacs below, since the slot is the test process's first-found).
     #[test]
     fn editor_comms() {
-        for comm in ["vim", "vi", "emacs", "emacsclient", "emacs-nox"] {
+        for comm in ["vim", "vi", "emacs", "emacsclient", "emacs-nox", "lf"] {
             assert!(is_editor_comm(comm), "{comm}");
         }
         // nvim has its own slot; others aren't editors with a provider to ask.
-        for comm in ["nvim", "gvim", "view", "zsh", "Vim"] {
+        for comm in ["nvim", "gvim", "view", "zsh", "Vim", "lfx"] {
             assert!(!is_editor_comm(comm), "{comm}");
         }
     }
 
-    /// Emacs leading the terminal's foreground group is recorded for the emacs provider (a stand-in `/proc`; no other
-    /// test finds an Emacs, so the first-found pid is this one).
+    /// lf leading the terminal's foreground group is recorded for the lf provider, and then an Emacs leading another
+    /// terminal's is found but not recorded: the first found wins (a stand-in `/proc`; no other test finds an editor,
+    /// so the first-found pid is lf's here).
     #[test]
     fn editor_pid_from_the_foreground_leader() {
         let proc = crate::test_tmp().join(format!("kbf-editor-proc-{}", std::process::id()));
-        let (child, leader) = (4_000_001u32, 4_000_002u32);
-        for (pid, comm, tpgid) in [(child, "zsh", leader), (leader, "emacs", leader)] {
+        let (child, lf, child2, emacs) = (4_000_001u32, 4_000_002u32, 4_000_003u32, 4_000_004u32);
+        for (pid, comm, tpgid) in [
+            (child, "zsh", lf),
+            (lf, "lf", lf),
+            (child2, "zsh", emacs),
+            (emacs, "emacs", emacs),
+        ] {
             let dir = proc.join(pid.to_string());
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("comm"), format!("{comm}\n")).unwrap();
@@ -4025,9 +4040,11 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             .unwrap();
         }
         let fg = foreground_of(&child.to_string(), &proc);
+        let fg2 = foreground_of(&child2.to_string(), &proc);
         let _ = std::fs::remove_dir_all(&proc);
-        assert_eq!(fg.map(|f| f.comm).as_deref(), Some("emacs"));
-        assert_eq!(editor_pid(), Some(leader));
+        assert_eq!(fg.map(|f| f.comm).as_deref(), Some("lf"));
+        assert_eq!(fg2.map(|f| f.comm).as_deref(), Some("emacs"));
+        assert_eq!(editor_pid(), Some(lf));
     }
 
     #[test]

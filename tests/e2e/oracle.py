@@ -321,7 +321,73 @@ def awesome_report(text):
     return keys
 
 
-REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report, "zellij": zellij_report, "awesome": awesome_report}
+# --- lf ---------------------------------------------------------------------------------------------------------------
+# lf's key names (key.go:11-127 at r42, `gKeyVal`, and readKey's <lt> <gt> <space>) as X keysyms: its own table.
+LF_NAMES = {
+    "enter": "Return", "backspace": "BackSpace", "tab": "Tab", "backtab": "shift+Tab", "esc": "Escape",
+    "delete": "Delete", "insert": "Insert", "up": "Up", "down": "Down", "left": "Left", "right": "Right",
+    "home": "Home", "end": "End", "pgup": "Prior", "pgdn": "Next", "clear": "Clear", "pause": "Pause",
+    "print": "Print", "space": "space", "lt": "less", "gt": "greater",
+}
+LF_NAMES.update({f"f-{n}": f"F{n}" for n in range(1, 36)})
+LF_MODS = {"c": "ctrl", "s": "shift", "a": "alt"}
+LF_MODES = {"n": "normal", "v": "visual", "c": "command-line"}
+
+
+def lf_char(c, mods):
+    """One character lf reads, as a keysym; an upper-case letter adds shift."""
+    if c.isascii() and c.isupper():
+        mods.append("shift")
+        c = c.lower()
+    return c if c.isascii() and c.isalnum() else KITTY_CHARS.get(c, "?" + c)
+
+
+def lf_key(s):
+    """One lf bind string (`<c-x>d`, `G`, `<a-X>`) in keybind-find's notation; a pointer event is `pointer:…`, a name
+    lf has no keysym for `!name:…`."""
+    chords = []
+    for tok in re.findall(r"<[^>]*>|.", s):
+        mods = []
+        if len(tok) > 1:
+            inner = tok[1:-1]
+            m = re.fullmatch(r"([csa])-(.+)", inner)
+            if m:
+                mods.append(LF_MODS[m.group(1)])
+                inner = m.group(2)
+            if inner.startswith("m-"):
+                return "pointer:" + s
+            if m and len(inner) == 1:
+                sym = lf_char(inner, mods)
+            elif inner in LF_NAMES:
+                *extra, sym = LF_NAMES[inner].split("+")
+                mods += extra
+            else:
+                return "!name:" + s
+        else:
+            sym = lf_char(tok, mods)
+        order = sorted(dict.fromkeys(mods), key=lambda x: MOD_ORDER.index(x))
+        chords.append("+".join(order + [sym]))
+    return " ".join(chords)
+
+
+def lf_report(text):
+    """`query <id> maps` and `cmaps` answers (tab-padded `mode key command` rows) as `mode=…<TAB>KEY`, every mode the
+    row names; a line that isn't a row is kept as `!line:…`."""
+    keys = set()
+    for line in text.splitlines():
+        f = [x for x in line.split("\t") if x]
+        if not f or f == ["mode", "key", "command"]:
+            continue
+        if len(f) < 3 or not set(f[0]) <= set(LF_MODES):
+            keys.add("!line:" + line)
+            continue
+        scopes = [f"mode={LF_MODES[m]}" for m in sorted(f[0], key=list(LF_MODES).index)]
+        keys.add("\t".join(scopes + [lf_key(f[1])]))
+    return keys
+
+
+REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report, "zellij": zellij_report, "awesome": awesome_report,
+           "lf": lf_report}
 
 KNOWN = {
     "kitty": [
@@ -354,6 +420,14 @@ KNOWN = {
         # awesome turns the character into its keysym (objects/key.c:110-160); awesome.rs reads the character, which
         # has no keysym in its table.
         ("super+eacute", "awesome.rs leaves out a non-ASCII character key (`é` in rc.lua)"),
+    ],
+    # lf's own answer comes from the running lf; the dump reads its lfrc over the pinned defaults (lf is gone by then).
+    "lf": [
+        ("*\tpointer:*", "lf's pointer events (<m-up>, <c-m-down>, …): not keys, lf.rs leaves them out"),
+        ("mode=command-line\tspace", "lf's command line types a space itself (readCmdEvent): lf.rs leaves it out"),
+        ("mode=normal\tmode=visual\t1", "a leading digit is a count (readNormalEvent): lf.rs leaves `map 1` out"),
+        ("mode=normal\tmode=visual\tshift+q a", "Q runs before Qa can be typed (findBinds): lf.rs leaves Qa out"),
+        ("mode=normal\tshift+y", "bound by on-init in the running lf; the dump's lfrc read runs no hooks"),
     ],
 }
 
@@ -563,6 +637,20 @@ def self_test():
         assert fnmatch.fnmatchcase(examples.get(p, p), p), p
     for k in ("super+x", "super+shift+x", "super+1", "ctrl+alt+Delete", "super+numbersign", "super+mod5+x"):
         assert not [p for p, *_ in ak if fnmatch.fnmatchcase(k, p)], k
+    for lf, want in (("<c-x>d", "ctrl+x d"), ("G", "shift+g"), ("<a-X>", "alt+shift+x"), ("<lt>", "less"),
+                     ("<backtab>", "shift+Tab"), ("<f-12>", "F12"), ("gg", "g g"), ('"', "quotedbl"),
+                     ("<a-backspace>", "alt+BackSpace"), ("<m-up>", "pointer:<m-up>"),
+                     ("<c-m-down>", "pointer:<c-m-down>"), ("<f-40>", "!name:<f-40>"), ("<foo>", "!name:<foo>")):
+        assert lf_key(lf) == want, (lf, lf_key(lf))
+    answer = "mode\t\tkey\tcommand\nnv\t\tk\tup\nn\t\t<space>\t:{{ toggle; down; }}\nc\t<a-f>\tcmd-word\nzz\n"
+    assert lf_report(answer) == {"mode=normal\tmode=visual\tk", "mode=normal\tspace", "mode=command-line\talt+f",
+                                 "!line:zz"}, lf_report(answer)
+    lk = KNOWN["lf"]
+    examples = {"*\tpointer:*": "mode=normal\tmode=visual\tpointer:<m-up>"}
+    for p, *_ in lk:
+        assert fnmatch.fnmatchcase(examples.get(p, p), p), p
+    for k in ("mode=normal\tmode=visual\tk", "mode=visual\tshift+y", "mode=command-line\talt+x"):
+        assert not [p for p, *_ in lk if fnmatch.fnmatchcase(k, p)], k
     print("oracle.py: self-test ok")
     return 0
 

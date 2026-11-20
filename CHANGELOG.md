@@ -5,6 +5,10 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- lf: its keys in normal, visual and command-line mode, asked of the running lf (`lf -remote "query <pid> maps"`) once it has run a shell command, else lf r42's defaults with your `lfrc` files, `-command`s and `source`d files on top, read as lf reads them ([#54](https://github.com/Benjmhart/keybind-find/issues/54)).
+
 ## [1.2.0] - 2026-11-19
 
 ### Added

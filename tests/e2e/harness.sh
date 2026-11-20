@@ -416,6 +416,8 @@ stop_daemons() {
   emacsclient -e '(kill-emacs)' >/dev/null 2>&1
   tmux kill-server 2>/dev/null
   pkill -x screen 2>/dev/null; pkill -x gnome-terminal- 2>/dev/null
+  # lf's server outlives its clients.
+  pkill -x lf 2>/dev/null
 }
 PHASE=x11 . "$E/cases"
 stop_daemons

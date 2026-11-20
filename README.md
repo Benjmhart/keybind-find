@@ -42,6 +42,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | Midnight Commander | its keys by section (file manager, panel, editor, viewer, …): mc's compiled-in defaults (4.8.33's built in) with the system and your keymap on top | none ([below](#midnight-commander)) |
 | yazi | its keys: yazi's default keymap for its version (25.4.8, 25.5.31 and 26.9.1 built in) with your `keymap.toml` merged in | none ([below](#yazi)) |
 | ranger | its file-browser keys: ranger's default rc.conf (1.9.4's built in, the same since 1.9.3) with `/etc/ranger/rc.conf` and yours on top | none ([below](#ranger)) |
+| lf | its keys in normal, visual and command-line mode, from the running lf when it has them, else lf r42's defaults with your `lfrc` on top | none ([below](#lf)) |
 | helix | its keys in normal, select and insert mode: helix's default keymap for its version (25.01.1 and 25.07.1 built in) with your `config.toml` keys merged in | none ([below](#helix)) |
 | ncmpcpp | its keys: ncmpcpp's defaults (0.10.1's built in, the same since 0.9.2) with your `bindings` files on top | none ([below](#ncmpcpp)) |
 | herdr | herdr's defaults for its version, your `config.toml` and plugin commands | none |
@@ -61,7 +62,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | espanso | `espanso match list`; picking a match types its trigger | none |
 | anything else | a sheet you write, or a script that prints one; a global sheet (`"provider": "*"`) lists things with no key, such as macros, that a pick runs (`"run": [argv]`) | [docs/sheets.md](docs/sheets.md) |
 
-nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, helix, herdr, tmux, zellij, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
+nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, lf, helix, herdr, tmux, zellij, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
 sway `app_id`, Hyprland `class`); nvim also inside a herdr, tmux or zellij pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
@@ -369,6 +370,31 @@ the task view's `tmap`), with the command as the description and its first word 
 (an absolute path or `~/…`), `chain` and `alias` are followed. Your `eval` lines aren't run (they are counted), nor
 is any command. Keys keybind-find can't send (`<any>` bookmark keys,
 `<bg>`, a `<number>` key code) are left out with a count; an unknown `<name>` is its characters, as in ranger.
+
+### lf
+
+Over lf in a terminal, keybind-find lists lf's keys in normal, visual and command-line mode, each tagged with its mode
+(a key bound to the same command in normal and visual mode is one entry with both), described by the command as lf
+writes it (`set hidden!`, `:{{ toggle; down; }}`, `${{ mimeopen --ask "$f" }}`) and filed by its first word (`shell`
+for a shell command, `list` for a `:` list). It asks the running lf first, with `lf -remote "query <pid> maps"` and
+`cmaps`: lf's own list, with everything your `lfrc`, `-command`s, hooks and typed `map`s did. lf fills that list only
+when it runs a shell command (opening a file with the default `open`, `:maps`, an `on-cd` or `on-init` hook), so a
+fresh lf that hasn't run one yet, an lf started with `-single` (no server) or one that doesn't answer within a second
+is read from its config instead, with a line saying why (nothing for the fresh lf). keybind-find sends lf nothing.
+
+The config read is lf r42's built-in keys (built in), then the files lf loads, as lf reads them: with `-config FILE` on
+lf's command line only that file, else `/etc/lf/lfrc` and `$LF_CONFIG_HOME/lf/lfrc` (else `$XDG_CONFIG_HOME/lf/lfrc`,
+else `~/.config/lf/lfrc`), then each `-command`. The flags, `LF_CONFIG_HOME`, `XDG_CONFIG_HOME` and `HOME` come from
+the focused lf's process (keybind-find's own environment for `keybind-find dump lf`). `map`, `nmap`, `vmap`, `cmap`,
+`map KEY` with nothing after it (how lf deletes a key), `clearmaps`, `source` and top-level `:` lists are followed;
+hooks and shell commands are never run. A file lf would stop reading at a syntax error stops there too, with one line.
+
+Left out, with a count: pointer events (`<m-up>`, lf's default wheel keys), keys lf never reads from the keyboard
+(`<f-36>` and up, `<upleft>`, an unknown `<name>`), in normal and visual mode a key starting with a digit (lf reads it
+as a count), a key with `<esc>` after its first key, and a key whose shorter start is itself bound (lf runs the shorter
+one at once: `Q` hides `Qa`); in command-line mode a key of more than one key, and a character without alt (lf types
+it, so the default `<space>` isn't listed). `<c-h>`, `<c-i>`, `<c-m>` and `<c-j>` are listed and sent as ctrl+h etc.;
+many terminals send BackSpace, Tab and Return for them, which lf reads as those keys.
 
 ### helix
 
