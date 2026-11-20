@@ -89,8 +89,8 @@ fn sheet_with(
     let pin: Pinned = toml::from_str(text).with_context(|| format!("reading data/nnn/{v}.toml"))?;
     let mut notes: Vec<String> = note.into_iter().collect();
 
-    // nnn reads both with `getenv` once, from the environment it started with: its `/proc/<pid>/environ`. Read
-    // again after the read (a pid reused meanwhile, or a zombie's empty environ, isn't nnn's).
+    // nnn reads both with `getenv` once, from the environment it started with: its `/proc/<pid>/environ`. Its comm
+    // is checked again after the read (a pid reused meanwhile, or a zombie's empty environ, isn't nnn's).
     let environ = dir.as_ref().and_then(|d| {
         let b = std::fs::read(d.join("environ"))
             .ok()
