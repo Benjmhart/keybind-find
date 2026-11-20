@@ -128,7 +128,7 @@ fn dump(
 }
 
 /// A new directory under `tmp` only this user can enter; creating it fails rather than reuse one that exists.
-fn private_dir(tmp: &Path) -> anyhow::Result<PathBuf> {
+pub(super) fn private_dir(tmp: &Path) -> anyhow::Result<PathBuf> {
     use std::os::unix::fs::DirBuilderExt;
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

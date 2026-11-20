@@ -1,0 +1,14 @@
+# keybind-find's e2e Kakoune config: one of each kind of map the kakoune provider reads. No autoload/ directory here, so
+# Kakoune's own runtime autoload (with its `man` user mode) stays loaded.
+map global user x ':quit<ret>' -docstring 'e2e quit'
+map global user : ':write<ret>' -docstring 'e2e write
+on two lines'
+map global user n ':nop<ret>'
+declare-user-mode e2e
+map global e2e q ':quit<ret>' -docstring 'e2e mode quit'
+map global goto q '<esc>gj' -docstring 'e2e goto'
+map global insert <c-y> '<esc>' -docstring 'e2e insert'
+unmap global normal <home>
+map global normal é ':echo accent<ret>' -docstring 'e2e accent'
+# Only a running window has this one: the live read lists it, the kakrc reading can't.
+hook global WinCreate .* %{ map window user b ':echo window<ret>' -docstring 'e2e window' }

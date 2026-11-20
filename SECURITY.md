@@ -36,7 +36,12 @@ Please report security problems privately, through GitHub's private vulnerabilit
     list through lf's own server; keybind-find sends lf nothing), `lazygit` (`--version`, which runs `git --version`
     and starts no session: the focused lazygit's own binary, `/proc/<pid>/exe`, else `lazygit` from PATH) and `git` (`rev-parse` in the focused lazygit's repo, to find the repo's lazygit files), `nnn` (`-V`, which prints
     its version and exits: the focused nnn's own binary, `/proc/<pid>/exe`, else `nnn` from PATH; that binary is
-    picked by its comm `nnn`, which any process of yours can set);
+    picked by its comm `nnn`, which any process of yours can set), `kak` (`-version`, which prints its version and
+    exits: the focused kak's own binary, `/proc/<pid>/exe`, else `kak` from PATH; and `-p <session>`, which sends a
+    fixed script to the session of the kak in the focused terminal, yours: in the client with that kak's pid it writes
+    `debug mappings` to `*debug*` and copies `*debug*` and the version into a `0700` temporary directory keybind-find
+    made, removed after; the script also defines one hidden command, `keybind-find-report-<pid>`, and runs one `%sh{}`
+    in the session to list its clients; nothing else in the session is changed);
   - the picker: `alacritty` with `fzf`, `fuzzel` or `dmenu`, or whatever program `KEYBIND_FIND_PICKER` names;
   - `notify-send` for errors under a hotkey.
 
@@ -49,10 +54,13 @@ Please report security problems privately, through GitHub's private vulnerabilit
 - **It reads config files:** its own `config.toml`, sheets and Vimium backup, the configs of the programs it lists
   (sway, alacritty, herdr and its `plugins.json`, zellij's `config.kdl`, sxhkd's `sxhkdrc` and extra configs, Konsole's `konsolerc`,
   `kxmlgui5/konsole/*ui.rc` and shortcut scheme files, lf's `lfrc` files and the files they `source`, lazygit's `config.yml` files and the repo's `.lazygit.yml` and
-  `.git/lazygit.yml` (only their `keybinding:` section is parsed; nothing in them is run), Vimium's extension folder), xmonad's keymap dump, and `/proc` to find the program inside a terminal and your own sxhkd's
+  `.git/lazygit.yml` (only their `keybinding:` section is parsed; nothing in them is run), Kakoune's kakrc, `kakrc.local`
+  and autoload `*.kak` files (only their `map`, `unmap`, `declare-user-mode`, `try` and `evaluate-commands` are read;
+  nothing in them is run), Vimium's extension folder), xmonad's keymap dump, and `/proc` to find the program inside a terminal and your own sxhkd's
   and the focused lf's and lazygit's config files (`/proc/<pid>/{cmdline,environ,cwd}` of your `sxhkd` processes and
   of that `lf` or `lazygit` only, and that lazygit's `/proc/<pid>/exe`), and `/proc/<pid>/{comm,environ}` of the nnn in
-  the focused terminal (its `NNN_PLUG` and `NNN_BMS` are shown, never run).
+  the focused terminal (its `NNN_PLUG` and `NNN_BMS` are shown, never run), and `/proc/<pid>/{comm,cmdline,environ,exe}`
+  of the kak in the focused terminal (its session name and socket directory, and its config and runtime paths).
 - **It writes:** the usage log, `$XDG_STATE_HOME/keybind-find/usage.tsv` (default `~/.local/state/...`), which holds
   the time, provider and key of each pick (an espanso trigger, never its replacement); and, while the fzf picker is
   open, a `0700` directory under `$XDG_RUNTIME_DIR` (else the temporary directory) with the list, the key-search list,

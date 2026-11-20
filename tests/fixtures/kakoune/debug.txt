@@ -1,0 +1,56 @@
+# *debug* as kak 2026.05.21 (the e2e image: Arch kakoune 2026.05.21-2) wrote it with tests/e2e/home/.config/kak/kakrc, after `echo -debug "an earlier line"; echo -debug KEYBIND-FIND-OLD; debug mappings; unmap global user n; echo -debug KEYBIND-FIND-NEW; debug mappings` in a `kak -ui dummy` client.
+*** This is the debug buffer, where debug info will be written ***
+no windowing module detected
+an earlier line
+KEYBIND-FIND-OLD
+Mappings:
+ * normal <left>: 'h' 
+ * normal <right>: 'l' 
+ * normal <down>: 'j' 
+ * normal <up>: 'k' 
+ * normal <s-left>: 'H' 
+ * normal <s-right>: 'L' 
+ * normal <s-down>: 'J' 
+ * normal <s-up>: 'K' 
+ * normal <end>: '<a-l>' 
+ * normal <s-end>: '<a-L>' 
+ * normal <s-home>: '<a-H>' 
+ * normal é: ':echo<space>accent<ret>' e2e accent
+ * insert <c-y>: '<esc>' e2e insert
+ * goto q: '<esc>gj' e2e goto
+ * user x: ':quit<ret>' e2e quit
+ * user :: ':write<ret>' e2e write
+on two lines
+ * user n: ':nop<ret>' 
+ * user b: ':echo<space>window<ret>' e2e window
+ * man g: ':man<minus>jump<ret>' Jump to a man page using selected man page link
+ * man j: ':man<minus>link<minus>next<ret>' Go to next man page link
+ * man k: ':man<minus>link<minus>prev<ret>' Go to previous man page link
+ * man m: ':man<space>' Look up a man page
+ * e2e q: ':quit<ret>' e2e mode quit
+KEYBIND-FIND-NEW
+Mappings:
+ * normal <left>: 'h' 
+ * normal <right>: 'l' 
+ * normal <down>: 'j' 
+ * normal <up>: 'k' 
+ * normal <s-left>: 'H' 
+ * normal <s-right>: 'L' 
+ * normal <s-down>: 'J' 
+ * normal <s-up>: 'K' 
+ * normal <end>: '<a-l>' 
+ * normal <s-end>: '<a-L>' 
+ * normal <s-home>: '<a-H>' 
+ * normal é: ':echo<space>accent<ret>' e2e accent
+ * insert <c-y>: '<esc>' e2e insert
+ * goto q: '<esc>gj' e2e goto
+ * user x: ':quit<ret>' e2e quit
+ * user :: ':write<ret>' e2e write
+on two lines
+ * user b: ':echo<space>window<ret>' e2e window
+ * man g: ':man<minus>jump<ret>' Jump to a man page using selected man page link
+ * man j: ':man<minus>link<minus>next<ret>' Go to next man page link
+ * man k: ':man<minus>link<minus>prev<ret>' Go to previous man page link
+ * man m: ':man<space>' Look up a man page
+ * e2e q: ':quit<ret>' e2e mode quit
+

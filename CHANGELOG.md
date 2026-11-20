@@ -10,6 +10,7 @@ All notable changes to keybind-find are listed here. The format follows
 - lf: its keys in normal, visual and command-line mode, asked of the running lf (`lf -remote "query <pid> maps"`) once it has run a shell command, else lf r42's defaults with your `lfrc` files, `-command`s and `source`d files on top, read as lf reads them ([#54](https://github.com/Benjmhart/keybind-find/issues/54)).
 - lazygit: its keys by panel, as its keybindings cheatsheet lists them, lazygit 0.66.2's defaults with your `config.yml` files and the repo's `.lazygit.yml`/`.git/lazygit.yml` applied as lazygit applies them (their `keybinding:` section, read with a strict YAML subset); custom commands aren't listed yet ([#56](https://github.com/Benjmhart/keybind-find/issues/56)).
 - nnn: its keys as built (nnn 5.3's key table), plus the plugin (`;` + key) and bookmark (`b` + key) keys of the running nnn's `NNN_PLUG` and `NNN_BMS`, read from its environment as nnn parses them ([#55](https://github.com/Benjmhart/keybind-find/issues/55)).
+- Kakoune: its built-in keys by mode (Kakoune 2026.05.21's, from its source) with the running session's mappings on top, asked through `kak -p` (`debug mappings`: kakrc, plugins, hooks, window and buffer maps), else your kakrc and autoload files read as Kakoune parses them ([#58](https://github.com/Benjmhart/keybind-find/issues/58)).
 
 ## [1.2.0] - 2026-11-19
 

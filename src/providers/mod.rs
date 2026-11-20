@@ -16,6 +16,7 @@ mod helix;
 mod herdr;
 mod hyprland;
 mod i3;
+mod kakoune;
 mod kde;
 mod kdl_v1;
 pub(crate) mod kitty;
@@ -109,6 +110,7 @@ pub const KNOWN: &[&str] = &[
     "lf",
     "lazygit",
     "nnn",
+    "kakoune",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -158,6 +160,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "lf" => lf::sheet(),
         "lazygit" => lazygit::sheet(),
         "nnn" => nnn::sheet(),
+        "kakoune" => kakoune::sheet(),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",

@@ -170,7 +170,7 @@ fn found_nvim(pid: u32) {
 }
 
 /// The pid of the editor (or lf, lazygit or nnn) found in the focused window, for a provider other than nvim's to ask it or
-/// read its `/proc`: Emacs, vim, lf, lazygit or nnn in the terminal's foreground, or an Emacs or gvim window's own pid (an `emacsclient -c` frame's is the daemon's).
+/// read its `/proc`: Emacs, vim, lf, lazygit, nnn or kak in the terminal's foreground, or an Emacs or gvim window's own pid (an `emacsclient -c` frame's is the daemon's).
 /// ponytail: beside `Context`, like `NVIM_PID`; first found wins.
 static EDITOR_PID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
 
@@ -199,9 +199,9 @@ fn is_emacs_window(class: &str) -> bool {
 
 /// An editor leading a terminal's foreground group, by comm: Emacs, or vim (`vi` too: the vim provider's names), or
 /// lf (its provider asks it by pid), or lazygit (its provider reads its environment, arguments and directory), or nnn
-/// (its provider reads its environment).
+/// (its provider reads its environment), or kak (its provider asks its session for the client with that pid).
 fn is_editor_comm(comm: &str) -> bool {
-    EMACS_COMMS.contains(&comm) || matches!(comm, "vim" | "vi" | "lf" | "lazygit" | "nnn")
+    EMACS_COMMS.contains(&comm) || matches!(comm, "vim" | "vi" | "lf" | "lazygit" | "nnn" | "kak")
 }
 
 /// The pid of an Emacs window (an `emacsclient -c` frame's is the daemon's) or a gvim window, for its provider to ask.
@@ -833,6 +833,9 @@ fn providers_for(
             Some("nnn") if group.iter().all(|c| c == "nnn") => providers.push("nnn"),
             // `hx` upstream and on Debian; Arch installs it as `helix`.
             Some("hx" | "helix") => providers.push("helix"),
+            // Kakoune never gives the terminal to a child: `%sh{}` and friends read a pipe or /dev/null
+            // (shell_manager.cc:114-130), and `terminal` opens a new window. A plain kak and a `kak -c` client alike.
+            Some("kak") => providers.push("kakoune"),
             _ => {}
         }
         // `man`, `git log` and `systemctl status` lead the pipeline that less runs in.
@@ -1417,12 +1420,16 @@ fn foreground_of(child: &str, proc: &std::path::Path) -> Option<Foreground> {
 /// as their input, but also its previewer, its cleaner and what a `$` command leaves running in the background (a
 /// GUI app opened with `&`), with other input: under lf, only lf and what reads the terminal count. lazygit runs its
 /// git commands in its group with no terminal input (pkg/gui/gui.go:1128-1136 gives one only to a subprocess the
-/// user works in): the same. nnn too: what it runs with `/dev/null` as input (`F_NOSTDIN`) doesn't count.
+/// user works in): the same. nnn too: what it runs with `/dev/null` as input (`F_NOSTDIN`) doesn't count. And kak, whose
+/// `%sh{}` blocks and the programs they leave running (a language server) share its group with a pipe or /dev/null as
+/// input (shell_manager.cc:114-130).
 /// `members` is each process's comm and whether its standard input is a terminal.
 fn in_front(leader: &str, members: Vec<(String, bool)>) -> Vec<String> {
     members
         .into_iter()
-        .filter(|(c, tty)| !matches!(leader, "lf" | "lazygit" | "nnn") || c == leader || *tty)
+        .filter(|(c, tty)| {
+            !matches!(leader, "lf" | "lazygit" | "nnn" | "kak") || c == leader || *tty
+        })
         .map(|(c, _)| c)
         .collect()
 }
@@ -1762,6 +1769,10 @@ mod tests {
                 ["xmonad", "espanso", "alacritty", "helix", "sheets"]
             );
         }
+        assert_eq!(
+            x(Some("Alacritty"), Some("kak")),
+            ["xmonad", "espanso", "alacritty", "kakoune", "sheets"]
+        );
         assert_eq!(
             x(Some("Alacritty"), Some("tmux")),
             ["xmonad", "espanso", "alacritty", "tmux", "sheets"]
@@ -2119,6 +2130,14 @@ mod tests {
             in_front("nnn", m(&[("nnn", true), ("sh", true)])),
             ["nnn", "sh"]
         );
+        // kak: listed whatever its group holds; its `%sh{}` children and what they leave running read no terminal.
+        let kak = |g: &[&str]| providers_for(Some("i3"), Some("XTerm"), Some("kak"), &group(g));
+        assert_eq!(kak(&["kak"]), ["i3", "espanso", "kakoune", "sheets"]);
+        assert_eq!(kak(&["kak", "sh"]), ["i3", "espanso", "kakoune", "sheets"]);
+        assert_eq!(
+            in_front("kak", m(&[("kak", true), ("sh", false), ("less", false)])),
+            ["kak"]
+        );
     }
 
     #[test]
@@ -2342,6 +2361,7 @@ mod tests {
                 (Some("nnn"), vec!["nnn"]),
                 (Some("hx"), vec!["helix"]),
                 (Some("helix"), vec!["helix"]),
+                (Some("kak"), vec!["kakoune"]),
                 (Some("python3"), vec![]),
                 (None, vec![]),
             ] {
@@ -4147,6 +4167,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             "lf",
             "lazygit",
             "nnn",
+            "kak",
         ] {
             assert!(is_editor_comm(comm), "{comm}");
         }
@@ -4160,13 +4181,14 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             "lfx",
             "lazygit-x",
             "nnnx",
+            "kakoune",
         ] {
             assert!(!is_editor_comm(comm), "{comm}");
         }
     }
 
-    /// lazygit leading the terminal's foreground group is recorded for the lazygit provider, and then lf and an Emacs
-    /// leading other terminals' are found but not recorded: the first found wins (a stand-in `/proc`; no other test
+    /// lazygit leading the terminal's foreground group is recorded for the lazygit provider, and then lf, an Emacs, nnn
+    /// and kak leading other terminals' are found but not recorded: the first found wins (a stand-in `/proc`; no other test
     /// finds an editor, so the first-found pid is lazygit's here; lf's and Emacs's are recorded by the same
     /// `is_editor_comm` gate, tested above).
     #[test]
@@ -4174,6 +4196,7 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         let proc = crate::test_tmp().join(format!("kbf-editor-proc-{}", std::process::id()));
         let (child0, lazygit) = (4_000_005u32, 4_000_006u32);
         let (child3, nnn) = (4_000_007u32, 4_000_008u32);
+        let (child4, kak) = (4_000_009u32, 4_000_010u32);
         let (child, lf, child2, emacs) = (4_000_001u32, 4_000_002u32, 4_000_003u32, 4_000_004u32);
         for (pid, comm, tpgid) in [
             (child0, "zsh", lazygit),
@@ -4184,6 +4207,8 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             (emacs, "emacs", emacs),
             (child3, "zsh", nnn),
             (nnn, "nnn", nnn),
+            (child4, "zsh", kak),
+            (kak, "kak", kak),
         ] {
             let dir = proc.join(pid.to_string());
             std::fs::create_dir_all(&dir).unwrap();
@@ -4198,7 +4223,9 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
         let fg = foreground_of(&child.to_string(), &proc);
         let fg2 = foreground_of(&child2.to_string(), &proc);
         let fg3 = foreground_of(&child3.to_string(), &proc);
+        let fg4 = foreground_of(&child4.to_string(), &proc);
         let _ = std::fs::remove_dir_all(&proc);
+        assert_eq!(fg4.map(|f| f.comm).as_deref(), Some("kak"));
         assert_eq!(fg3.map(|f| f.comm).as_deref(), Some("nnn"));
         assert_eq!(fg0.map(|f| f.comm).as_deref(), Some("lazygit"));
         assert_eq!(fg.map(|f| f.comm).as_deref(), Some("lf"));
