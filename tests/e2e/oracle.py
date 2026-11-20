@@ -13,8 +13,10 @@ so the list can't rot.
 """
 import fnmatch
 import json
+import os
 import re
 import sys
+import tomllib
 
 # --- kitty ------------------------------------------------------------------------------------------------------------
 # kitty's key names (glfw_get_key_name: kitty/glfw.c and key_names.py at v0.49.2) as X keysyms. Its own table, not
@@ -438,8 +440,83 @@ def nnn_report(text):
     return keys
 
 
+# --- kakoune ----------------------------------------------------------------------------------------------------------
+# `debug mappings` (commands.cc:1702-1717 at v2026.05.21): ` * MODE KEY: 'KEYS' DOC` per mapping, a docstring's further
+# lines up to the next ` * `; keys as to_string writes them (keys.cc:63-89, 186-224), named in its own table here. No
+# command prints the built-in keys, so the pinned file's rows for the reported version are added: the unit tests count
+# those and spot-check them against the source, this checks the mappings keybind-find reads from the kakrc and
+# autoload files.
+KAK_NAMES = {"ret": "Return", "space": "space", "tab": "Tab", "lt": "less", "gt": "greater", "backspace": "BackSpace",
+             "esc": "Escape", "up": "Up", "down": "Down", "left": "Left", "right": "Right", "pageup": "Prior",
+             "pagedown": "Next", "home": "Home", "end": "End", "ins": "Insert", "del": "Delete", "plus": "plus",
+             "minus": "minus", "semicolon": "semicolon", "percent": "percent", "quote": "apostrophe",
+             "dquote": "quotedbl"}
+KAK_MODS = {"c": "ctrl", "a": "alt", "s": "shift"}
+# The keys that reach a mode from normal mode (normal.cc:2486-2490, 2571-2572); its keys are then typed in normal mode.
+KAK_LEADS = {"goto": ["g", "shift+g"], "view": ["v", "shift+v"], "object": ["alt+i", "alt+a"], "user": ["space"]}
+KAK_MARKER = "KEYBIND-FIND-ORACLE"
+
+
+def kak_keys(s):
+    """Kakoune keys as to_string writes them (`<c-x>f`) in keybind-find's notation: `!name` for a name the table
+    lacks, `?c` for a character with no keysym."""
+    out = []
+    for m in re.finditer(r"<([^>]+)>|(.)", s):
+        if m.group(2):
+            mods, name = [], m.group(2)
+        else:
+            *mods, name = m.group(1).split("-")
+            mods = [KAK_MODS.get(x, "!" + x) for x in mods]
+        if name in KAK_NAMES:
+            sym = KAK_NAMES[name]
+        elif re.fullmatch(r"F([1-9]|1[0-2])", name):
+            sym = name
+        elif len(name) == 1:
+            sym = lf_char(name, mods)
+        else:
+            sym = "!" + name
+        ordered = [x for x in MOD_ORDER if x in mods] + [x for x in dict.fromkeys(mods) if x not in MOD_ORDER]
+        out.append("+".join(ordered + [sym]))
+    return " ".join(out)
+
+
+def kak_bind(mode, key):
+    """One Kakoune mode's key as the sheet lists it: `mode=MODE<TAB>KEY`, a sub-mode's after the keys reaching it."""
+    if mode in KAK_LEADS:
+        return {f"mode=normal\t{lead} {kak_keys(key)}" for lead in KAK_LEADS[mode]}
+    return {f"mode={mode}\t{kak_keys(key)}"}
+
+
+def kakoune_report(text, data=os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../data/kakoune")):
+    """oracle-kakoune.kak's *debug*: after the last marker, `version: V`, `Mappings:` and the mappings; plus the
+    pinned built-in rows (not the default maps: the session lists those it still has) of data/kakoune/V.toml."""
+    lines = text.splitlines()
+    at = max((i for i, line in enumerate(lines) if line == KAK_MARKER), default=None)
+    if at is None:
+        return {"!marker"}
+    head = lines[at + 1:at + 3]
+    if len(head) != 2 or not head[0].startswith("version: ") or head[1] != "Mappings:":
+        return {"!line:" + " / ".join(head)}
+    keys = set()
+    for line in lines[at + 3:]:
+        m = re.fullmatch(r" \* (\S+) (.+?): '[^']*'(?: .*)?", line)
+        if m:
+            keys |= kak_bind(*m.groups())
+    # A git build's version is `[v]TAG-N-gHASH` (Kakoune's Makefile:36-37).
+    version = re.sub(r"-[0-9]+-g[0-9a-f]+$", "", head[0].removeprefix("version: ").removeprefix("v"))
+    try:
+        with open(os.path.join(data, version + ".toml"), "rb") as f:
+            rows = tomllib.load(f)["bind"]
+    except FileNotFoundError:
+        return {"!version:" + version}
+    for row in rows:
+        if not row.get("map"):
+            keys |= kak_bind(row["mode"], row["key"])
+    return keys
+
+
 REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report, "zellij": zellij_report, "awesome": awesome_report,
-           "lf": lf_report, "nnn": nnn_report}
+           "lf": lf_report, "nnn": nnn_report, "kakoune": kakoune_report}
 
 KNOWN = {
     "kitty": [
@@ -490,6 +567,12 @@ KNOWN = {
         ("alt", "the help's `Alt ;`: Alt+key runs a plugin through nextsel's Esc handling"),
         ("Home", "KEY_HOME is in bindings[]; the help lists only `g ^A`", "dump"),
         ("End", "KEY_END is in bindings[]; the help lists only `G ^E`", "dump"),
+    ],
+    # The report is the running client's `debug mappings`; the dump reads the kakrc and autoload files (no kak runs).
+    "kakoune": [
+        ("mode=normal\tspace b", "the e2e kakrc's WinCreate hook maps it in each window: only a running window has it, "
+                                 "and kakoune.rs's kakrc read runs no hooks"),
+        ("*[?]*", "a non-ASCII key keybind-find can't name (`é` in the e2e kakrc): kakoune.rs leaves it out"),
     ],
 }
 
@@ -741,6 +824,32 @@ def self_test():
     assert sorted(nk) == sorted(list(samples) + ["Home", "End"])
     for k in ("semicolon", "q", "ctrl+q", "Return", "semicolon x", "b d", "shift+Tab", "ctrl+e"):
         assert not [p for p in nk if fnmatch.fnmatchcase(k, p)], k
+    for kak, want in (("<c-x>f", "ctrl+x f"), ("X", "shift+x"), ("<a-A>", "alt+shift+a"), ("<c-a-w>", "ctrl+alt+w"),
+                      ("<s-tab>", "shift+Tab"), ("<lt>", "less"), ("<a-semicolon>", "alt+semicolon"), (":", "colon"),
+                      ("<quote>", "apostrophe"), ("<pageup>", "Prior"), ("<F12>", "F12"), ("<space>", "space"),
+                      ("é", "?é"), ("<focus_in>", "!focus_in"), ("<F13>", "!F13"), ("<x-a>", "!x+a")):
+        assert kak_keys(kak) == want, (kak, kak_keys(kak))
+    sample = (f"junk\n{KAK_MARKER}\nMappings:\n * user z: 'old' \n{KAK_MARKER}\nversion: 2026.05.21\nMappings:\n"
+              " * normal <left>: 'h' \n * user :: ':write<ret>' two\nlines\n * goto q: '<esc>gj' e2e goto\n"
+              " * object q: 'x' \n * e2e q: ':quit<ret>' custom\n * normal \u00e9: 'x' \n")
+    r = kakoune_report(sample)
+    for k in ("mode=normal\tLeft", "mode=normal\tspace colon", "mode=normal\tg q", "mode=normal\talt+i q",
+              "mode=normal\talt+a q", "mode=e2e\tq", "mode=normal\t?é", "mode=normal\tg g", "mode=prompt\tReturn",
+              "mode=insert\tctrl+x shift+w", "mode=normal\tx"):
+        assert k in r, (k, sorted(r)[:20])
+    assert "mode=normal\tspace z" not in r and "mode=normal\tHome" not in r and "mode=normal\tlines" not in r
+    # Six new keys: g q and shift+g q; object q is a built-in key already (single quote string).
+    assert len(r) == 150 + 13 * 2 + 11 * 2 + 28 * 2 + 22 + 42 + 6, len(r)
+    assert kakoune_report(f"{KAK_MARKER}\nMappings:\n") == {"!line:Mappings:"}
+    assert kakoune_report("no marker\n") == {"!marker"}
+    assert kakoune_report(f"{KAK_MARKER}\nversion: 1999.01.01\nMappings:\n") == {"!version:1999.01.01"}
+    assert len(kakoune_report(f"{KAK_MARKER}\nversion: v2026.05.21-12-g36ad52e\nMappings:\n")) == len(r) - 6
+    kk = KNOWN["kakoune"]
+    examples = {"*[?]*": "mode=normal\t?é"}
+    for p, *_ in kk:
+        assert fnmatch.fnmatchcase(examples.get(p, p), p), p
+    for k in ("mode=normal\tspace x", "mode=normal\tspace shift+b", "mode=e2e\tq", "mode=normal\tg q"):
+        assert not [p for p, *_ in kk if fnmatch.fnmatchcase(k, p)], k
     print("oracle.py: self-test ok")
     return 0
 

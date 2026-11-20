@@ -1633,9 +1633,9 @@ mod tests {
         assert!(sh.wait().unwrap().success());
     }
 
-    const KAKOUNE: &str = r#"{"version": 1, "name": "kakoune", "description": "Kakoune's keymap", "inputs":
-        ["~/.config/kak/kakrc"], "match": {"program": ["kak"]}, "queries": [],
-        "homepage": "https://example.com/kakoune"}"#;
+    const VIFM: &str = r#"{"version": 1, "name": "vifm", "description": "vifm's keymap", "inputs":
+        ["~/.config/vifm/vifmrc"], "match": {"program": ["vifm"]}, "queries": [],
+        "homepage": "https://example.com/vifm"}"#;
 
     fn asked(path: &Path) -> usize {
         std::fs::read_to_string(format!("{}.asked", path.display()))
@@ -1646,12 +1646,12 @@ mod tests {
     #[test]
     fn a_manifest_is_asked_once_per_file_version() {
         let (env, d) = env_in("cache");
-        let p = d.join("bin/keybind-find-kakoune");
-        plugin_script(&p, KAKOUNE);
+        let p = d.join("bin/keybind-find-vifm");
+        plugin_script(&p, VIFM);
         let cache = env.cache_file().unwrap();
         let m = manifest(&p, Some(&cache), ask_manifest).unwrap();
-        assert_eq!((m.name.as_str(), m.inputs.len()), ("kakoune", 1));
-        assert_eq!(m.matches.unwrap().program, Some(vec!["kak".to_string()]));
+        assert_eq!((m.name.as_str(), m.inputs.len()), ("vifm", 1));
+        assert_eq!(m.matches.unwrap().program, Some(vec!["vifm".to_string()]));
         // A hit: the plugin isn't run again.
         manifest(&p, Some(&cache), |_| panic!("asked on a cache hit")).unwrap();
         assert_eq!(asked(&p), 1);
@@ -1672,7 +1672,7 @@ mod tests {
         assert!(format!("{e:#}").contains("not a manifest"), "{e:#}");
         // No answer (a timeout, a failed start) is remembered for an hour only.
         let r = d.join("bin/slow");
-        plugin_script(&r, KAKOUNE);
+        plugin_script(&r, VIFM);
         let e = manifest(&r, Some(&cache), |_| anyhow::bail!("did not answer")).unwrap_err();
         assert!(
             e.to_string().starts_with("no answer: did not answer"),
@@ -1687,7 +1687,7 @@ mod tests {
         std::fs::write(&cache, serde_json::to_vec(&entries).unwrap()).unwrap();
         assert_eq!(
             manifest(&r, Some(&cache), ask_manifest).unwrap().name,
-            "kakoune"
+            "vifm"
         );
         // An entry written by another keybind-find version is asked again.
         for c in entries.values_mut() {
@@ -1763,12 +1763,11 @@ mod tests {
 
     #[test]
     fn a_stanza_takes_the_defaults_it_leaves_out() {
-        let manifest = || -> anyhow::Result<keybind_find_sheet::Manifest> {
-            Ok(serde_json::from_str(KAKOUNE)?)
-        };
+        let manifest =
+            || -> anyhow::Result<keybind_find_sheet::Manifest> { Ok(serde_json::from_str(VIFM)?) };
         let stanza = |inputs: &[&str], matches: Option<Match>| Plugin {
-            name: "kakoune".into(),
-            program: "keybind-find-kakoune".into(),
+            name: "vifm".into(),
+            program: "keybind-find-vifm".into(),
             inputs: inputs.iter().map(|s| s.to_string()).collect(),
             matches,
         };
@@ -1782,15 +1781,15 @@ mod tests {
             ],
             |_| manifest(),
         );
-        let kak = Some(m(&[], &["kak"], &[]));
-        let theirs = vec!["~/.config/kak/kakrc".to_string()];
+        let vifm_match = Some(m(&[], &["vifm"], &[]));
+        let theirs = vec!["~/.config/vifm/vifmrc".to_string()];
         assert_eq!(
             (got[0].inputs.clone(), got[0].matches.clone()),
-            (theirs.clone(), kak.clone())
+            (theirs.clone(), vifm_match.clone())
         );
         assert_eq!(
             (got[1].inputs.clone(), got[1].matches.clone()),
-            (vec!["~/mine.toml".into()], kak)
+            (vec!["~/mine.toml".into()], vifm_match)
         );
         assert_eq!(
             (got[2].inputs.clone(), got[2].matches.clone()),
@@ -1809,21 +1808,21 @@ mod tests {
     #[test]
     fn a_normal_run_reuses_the_manifests_plugin_list_read() {
         let (env, d) = env_in("normal-run");
-        let p = d.join("bin/keybind-find-kakoune");
-        plugin_script(&p, KAKOUNE);
+        let p = d.join("bin/keybind-find-vifm");
+        plugin_script(&p, VIFM);
         // `plugin list` (or `add`) reads it once...
         assert_eq!(found(&env).len(), 1);
         assert_eq!(asked(&p), 1);
         // ...and a run with a stanza that leaves both keys out gets the defaults without asking again.
         let stanza = Plugin {
-            name: "kakoune".into(),
-            program: "keybind-find-kakoune".into(),
+            name: "vifm".into(),
+            program: "keybind-find-vifm".into(),
             inputs: vec![],
             matches: None,
         };
         let got = configured_in(&env, vec![stanza]);
-        assert_eq!(got[0].inputs, ["~/.config/kak/kakrc"]);
-        assert_eq!(got[0].matches, Some(m(&[], &["kak"], &[])));
+        assert_eq!(got[0].inputs, ["~/.config/vifm/vifmrc"]);
+        assert_eq!(got[0].matches, Some(m(&[], &["vifm"], &[])));
         assert_eq!(asked(&p), 1);
     }
 
@@ -1831,14 +1830,14 @@ mod tests {
     fn plugins_are_found_on_path_and_in_the_plugins_folder() {
         use std::os::unix::fs::PermissionsExt;
         let (env, d) = env_in("discover");
-        plugin_script(&d.join("bin/keybind-find-kakoune"), KAKOUNE);
-        plugin_script(&d.join("bin2/keybind-find-kakoune"), KAKOUNE);
-        plugin_script(&d.join("bin2/keybind-find-btop"), KAKOUNE);
-        plugin_script(&d.join("bin/other"), KAKOUNE);
-        plugin_script(&d.join("config/keybind-find/plugins/mine"), KAKOUNE);
+        plugin_script(&d.join("bin/keybind-find-vifm"), VIFM);
+        plugin_script(&d.join("bin2/keybind-find-vifm"), VIFM);
+        plugin_script(&d.join("bin2/keybind-find-btop"), VIFM);
+        plugin_script(&d.join("bin/other"), VIFM);
+        plugin_script(&d.join("config/keybind-find/plugins/mine"), VIFM);
         // Not executable, or just the prefix: not plugins.
         std::fs::write(d.join("bin/keybind-find-notes"), "").unwrap();
-        plugin_script(&d.join("bin/keybind-find-"), KAKOUNE);
+        plugin_script(&d.join("bin/keybind-find-"), VIFM);
         std::fs::set_permissions(
             d.join("bin/keybind-find-notes"),
             std::fs::Permissions::from_mode(0o644),
@@ -1850,7 +1849,7 @@ mod tests {
         assert_eq!(
             found,
             [
-                "bin/keybind-find-kakoune",
+                "bin/keybind-find-vifm",
                 "bin2/keybind-find-btop",
                 "config/keybind-find/plugins/mine"
             ]
@@ -1874,11 +1873,11 @@ mod tests {
     #[test]
     fn plugin_list_says_what_is_enabled() {
         let (env, d) = env_in("list");
-        plugin_script(&d.join("bin/keybind-find-kakoune"), KAKOUNE);
+        plugin_script(&d.join("bin/keybind-find-vifm"), VIFM);
         plugin_script(&d.join("bin/keybind-find-broken"), "oops");
         let stanza = Plugin {
-            name: "kak".into(),
-            program: "keybind-find-kakoune".into(),
+            name: "vf".into(),
+            program: "keybind-find-vifm".into(),
             inputs: vec![],
             matches: None,
         };
@@ -1889,8 +1888,8 @@ mod tests {
             format!(
                 "broken\tnot in the config\t{b}/keybind-find-broken\n    no manifest: its --manifest output is not a \
                  manifest: expected value at line 1 column 1\n\
-                 kakoune\tenabled as \"kak\"\t{b}/keybind-find-kakoune\n    Kakoune's keymap\n    inputs: \
-                 ~/.config/kak/kakrc\n    match: program kak\n    homepage: https://example.com/kakoune",
+                 vifm\tenabled as \"vf\"\t{b}/keybind-find-vifm\n    vifm's keymap\n    inputs: \
+                 ~/.config/vifm/vifmrc\n    match: program vifm\n    homepage: https://example.com/vifm",
                 b = bin.display()
             )
         );
@@ -1901,37 +1900,32 @@ mod tests {
     #[test]
     fn plugin_add_appends_a_stanza_and_keeps_what_is_there() {
         let (env, d) = env_in("add");
-        plugin_script(&d.join("bin/keybind-find-kakoune"), KAKOUNE);
+        plugin_script(&d.join("bin/keybind-find-vifm"), VIFM);
         plugin_script(
             &d.join("config/keybind-find/plugins/mine"),
             r#"{"version": 1, "name": "mine", "description": "line one\nline two"}"#,
         );
         // A missing config (and folder) is created.
         let config = d.join("fresh/keybind-find/config.toml");
-        let out = add_stanza(&env, "kakoune", &config).unwrap();
+        let out = add_stanza(&env, "vifm", &config).unwrap();
         let text = std::fs::read_to_string(&config).unwrap();
         // The program is a path (Super+/'s PATH may not hold it), here outside the fake home so absolute.
         assert_eq!(
             text,
             format!(
-                "# kakoune: Kakoune's keymap\n# https://example.com/kakoune\n# Added by `keybind-find plugin add`, with the \
-                 plugin's defaults: edit them freely.\n[[plugin]]\nname = \"kakoune\"\nprogram = \"{}\"\n\
-                 inputs = [\"~/.config/kak/kakrc\"]\n[plugin.match]\nprogram = [\"kak\"]\n",
-                d.join("bin/keybind-find-kakoune").display()
+                "# vifm: vifm's keymap\n# https://example.com/vifm\n# Added by `keybind-find plugin add`, with the \
+                 plugin's defaults: edit them freely.\n[[plugin]]\nname = \"vifm\"\nprogram = \"{}\"\n\
+                 inputs = [\"~/.config/vifm/vifmrc\"]\n[plugin.match]\nprogram = [\"vifm\"]\n",
+                d.join("bin/keybind-find-vifm").display()
             )
         );
         assert!(
-            out.starts_with(&format!("added to {}:\n\n# kakoune", config.display())),
+            out.starts_with(&format!("added to {}:\n\n# vifm", config.display())),
             "{out}"
         );
         // A second add of the same name is refused and changes nothing (ignoring case, as the config does).
-        let e = add_stanza(&env, "KAKOUNE", &config)
-            .unwrap_err()
-            .to_string();
-        assert!(
-            e.contains("already has a [[plugin]] named \"kakoune\""),
-            "{e}"
-        );
+        let e = add_stanza(&env, "VIFM", &config).unwrap_err().to_string();
+        assert!(e.contains("already has a [[plugin]] named \"vifm\""), "{e}");
         assert_eq!(std::fs::read_to_string(&config).unwrap(), text);
         // An existing config keeps every byte, comments and order included; the folder plugin is named by path and
         // has no default match.
@@ -1957,16 +1951,11 @@ mod tests {
         // The same program under another name is refused too: its binds would show twice.
         std::fs::write(
             &config,
-            "[[plugin]]\nname = \"kak\"\nprogram = \"keybind-find-kakoune\"\n",
+            "[[plugin]]\nname = \"vf\"\nprogram = \"keybind-find-vifm\"\n",
         )
         .unwrap();
-        let e = add_stanza(&env, "kakoune", &config)
-            .unwrap_err()
-            .to_string();
-        assert!(
-            e.contains("already runs") && e.contains("as \"kak\""),
-            "{e}"
-        );
+        let e = add_stanza(&env, "vifm", &config).unwrap_err().to_string();
+        assert!(e.contains("already runs") && e.contains("as \"vf\""), "{e}");
         // A `plugin` that isn't [[plugin]] stanzas: appending would break the whole config, so nothing is written.
         for text in [
             "plugin = []\n",
@@ -1974,9 +1963,7 @@ mod tests {
             "[plugin]\nname = \"a\"\n",
         ] {
             std::fs::write(&config, text).unwrap();
-            let e = add_stanza(&env, "kakoune", &config)
-                .unwrap_err()
-                .to_string();
+            let e = add_stanza(&env, "vifm", &config).unwrap_err().to_string();
             assert!(e.contains("can't append"), "{text}: {e}");
             assert_eq!(std::fs::read_to_string(&config).unwrap(), text);
         }
@@ -1988,11 +1975,11 @@ mod tests {
             config_home: None,
             cache_home: None,
         };
-        add_stanza(&homed, "kakoune", &config).unwrap();
+        add_stanza(&homed, "vifm", &config).unwrap();
         let doc: toml::Value = toml::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
         assert_eq!(
             doc["plugin"][0]["program"].as_str(),
-            Some("~/bin/keybind-find-kakoune")
+            Some("~/bin/keybind-find-vifm")
         );
         // Unknown names, and a config that isn't TOML, are refused.
         assert!(add_stanza(&env, "nosuch", &config)
@@ -2000,9 +1987,7 @@ mod tests {
             .to_string()
             .contains("no installed plugin"));
         std::fs::write(&config, "[keys\n").unwrap();
-        let e = add_stanza(&env, "kakoune", &config)
-            .unwrap_err()
-            .to_string();
+        let e = add_stanza(&env, "vifm", &config).unwrap_err().to_string();
         assert!(e.contains("not valid TOML"), "{e}");
         assert_eq!(std::fs::read_to_string(&config).unwrap(), "[keys\n");
     }
@@ -2124,14 +2109,14 @@ mod tests {
     #[test]
     fn check_plugin_passes_a_good_plugin_and_checks_its_inputs() {
         let (_, d) = env_in("check-good");
-        let p = d.join("bin/keybind-find-kakoune");
-        plugin_script(&p, KAKOUNE);
+        let p = d.join("bin/keybind-find-vifm");
+        plugin_script(&p, VIFM);
         // The default input isn't there (no home): a note, not a problem.
         let (r, lines) = check_lines(&p, &[], TIMEOUT);
         assert!(r.ok, "{lines:#?}");
         assert_eq!(lines.last().unwrap(), "ok: no problems");
         assert!(
-            lines.contains(&"note: input ~/.config/kak/kakrc not found here; not sent".into()),
+            lines.contains(&"note: input ~/.config/vifm/vifmrc not found here; not sent".into()),
             "{lines:#?}"
         );
         assert!(r.manifest_ms.is_some() && r.run_ms.is_some());
@@ -2149,7 +2134,7 @@ mod tests {
         // An answer that comes, but late, is measured and reported. Killed only at twice the limit, so a busy
         // runner has most of a second to spare.
         let slow = d.join("bin/slow");
-        write_script(&slow, &format!("sleep 1.2\ncat <<'EOF'\n{KAKOUNE}\nEOF"));
+        write_script(&slow, &format!("sleep 1.2\ncat <<'EOF'\n{VIFM}\nEOF"));
         let (r, lines) = check_lines(&slow, &[], Duration::from_secs(1));
         assert!(
             r.problems.iter().any(|p| p.part == "manifest"
@@ -2356,21 +2341,21 @@ mod tests {
         );
         // By name: a configured stanza's first (what Super+/ runs), else an installed plugin's.
         let (env, d) = env_in("check-locate");
-        let kakoune = d.join("bin/keybind-find-kakoune");
-        plugin_script(&kakoune, KAKOUNE);
+        let vifm = d.join("bin/keybind-find-vifm");
+        plugin_script(&vifm, VIFM);
         assert_eq!(
-            locate(&env, "KAKOUNE", Vec::new).unwrap(),
-            (kakoune.clone(), None)
+            locate(&env, "VIFM", Vec::new).unwrap(),
+            (vifm.clone(), None)
         );
         let mine = d.join("bin2/mine");
         plugin_script(&mine, "no manifest");
         let stanza = Plugin {
-            name: "Kakoune".into(),
+            name: "Vifm".into(),
             program: "mine".into(),
             inputs: vec!["~/x".into()],
             matches: None,
         };
-        let (path, found) = locate(&env, "kakoune", || vec![stanza.clone()]).unwrap();
+        let (path, found) = locate(&env, "vifm", || vec![stanza.clone()]).unwrap();
         assert_eq!((path, found), (mine.clone(), Some(stanza.clone())));
         let e = locate(&env, "nosuch", Vec::new).unwrap_err().to_string();
         assert!(
@@ -2384,21 +2369,19 @@ mod tests {
         let (_, found) =
             locate(&env, &mine.display().to_string(), || vec![stanza.clone()]).unwrap();
         assert_eq!(found, Some(stanza.clone()));
-        let runs_kakoune = Plugin {
-            name: "kak".into(),
-            program: kakoune.display().to_string(),
+        let runs_vifm = Plugin {
+            name: "vf".into(),
+            program: vifm.display().to_string(),
             ..stanza.clone()
         };
-        let (_, found) = locate(&env, "kakoune", || vec![runs_kakoune.clone()]).unwrap();
-        assert_eq!(found, Some(runs_kakoune));
+        let (_, found) = locate(&env, "vifm", || vec![runs_vifm.clone()]).unwrap();
+        assert_eq!(found, Some(runs_vifm));
         // A stanza whose program isn't there.
         let gone = Plugin {
             program: "nosuch-program".into(),
             ..stanza
         };
-        let e = locate(&env, "kakoune", || vec![gone])
-            .unwrap_err()
-            .to_string();
+        let e = locate(&env, "vifm", || vec![gone]).unwrap_err().to_string();
         assert!(e.contains("nosuch-program not found on PATH"), "{e}");
     }
 

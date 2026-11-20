@@ -45,6 +45,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | lf | its keys in normal, visual and command-line mode, from the running lf when it has them, else lf r42's defaults with your `lfrc` on top | none ([below](#lf)) |
 | lazygit | its keys by panel, as its own keybindings cheatsheet lists them: lazygit 0.66.2's defaults with your `config.yml` and the repo's `.git/lazygit.yml` on top | none ([below](#lazygit)) |
 | nnn | its keys as built (nnn 5.3's), plus the plugin (`;` + key) and bookmark (`b` + key) keys of the running nnn's `NNN_PLUG` and `NNN_BMS` | none ([below](#nnn)) |
+| Kakoune | its keys by mode (normal, goto, view, object, insert, prompt, user modes): Kakoune's built-in keys (2026.05.21's built in) with the running session's mappings on top, else your kakrc and autoload files' | none ([below](#kakoune)) |
 | helix | its keys in normal, select and insert mode: helix's default keymap for its version (25.01.1 and 25.07.1 built in) with your `config.toml` keys merged in | none ([below](#helix)) |
 | ncmpcpp | its keys: ncmpcpp's defaults (0.10.1's built in, the same since 0.9.2) with your `bindings` files on top | none ([below](#ncmpcpp)) |
 | herdr | herdr's defaults for its version, your `config.toml` and plugin commands | none |
@@ -64,7 +65,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | espanso | `espanso match list`; picking a match types its trigger | none |
 | anything else | a sheet you write, or a script that prints one; a global sheet (`"provider": "*"`) lists things with no key, such as macros, that a pick runs (`"run": [argv]`) | [docs/sheets.md](docs/sheets.md) |
 
-nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, lf, lazygit, nnn, helix, herdr, tmux, zellij, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
+nvim, vim, Emacs (and `emacsclient -t`), nano, micro, mc (and mcedit, mcview, mcdiff), yazi, ncmpcpp, ranger, lf, lazygit, nnn, Kakoune (`kak`), helix, herdr, tmux, zellij, screen, the shells and less are read when they are the program in the focused terminal window: alacritty, kitty, foot,
 WezTerm, st, xterm/uxterm, Ghostty, GNOME Terminal, Konsole, Xfce Terminal, urxvt or Terminator (by window class, or
 sway `app_id`, Hyprland `class`); nvim also inside a herdr, tmux or zellij pane or a screen window. When one terminal process runs several shells
 (tabs, splits, or several windows from one process: alacritty's daemon mode, `foot --server`, `urxvtd`; by default
@@ -462,6 +463,43 @@ table), and the second keys nnn's help doesn't list (`b ,`, `b Return`, `; Retur
 the editor or the pager, its keys aren't listed: that program is in front. nnn is found as the program leading the
 terminal: started from the shell, by nnn's `n` function or a script that `exec`s it; a wrapper script that runs nnn
 as a child leads instead, so nnn isn't found.
+
+### Kakoune
+
+Over `kak` in a terminal, keybind-find lists Kakoune's keys by mode: its built-in keys for your version (2026.05.21's,
+from Kakoune's source: the normal-mode commands with their own descriptions; the goto, view and object menus; the
+insert and prompt keys, worded as `:doc keys` words them) with your mappings on top, a mapping replacing the built-in
+key of its mode and key. Kakoune doesn't say which mode a client is in, so every mode's keys show, each tagged with
+the mode it is typed in: a goto, view, object or user mode key as the sequence that reaches it from normal mode (`g
+q` and `shift+g q`, `v z` and `shift+v z`, `alt+i q` and `alt+a q`, `space x`; object's keys aren't repeated after
+its other leads, `[`, `]`, `{`, `}`, their `alt+` forms, `alt+shift+i` and `alt+shift+a`); an insert, prompt, menu or combine key alone; a user mode your config
+declares (`declare-user-mode`) under its own name, without the key that enters it (keybind-find can't know it). When
+your config maps one of those leading keys in normal mode, the sub-mode's keys follow the normal mapping that runs
+exactly that key (with `map global normal , <space>` and `map global normal <space> ,`, user keys are at `comma
+x`), and are left out with a count when none does. A mapping is described by its docstring, else its keys.
+
+The mappings come from the running session: keybind-find finds the session of the kak in front (`-c`, `-C` or `-s`
+on its command line, else its pid) and sends it a short script with that kak's own binary, `kak -p`. In the client
+whose pid that is, the script writes a marker, `debug mappings` and an end marker to `*debug*`, then copies `*debug*`
+and Kakoune's version to a private directory in kak's `$XDG_RUNTIME_DIR`, else keybind-find's own, whichever is
+yours and closed to others (with neither, the session isn't asked), which keybind-find reads and removes. The script
+then empties its command. So every map the session has counts: your kakrc, autoload
+plugins, filetype hooks and window and buffer maps. Each Super+/ adds those lines to your `*debug*` buffer and leaves
+one hidden command, `keybind-find-report-<pid>` (doing nothing), defined in the session (Kakoune can't remove a command); nothing
+else in the session changes. A session renamed with `rename-session` can't be found: keybind-find knows only the name
+on kak's command line, and Kakoune renames the socket file while the kernel keeps listing it under its first name
+(`/proc/net/unix`), so finding it would mean asking other sessions. When the session can't be asked (renamed, no
+private runtime directory, no answer within 2 s), one line says why and keybind-find reads your config instead, as Kakoune sources it at start:
+every `*.kak` under `<config>/autoload` (else the runtime's `autoload`; Kakoune takes them in directory order, which
+keybind-find approximates by name), then the runtime's `kakrc.local`, then `<config>/kakrc` unless `kakrc.local`
+failed, all of it only when the runtime has its `kakrc` (`<config>` is `$KAKOUNE_CONFIG_DIR`, else `$XDG_CONFIG_HOME/kak`, else `~/.config/kak`). Their commands are split as
+Kakoune parses them and `map`, `unmap`, `declare-user-mode`, `try` and `evaluate-commands` are followed; a command
+Kakoune refuses at start (`map window …`) ends that file, as in Kakoune. Not read, since they need Kakoune running:
+`hook` and `define-command` bodies, `source`, and any command with a `%sh{}`, `%val{}`, `%opt{}` or other expansion
+(such a `map` is counted on the left-out line). `keybind-find dump kakoune` from a shell reads the config. A non-ASCII
+key keybind-find can't name and focus events are left out with a count. `ctrl+i`, `ctrl+m`, `ctrl+[` and
+`ctrl+shift+` a letter reach Kakoune as themselves only in a terminal that reports keys in the kitty protocol Kakoune
+asks for (kitty, foot, Ghostty and others); elsewhere they can arrive as Tab, Return, Escape and `ctrl+` the letter.
 
 ### helix
 
