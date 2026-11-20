@@ -409,8 +409,8 @@ listed while they run.
 Over lazygit in a terminal, keybind-find lists the rows of lazygit's own keybindings cheatsheet (what its `?` menu and
 docs show), filed under their panel (`Files`, `Commits`, `Global keybindings`, `List panel navigation`, …), each key
 one entry described by the row's action, with the config key that sets it (`universal.quit`) as its command. The
-defaults are lazygit's for your version (from `lazygit --version`; 0.66.2's are built in, the nearest is used with a
-note for another version). On top come the `keybinding:` sections of the files lazygit reads, in lazygit's order: the
+defaults are lazygit's for your version (asked of the focused lazygit's own binary, `/proc/<pid>/exe --version`, else
+of `lazygit --version` on PATH; 0.66.2's are built in, the nearest is used with a note for another version). On top come the `keybinding:` sections of the files lazygit reads, in lazygit's order: the
 files `--use-config-file`/`LG_CONFIG_FILE` names (comma-separated, in order; a missing one gets a line), else
 `config.yml` in `--use-config-dir`/`CONFIG_DIR`, else the first `jesseduffield/lazygit/config.yml`, then the first
 `lazygit/config.yml`, in `$XDG_CONFIG_HOME` (else `~/.config`) then each `$XDG_CONFIG_DIRS` directory (else
@@ -426,7 +426,9 @@ The files are YAML, and keybind-find reads only their `keybinding:` section, wit
 own docs use there: nested `key: value` lines, plain and quoted values, one-line `[a, b]` lists and `{ a: b }`
 mappings, `- a` lists (also at the key's own column) and comments (the rest of the file is skipped unread). Inside `keybinding:` anchors, aliases,
 tags, `|` and `>` blocks, a list or mapping over several lines, a duplicate key, a mapping where keys belong, a
-section left empty (lazygit refuses its null) or text that isn't UTF-8 make
+section or `keybinding:` itself left empty (lazygit refuses its null), and anywhere in the file a top-level value
+going on to the next lines, an indented or flow document, a directive other than `%YAML 1.1` and `%TAG`, a control
+character, a lone CR or a Unicode line break, or text that isn't UTF-8 make
 keybind-find skip that file's keys, with one line naming the file and line; the other files still count. A section
 or key lazygit doesn't have gets one line and is ignored, as lazygit ignores it (an old name lazygit renames when it
 loads a file, such as `executeCustomCommand`, is one: lazygit writes the new name back into the file). There is no
@@ -434,8 +436,8 @@ oracle: lazygit prints only its defaults (`lazygit --config`), so the built-in s
 cheatsheet instead.
 
 Left out, with a count: `meta` keys (the terminal decides what that is, and keybind-find can't send it to the
-terminal), the mouse wheel rows, characters with no keysym, and keys lazygit refuses (which stop lazygit loading the
-whole config: that file also gets a line). Custom commands (`customCommands:`) aren't listed yet. Only the Linux
+terminal), the mouse wheel rows, characters with no keysym, and keys lazygit refuses (one stops lazygit loading its
+whole config: that file gets a line, and its other keys are listed as written). Custom commands (`customCommands:`) aren't listed yet. Only the Linux
 defaults are built in: with `LAZYGIT_KEYBINDING_PLATFORM=darwin`, the six keys that differ on macOS show their Linux
 default. A repo given with `--git-dir`, lazygit started inside a `.git` directory and bare repos read no repo files.
 lazygit is found as the program in the terminal, not inside a tmux, zellij or screen pane or nvim's terminal

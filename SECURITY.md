@@ -34,7 +34,7 @@ Please report security problems privately, through GitHub's private vulnerabilit
     the reply is hex-decoded text, never run; with no `DBUS_SESSION_BUS_ADDRESS`, some libdbus builds start a session
     bus of their own for it), `lf` (`-remote "query <pid> maps"` and `cmaps`, which ask the focused lf for its key
     list through lf's own server; keybind-find sends lf nothing), `lazygit` (`--version`, which runs `git --version`
-    and starts no session) and `git` (`rev-parse` in the focused lazygit's repo, to find the repo's lazygit files);
+    and starts no session: the focused lazygit's own binary, `/proc/<pid>/exe`, else `lazygit` from PATH) and `git` (`rev-parse` in the focused lazygit's repo, to find the repo's lazygit files);
   - the picker: `alacritty` with `fzf`, `fuzzel` or `dmenu`, or whatever program `KEYBIND_FIND_PICKER` names;
   - `notify-send` for errors under a hotkey.
 
@@ -49,7 +49,7 @@ Please report security problems privately, through GitHub's private vulnerabilit
   `kxmlgui5/konsole/*ui.rc` and shortcut scheme files, lf's `lfrc` files and the files they `source`, lazygit's `config.yml` files and the repo's `.lazygit.yml` and
   `.git/lazygit.yml` (only their `keybinding:` section is parsed; nothing in them is run), Vimium's extension folder), xmonad's keymap dump, and `/proc` to find the program inside a terminal and your own sxhkd's
   and the focused lf's and lazygit's config files (`/proc/<pid>/{cmdline,environ,cwd}` of your `sxhkd` processes and
-  of that `lf` or `lazygit` only).
+  of that `lf` or `lazygit` only, and that lazygit's `/proc/<pid>/exe`).
 - **It writes:** the usage log, `$XDG_STATE_HOME/keybind-find/usage.tsv` (default `~/.local/state/...`), which holds
   the time, provider and key of each pick (an espanso trigger, never its replacement); and, while the fzf picker is
   open, a `0700` directory under `$XDG_RUNTIME_DIR` (else the temporary directory) with the list, the key-search list,

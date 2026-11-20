@@ -78,6 +78,7 @@ pub fn sheet() -> anyhow::Result<Sheet> {
         |_| {},
         crate::context::editor_pid(),
         Path::new("/proc"),
+        std::env::current_dir().ok().as_deref(),
         &|k| std::env::var(k).ok(),
     )?;
     for note in notes {
@@ -87,12 +88,14 @@ pub fn sheet() -> anyhow::Result<Sheet> {
 }
 
 /// The sheet for the lazygit at `pid` (none: `dump lazygit` from a shell), its process read under `proc`; `setup` is
-/// applied to `lazygit --version` and `env` is keybind-find's own environment (test seams). Also the notes.
+/// applied to `lazygit --version`, `here` and `env` are keybind-find's own cwd and environment (test seams). Also the
+/// notes.
 fn sheet_with(
     registry: &[(&'static str, &'static str)],
     setup: impl Fn(&mut Command),
     pid: Option<u32>,
     proc: &Path,
+    here: Option<&Path>,
     env: Env,
 ) -> anyhow::Result<(Sheet, Vec<String>)> {
     // The editor pid context found is lazygit's only when lazygit leads the terminal; check its comm.
@@ -102,8 +105,8 @@ fn sheet_with(
                 .is_ok_and(|c| c.trim_end_matches('\n') == "lazygit")
         })
         .map(|p| proc.join(p.to_string()));
-    // The focused lazygit's own binary (`/proc/<pid>/exe`), else `lazygit` from PATH (`dump lazygit`, or a binary
-    // replaced since it started).
+    // The focused lazygit's own binary (`/proc/<pid>/exe`, which runs even when deleted or replaced since), else
+    // `lazygit` from PATH (`dump lazygit`, or an exe that can't be read or run).
     let ask = |program: &Path| {
         let mut cmd = Command::new(program);
         cmd.arg("--version")
@@ -131,8 +134,17 @@ fn sheet_with(
         .map(|b| nul_split(&b))
         .unwrap_or_default();
     let cwd = match &dir {
-        Some(d) => std::fs::read_link(d.join("cwd")).ok(),
-        None => std::env::current_dir().ok(),
+        Some(d) => {
+            let cwd = std::fs::read_link(d.join("cwd")).ok();
+            if cwd.is_none() {
+                notes.push(
+                    "can't read lazygit's working directory; skipping relative config paths and the repo's files"
+                        .into(),
+                );
+            }
+            cwd
+        }
+        None => here.map(Path::to_path_buf),
     };
     let getenv = |k: &str| match &environ {
         Some(e) => e.get(k).cloned(),
@@ -168,9 +180,11 @@ fn version_of(text: &str) -> Option<String> {
 
 type Environ = BTreeMap<String, String>;
 
-/// A process's environment (`/proc/<pid>/environ`), `None` when it can't be read.
+/// A process's environment (`/proc/<pid>/environ`), `None` when it can't be read or reads empty (a zombie's).
 fn environ(dir: &Path) -> Option<Environ> {
-    let b = std::fs::read(dir.join("environ")).ok()?;
+    let b = std::fs::read(dir.join("environ"))
+        .ok()
+        .filter(|b| !b.is_empty())?;
     let mut env = BTreeMap::new();
     for kv in nul_split(&b) {
         if let Some((k, v)) = kv.split_once('=') {
@@ -233,15 +247,22 @@ fn global_files(env: Env, args: &[String], cwd: Option<&Path>) -> Vec<(PathBuf, 
             .or_else(|| env(k))
             .filter(|v| !v.is_empty())
     };
+    // A relative path is lazygit's cwd's; none when that can't be read.
     let at_cwd = |p: &str| match cwd {
-        Some(c) if Path::new(p).is_relative() => c.join(p),
-        _ => PathBuf::from(p),
+        _ if Path::new(p).is_absolute() => Some(PathBuf::from(p)),
+        c => c.map(|c| c.join(p)),
     };
     if let Some(list) = get("LG_CONFIG_FILE", ucf) {
-        return list.split(',').map(|p| (at_cwd(p), true)).collect();
+        return list
+            .split(',')
+            .filter_map(|p| Some((at_cwd(p)?, true)))
+            .collect();
     }
     if let Some(dir) = get("CONFIG_DIR", ucd) {
-        return vec![(at_cwd(&dir).join("config.yml"), false)];
+        return at_cwd(&dir)
+            .map(|d| (d.join("config.yml"), false))
+            .into_iter()
+            .collect();
     }
     let search = config_dirs(env);
     ["jesseduffield/lazygit/config.yml", "lazygit/config.yml"]
@@ -280,9 +301,10 @@ fn config_dirs(env: Env) -> Vec<PathBuf> {
     config_home.into_iter().chain(dirs).collect()
 }
 
-/// The repo's config files (`getPerRepoConfigFiles`, pkg/gui/gui.go:483-504), asked of git in `cwd` with lazygit's
-/// own `GIT_DIR` and `GIT_WORK_TREE` (from `environ`; keybind-find's when that can't be read); none when git fails
-/// (not a repo, a bare one, no git).
+/// The repo's config files (`getPerRepoConfigFiles`, pkg/gui/gui.go:483-504), asked of git in `cwd`; none when git
+/// fails (not a repo, a bare one, no git). No `GIT_*` of keybind-find's reaches git; lazygit's own `GIT_DIR` and
+/// `GIT_WORK_TREE` (from `environ`) do when both are absolute and `cwd` is in that work tree: lazygit sets and clears
+/// them as it switches repos (git.go:87, repos_helper.go:384-389), so others are stale.
 fn repo_files(cwd: &Path, environ: Option<&Environ>) -> Vec<PathBuf> {
     let mut cmd = Command::new("git");
     cmd.args([
@@ -296,12 +318,14 @@ fn repo_files(cwd: &Path, environ: Option<&Environ>) -> Vec<PathBuf> {
     .current_dir(cwd)
     .env("LC_ALL", "C")
     .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
-    if let Some(e) = environ {
-        for var in ["GIT_DIR", "GIT_WORK_TREE"] {
-            match e.get(var) {
-                Some(v) => cmd.env(var, v),
-                None => cmd.env_remove(var),
-            };
+    for (k, _) in std::env::vars_os() {
+        if k.as_encoded_bytes().starts_with(b"GIT_") {
+            cmd.env_remove(k);
+        }
+    }
+    if let Some((d, w)) = environ.and_then(|e| Some((e.get("GIT_DIR")?, e.get("GIT_WORK_TREE")?))) {
+        if Path::new(d).is_absolute() && Path::new(w).is_absolute() && cwd.starts_with(w) {
+            cmd.env("GIT_DIR", d).env("GIT_WORK_TREE", w);
         }
     }
     run_for(cmd, GIT_TIMEOUT)
@@ -333,17 +357,26 @@ fn per_repo(out: &str) -> Vec<PathBuf> {
 }
 
 /// A file's bytes; `None` when it doesn't exist; an error when it can't be read, isn't a regular file or is over
-/// `MAX_SIZE`.
+/// `MAX_SIZE`. Opened non-blocking and checked on the handle, so a FIFO put there can't hang us.
 fn read_file(p: &Path) -> Result<Option<Vec<u8>>, String> {
-    match std::fs::metadata(p) {
+    use std::os::unix::fs::OpenOptionsExt;
+    // ponytail: Linux's O_NONBLOCK on x86 and arm (libc isn't a dependency); alpha, mips, parisc and sparc differ.
+    const O_NONBLOCK: i32 = 0o4000;
+    let f = match std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NONBLOCK)
+        .open(p)
+    {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.to_string()),
-        Ok(m) if !m.is_file() => return Err("not a regular file".into()),
-        Ok(_) => {}
+        Ok(f) => f,
+    };
+    if !f.metadata().map_err(|e| e.to_string())?.is_file() {
+        return Err("not a regular file".into());
     }
     let mut bytes = Vec::new();
-    std::fs::File::open(p)
-        .and_then(|f| f.take(MAX_SIZE + 1).read_to_end(&mut bytes))
+    f.take(MAX_SIZE + 1)
+        .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     if bytes.len() as u64 > MAX_SIZE {
         return Err(format!("larger than {} MiB", MAX_SIZE >> 20));
@@ -383,7 +416,7 @@ fn merged(
                 }
                 if !refused.is_empty() {
                     notes.push(format!(
-                        "{p}: lazygit refuses the key {} (and with it this file); its other keys are listed as written",
+                        "{p}: lazygit refuses the key {} (and with it its whole config); this file's other keys are listed as written",
                         refused.join(", ")
                     ));
                 }
@@ -414,7 +447,10 @@ type UserFields = (Vec<(String, Vec<String>)>, Vec<String>, Vec<String>);
 fn user_fields(text: &[u8], defaults: &Fields) -> anyhow::Result<UserFields> {
     let (mut set, mut unknown, mut refused) = (Vec::new(), Vec::new(), Vec::new());
     let sections = match yaml_subset::keybinding_of(text)? {
-        None | Some(Node::Null) => return Ok((set, unknown, refused)),
+        None => return Ok((set, unknown, refused)),
+        // `keybinding:` left null: lazygit's migration walks into it and fails (computeMigratedConfig,
+        // app_config.go:304-308).
+        Some(Node::Null) => bail!("`keybinding` is empty (null), which lazygit refuses"),
         Some(Node::Map(m)) => m,
         Some(_) => bail!("`keybinding` isn't a mapping"),
     };
@@ -433,36 +469,47 @@ fn user_fields(text: &[u8], defaults: &Fields) -> anyhow::Result<UserFields> {
         };
         for (f, value, line) in entries {
             let name = format!("{prefix}{f}");
-            if name == JUMP_TO_BLOCK {
-                continue;
-            }
-            if !defaults.contains_key(&name) {
+            // jumpToBlock (`[]Keybinding`, not on the sheet) is checked, not kept: a list whose items are key lists.
+            let jump = name == JUMP_TO_BLOCK;
+            if !jump && !defaults.contains_key(&name) {
                 unknown.push(name);
                 continue;
             }
             let labels = match value {
-                Node::Scalar(s) => vec![s],
+                Node::Scalar(s) if !jump => vec![s],
                 // lazygit turns null into `<disabled>` (migrateUserConfig).
-                Node::Null => vec![],
+                Node::Null if !jump => vec![],
                 Node::Seq(items) => {
                     let mut labels = Vec::new();
                     for i in items {
                         match i {
                             Node::Scalar(s) => labels.push(s),
                             Node::Null => {}
+                            Node::Seq(inner) if jump => {
+                                for x in inner {
+                                    match x {
+                                        Node::Scalar(s) => labels.push(s),
+                                        Node::Null => {}
+                                        _ => bail!("line {line}: a list nested too deep ({name})"),
+                                    }
+                                }
+                            }
                             _ => bail!("line {line}: a list inside a key list ({name})"),
                         }
                     }
                     labels
                 }
                 Node::Map(_) => bail!("line {line}: a mapping where a key list belongs ({name})"),
+                _ => bail!("line {line}: `{name}` isn't a list, which lazygit refuses"),
             };
             let labels: Vec<String> = labels
                 .into_iter()
                 .filter(|l| !l.is_empty() && l != "<disabled>")
                 .collect();
             refused.extend(labels.iter().filter(|l| label(l).is_none()).cloned());
-            set.push((name, labels));
+            if !jump {
+                set.push((name, labels));
+            }
         }
     }
     Ok((set, unknown, refused))
@@ -963,7 +1010,7 @@ mod tests {
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(
             notes[0].ends_with(
-                "0.yml: lazygit refuses the key <c-c-x> (and with it this file); its other keys are listed as written"
+                "0.yml: lazygit refuses the key <c-c-x> (and with it its whole config); this file's other keys are listed as written"
             ),
             "{notes:?}"
         );
@@ -1157,6 +1204,9 @@ mod tests {
             per_repo(sub)[4],
             PathBuf::from("/home/u/src/r/.lazygit.yml")
         );
+        // A worktree of a submodule (git dir ≠ common dir, a fourth line): still its own worktree.
+        let sub_wt = per_repo("/w/m\n/r/.git/modules/m/worktrees/x\n/r/.git/modules/m\n/r\n");
+        assert_eq!(sub_wt[sub_wt.len() - 2], PathBuf::from("/w/.lazygit.yml"));
         assert!(per_repo("").is_empty());
         assert!(per_repo("/a\n/b\n").is_empty());
     }
@@ -1175,7 +1225,10 @@ mod tests {
         }
         let repo = repo.canonicalize().unwrap();
         std::fs::create_dir_all(repo.join("sub")).unwrap();
+        // keybind-find's own GIT_* never reach git: this ceiling (only this repo's path) would hide the repo.
+        std::env::set_var("GIT_CEILING_DIRECTORIES", &repo);
         let files = repo_files(&repo.join("sub"), None);
+        std::env::remove_var("GIT_CEILING_DIRECTORIES");
         assert_eq!(files.last(), Some(&repo.join(".git/lazygit.yml")));
         assert_eq!(
             files[files.len() - 2],
@@ -1202,17 +1255,19 @@ mod tests {
         assert!(ok.success());
         let bare = bare.canonicalize().unwrap();
         assert!(repo_files(&bare, None).is_empty());
-        // lazygit's GIT_DIR, not keybind-find's: one naming the bare repo is what git asks (a bare repo: none);
-        // lazygit's environment without one removes any.
-        let with = |v: Option<&Path>| {
-            let e: Environ = v
-                .map(|v| ("GIT_DIR".to_string(), v.display().to_string()))
-                .into_iter()
-                .collect();
-            repo_files(&repo, Some(&e))
-        };
-        assert!(with(Some(&bare)).is_empty());
-        assert_eq!(with(None).last(), Some(&repo.join(".git/lazygit.yml")));
+        // lazygit's GIT_DIR and GIT_WORK_TREE count when its cwd is in that work tree: here they name the repo from
+        // the bare one's directory; from a cwd outside the work tree they're stale and dropped (the bare repo: none).
+        let e: Environ = [
+            ("GIT_DIR", repo.join(".git")),
+            ("GIT_WORK_TREE", repo.clone()),
+        ]
+        .map(|(k, v)| (k.to_string(), v.display().to_string()))
+        .into();
+        assert_eq!(
+            repo_files(&repo.join("sub"), Some(&e)).last(),
+            Some(&repo.join(".git/lazygit.yml"))
+        );
+        assert!(repo_files(&bare, Some(&e)).is_empty());
     }
 
     /// A stand-in `lazygit` printing `out`, in its own directory; returns the directory.
@@ -1284,7 +1339,15 @@ mod tests {
             &home,
         );
         let nothing = |_: &str| None;
-        let (s, notes) = sheet_with(REGISTRY, path(&bin), Some(4242), &proc, &nothing).unwrap();
+        let (s, notes) = sheet_with(
+            REGISTRY,
+            path(&bin),
+            Some(4242),
+            &proc,
+            Some(&crate::test_tmp()),
+            &nothing,
+        )
+        .unwrap();
         assert_eq!(
             keys(&s, "Global keybindings", "Quit"),
             ["shift+y", "ctrl+c"]
@@ -1296,7 +1359,15 @@ mod tests {
         );
         // Its environment's HOME: the global file; `return`'s meta key is left out in each of its 8 rows.
         let proc = fake_proc("home", "lazygit", &["lazygit"], &[&env_home], &home);
-        let (s, notes) = sheet_with(REGISTRY, path(&bin), Some(4242), &proc, &nothing).unwrap();
+        let (s, notes) = sheet_with(
+            REGISTRY,
+            path(&bin),
+            Some(4242),
+            &proc,
+            Some(&crate::test_tmp()),
+            &nothing,
+        )
+        .unwrap();
         assert_eq!(
             keys(&s, "Global keybindings", "Quit"),
             ["shift+x", "ctrl+c"]
@@ -1308,24 +1379,79 @@ mod tests {
         // A pid that isn't lazygit's: keybind-find's own environment.
         let proc = fake_proc("other", "zsh", &["zsh"], &[&env_home], &home);
         let own = |k: &str| (k == "HOME").then(|| "/nonexistent-kbf".to_string());
-        let (s, _) = sheet_with(REGISTRY, path(&bin), Some(4242), &proc, &own).unwrap();
+        let (s, _) = sheet_with(
+            REGISTRY,
+            path(&bin),
+            Some(4242),
+            &proc,
+            Some(&crate::test_tmp()),
+            &own,
+        )
+        .unwrap();
         assert_eq!(keys(&s, "Global keybindings", "Quit"), ["q", "ctrl+c"]);
         // An unknown version: the newest pin, with its note.
         let bin = fake_lazygit("unversioned", "commit=, version=unversioned, os=linux\\n");
-        let (_, notes) = sheet_with(REGISTRY, path(&bin), None, &proc, &own).unwrap();
+        let (_, notes) = sheet_with(
+            REGISTRY,
+            path(&bin),
+            None,
+            &proc,
+            Some(&crate::test_tmp()),
+            &own,
+        )
+        .unwrap();
         assert_eq!(
             notes[0],
             "lazygit's version is unknown: using the defaults of 0.66.2"
         );
         // lazygit missing or failing: an error.
         let empty = tmp("nobin");
-        let err = sheet_with(REGISTRY, path(&empty), None, &proc, &own).unwrap_err();
+        let err = sheet_with(
+            REGISTRY,
+            path(&empty),
+            None,
+            &proc,
+            Some(&crate::test_tmp()),
+            &own,
+        )
+        .unwrap_err();
         assert!(
             format!("{err:#}").contains("running lazygit --version"),
             "{err:#}"
         );
         let bin = fake_lazygit("fail", "x\\n'; exit 3; '");
-        assert!(sheet_with(REGISTRY, path(&bin), None, &proc, &own).is_err());
+        assert!(sheet_with(
+            REGISTRY,
+            path(&bin),
+            None,
+            &proc,
+            Some(&crate::test_tmp()),
+            &own
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn one_key_left_out() {
+        const ONE: &str =
+            "[defaults]\n[[row]]\npanel = \"P\"\naction = \"A\"\nkeys = [\"<m-x>\", \"x\"]\n";
+        let bin = fake_lazygit("one", "version=0.66.2\\n");
+        let path = move |c: &mut Command| {
+            c.env("PATH", &bin);
+        };
+        let (_, notes) = sheet_with(
+            &[("0.66.2", ONE)],
+            path,
+            None,
+            Path::new("/nonexistent-kbf"),
+            Some(&crate::test_tmp()),
+            &|_| None,
+        )
+        .unwrap();
+        assert_eq!(
+            notes,
+            ["leaving out 1 key that can't be typed here (meta, the mouse, or no keysym we know)"]
+        );
     }
 
     #[test]
@@ -1344,14 +1470,30 @@ mod tests {
         // `/proc/<pid>/exe` is what runs; a broken one falls back to PATH's.
         let proc = fake_proc("exe", "lazygit", &["lazygit"], &[&env_home], &home);
         std::os::unix::fs::symlink(own.join("lazygit"), proc.join("4242/exe")).unwrap();
-        let (_, notes) = sheet_with(REGISTRY, path(&on_path), Some(4242), &proc, &nothing).unwrap();
+        let (_, notes) = sheet_with(
+            REGISTRY,
+            path(&on_path),
+            Some(4242),
+            &proc,
+            Some(&crate::test_tmp()),
+            &nothing,
+        )
+        .unwrap();
         assert_eq!(
             notes[0],
             "lazygit 0.66.9: using the defaults of 0.66.2; add data/lazygit/0.66.9.toml"
         );
         let proc = fake_proc("exe-gone", "lazygit", &["lazygit"], &[&env_home], &home);
         std::os::unix::fs::symlink(home.join("gone"), proc.join("4242/exe")).unwrap();
-        let (_, notes) = sheet_with(REGISTRY, path(&on_path), Some(4242), &proc, &nothing).unwrap();
+        let (_, notes) = sheet_with(
+            REGISTRY,
+            path(&on_path),
+            Some(4242),
+            &proc,
+            Some(&crate::test_tmp()),
+            &nothing,
+        )
+        .unwrap();
         assert!(notes[0].starts_with("leaving out"), "{notes:?}");
         // No environ: keybind-find's HOME, with a note.
         std::fs::create_dir_all(home.join(".config/lazygit")).unwrap();
@@ -1364,7 +1506,15 @@ mod tests {
         std::fs::remove_file(proc.join("4242/environ")).unwrap();
         let own_home = home.display().to_string();
         let own_env = move |k: &str| (k == "HOME").then(|| own_home.clone());
-        let (s, notes) = sheet_with(REGISTRY, path(&on_path), Some(4242), &proc, &own_env).unwrap();
+        let (s, notes) = sheet_with(
+            REGISTRY,
+            path(&on_path),
+            Some(4242),
+            &proc,
+            Some(&crate::test_tmp()),
+            &own_env,
+        )
+        .unwrap();
         assert_eq!(
             notes[0],
             "can't read lazygit's environment; using keybind-find's"
@@ -1382,6 +1532,63 @@ mod tests {
             &home,
         );
         assert_eq!(environ(&proc.join("4242")).unwrap()["HOME"], "a");
+        // An environ that reads empty (a zombie's) counts as unreadable.
+        std::fs::write(proc.join("4242/environ"), "").unwrap();
+        assert_eq!(environ(&proc.join("4242")), None);
+        // An exe that fails or hangs: PATH's lazygit, or (none there, a hang) an error within the timeout.
+        let failing = fake_lazygit("exe-fails", "x\\n'; exit 3; '");
+        let hanging = fake_lazygit("hangs", "x\\n'; PATH=/usr/bin:/bin exec sleep 5; '");
+        let proc = fake_proc("exe-fails", "lazygit", &["lazygit"], &[&env_home], &home);
+        std::os::unix::fs::symlink(failing.join("lazygit"), proc.join("4242/exe")).unwrap();
+        let (_, notes) = sheet_with(
+            REGISTRY,
+            path(&own),
+            Some(4242),
+            &proc,
+            Some(&crate::test_tmp()),
+            &nothing,
+        )
+        .unwrap();
+        assert!(notes[0].starts_with("lazygit 0.66.9"), "{notes:?}");
+        let start = std::time::Instant::now();
+        assert!(sheet_with(
+            REGISTRY,
+            path(&hanging),
+            None,
+            &proc,
+            Some(&crate::test_tmp()),
+            &nothing
+        )
+        .is_err());
+        // The timeout (2 s) ends it, not the program.
+        assert!(
+            (VERSION_TIMEOUT..std::time::Duration::from_secs(4)).contains(&start.elapsed()),
+            "{:?}",
+            start.elapsed()
+        );
+        // A cwd link that can't be read: a note, and `-ucf own.yml` (relative) skipped.
+        let proc = fake_proc(
+            "no-cwd",
+            "lazygit",
+            &["lazygit", "-ucf", "own.yml"],
+            &[&env_home],
+            &home,
+        );
+        std::fs::remove_file(proc.join("4242/cwd")).unwrap();
+        let (s, notes) = sheet_with(
+            REGISTRY,
+            path(&on_path),
+            Some(4242),
+            &proc,
+            Some(&crate::test_tmp()),
+            &nothing,
+        )
+        .unwrap();
+        assert_eq!(
+            notes[0],
+            "can't read lazygit's working directory; skipping relative config paths and the repo's files"
+        );
+        assert_eq!(keys(&s, "Global keybindings", "Quit"), ["q", "ctrl+c"]);
         // The repo's files after the global ones, from lazygit's cwd.
         let repo = tmp("repo-sheet");
         let ok = Command::new("git").args(["init", "-q"]).arg(&repo).status();
@@ -1402,7 +1609,15 @@ mod tests {
             &[&env_home],
             &repo.join("sub"),
         );
-        let (s, _) = sheet_with(REGISTRY, path(&on_path), Some(4242), &proc, &nothing).unwrap();
+        let (s, _) = sheet_with(
+            REGISTRY,
+            path(&on_path),
+            Some(4242),
+            &proc,
+            Some(&crate::test_tmp()),
+            &nothing,
+        )
+        .unwrap();
         assert_eq!(
             keys(&s, "Global keybindings", "Quit"),
             ["shift+z", "ctrl+c"]
@@ -1431,8 +1646,36 @@ mod tests {
             config_dirs(&env(vec![])),
             ["/.config", "/etc/xdg"].map(PathBuf::from)
         );
-        // `-ucf` with no value after it: nothing.
-        assert_eq!(flags(&["-ucf".to_string()]), (None, None));
+        // `-ucf` with no value after it: nothing (flaggy exits on it, subCommand.go:156-159, so lazygit never runs so);
+        // a trailing one keeps the value before it.
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(flags(&args(&["-ucf"])), (None, None));
+        assert_eq!(
+            flags(&args(&["-ucf", "a", "-ucf"])),
+            (Some("a".into()), None)
+        );
+        // An empty `-ucf=` doesn't override LG_CONFIG_FILE (entry_point.go:84-90 sets it only when non-empty); an
+        // empty LG_CONFIG_FILE falls through to CONFIG_DIR, relative to lazygit's cwd.
+        let lg = env(vec![
+            ("LG_CONFIG_FILE", "/x.yml"),
+            ("XDG_CONFIG_DIRS", "/nowhere-kbf"),
+        ]);
+        let cwd = Path::new("/w");
+        assert_eq!(
+            global_files(&lg, &args(&["-ucf="]), Some(cwd)),
+            [(PathBuf::from("/x.yml"), true)]
+        );
+        let dir = env(vec![("LG_CONFIG_FILE", ""), ("CONFIG_DIR", "c")]);
+        assert_eq!(
+            global_files(&dir, &[], Some(cwd)),
+            [(PathBuf::from("/w/c/config.yml"), false)]
+        );
+        // lazygit's cwd unknown: relative paths are skipped.
+        assert!(global_files(&dir, &[], None).is_empty());
+        assert_eq!(
+            global_files(&lg, &args(&["-ucf", "a.yml,/b.yml"]), None),
+            [(PathBuf::from("/b.yml"), true)]
+        );
     }
 
     #[test]
@@ -1448,6 +1691,30 @@ mod tests {
                 "keybinding:\n  universal:\n    quit: [[q]]\n",
                 "line 3: a list inside a key list (universal.quit)",
             ),
+            (
+                "keybinding:\n  universal:\n    quit:\n      - - q\n",
+                "line 3: a list inside a key list",
+            ),
+            // `keybinding` itself null.
+            ("keybinding: ~\n", "`keybinding` is empty (null)"),
+            ("keybinding: null\n", "`keybinding` is empty (null)"),
+            // jumpToBlock: a list of key lists, nothing else.
+            (
+                "keybinding:\n  universal:\n    jumpToBlock: x\n",
+                "line 3: `universal.jumpToBlock` isn't a list",
+            ),
+            (
+                "keybinding:\n  universal:\n    jumpToBlock:\n",
+                "line 3: `universal.jumpToBlock` isn't a list",
+            ),
+            (
+                "keybinding:\n  universal:\n    jumpToBlock: [[a, [b]]]\n",
+                "line 3: a list nested too deep",
+            ),
+            (
+                "keybinding:\n  universal:\n    jumpToBlock: {a: b}\n",
+                "line 3: a mapping where a key list",
+            ),
         ] {
             let (s, notes, _) = with_files("refuse", &[text]);
             assert!(notes[0].contains(says), "{notes:?}");
@@ -1457,12 +1724,26 @@ mod tests {
             );
             assert_eq!(keys(&s, "Files", "Commit"), ["c"]);
         }
-        // jumpToBlock as key lists is read and ignored; a null field is no key.
+        // jumpToBlock as key lists is read and ignored; a null field is no key; `keybinding: {}` is none.
         let (s, notes, _) = with_files(
             "jump",
-            &["keybinding:\n  universal:\n    jumpToBlock: [['1', '!'], '2']\n    edit:\n    quit:\n    - X\n"],
+            &[
+                "keybinding:\n  universal:\n    jumpToBlock: [['1', '!'], '2']\n    edit:\n    quit:\n    - X\n",
+                "keybinding:\n  universal:\n    jumpToBlock:\n      - - '1'\n        - ~\n      - '2'\n",
+                "keybinding: {}\n",
+            ],
         );
         assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(
+            keys(&s, "Global keybindings", "Quit"),
+            ["shift+x", "ctrl+c"]
+        );
+        // A label lazygit refuses in jumpToBlock: the refused-key note, the file's other keys as written.
+        let (s, notes, _) = with_files(
+            "jump-label",
+            &["keybinding:\n  universal:\n    jumpToBlock: ['<bogus>']\n    quit: X\n"],
+        );
+        assert!(notes[0].ends_with("0.yml: lazygit refuses the key <bogus> (and with it its whole config); this file's other keys are listed as written"), "{notes:?}");
         assert_eq!(
             keys(&s, "Global keybindings", "Quit"),
             ["shift+x", "ctrl+c"]
@@ -1498,5 +1779,13 @@ mod tests {
                 format!("can't read {}: not a regular file; skipped", dir.display())
             ]
         );
+        // A FIFO (no writer) is refused without blocking.
+        let fifo = dir.join("fifo.yml");
+        assert!(Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        assert_eq!(read_file(&fifo), Err("not a regular file".into()));
     }
 }

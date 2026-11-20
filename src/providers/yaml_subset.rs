@@ -30,6 +30,7 @@ pub(crate) fn keybinding_of(bytes: &[u8]) -> anyhow::Result<Option<Node>> {
 /// The value of the document's top-level `keybinding` entry, `None` when it has none. A failure is `line N: …`.
 pub(crate) fn keybinding(text: &str) -> anyhow::Result<Option<Node>> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    check_chars(text)?;
     let lines: Vec<&str> = text
         .split('\n')
         .map(|l| l.strip_suffix('\r').unwrap_or(l))
@@ -42,9 +43,10 @@ pub(crate) fn keybinding(text: &str) -> anyhow::Result<Option<Node>> {
         l.strip_prefix(m)
             .is_some_and(|r| r.is_empty() || r.starts_with([' ', '\t']))
     };
-    let mut first = true;
-    // A `%YAML` or `%TAG` directive before the document's `---`.
-    let mut directive = false;
+    // Before the root: directives as yaml.v3 takes them (parserc.go:1188-1213, scannerc.go:1672): `%YAML 1.1` once,
+    // `%TAG` once per handle; then `---`.
+    let (mut root, mut started, mut directive) = (false, false, false);
+    let mut handles: Vec<&str> = Vec::new();
     let mut entry: Option<usize> = None;
     let mut end = lines.len();
     for (i, l) in lines.iter().enumerate() {
@@ -52,28 +54,54 @@ pub(crate) fn keybinding(text: &str) -> anyhow::Result<Option<Node>> {
             continue;
         }
         let n = i + 1;
+        // The end of the first document: yaml.v3's Unmarshal reads no further (decode.go:156-168).
+        if marker(l, "...") || (marker(l, "---") && (root || started)) {
+            end = end.min(i);
+            break;
+        }
         if marker(l, "---") {
-            if !first || !blank(&l[3..]) {
-                bail!("line {n}: a second document, or text after `---`");
+            if !blank(&l[3..]) {
+                bail!("line {n}: text after `---`");
             }
-            first = false;
+            started = true;
             directive = false;
             continue;
         }
-        if first && l.starts_with('%') {
+        if !root && !started && l.starts_with('%') {
+            let words: Vec<&str> = l
+                .split_whitespace()
+                .take_while(|w| !w.starts_with('#'))
+                .collect();
+            let ok = match words[..] {
+                ["%YAML", "1.1"] => !handles.contains(&"%YAML"),
+                ["%TAG", h, _] => h.starts_with('!') && h.ends_with('!') && !handles.contains(&h),
+                _ => false,
+            };
+            if !ok {
+                bail!("line {n}: a directive yaml.v3 refuses (`%YAML 1.1` and `%TAG` are read, each once)");
+            }
+            handles.push(words[words.len() - 2]);
             directive = true;
             continue;
         }
         if directive {
             bail!("line {n}: a directive (`%`) not followed by `---`");
         }
-        if first && l.trim_start().starts_with(['{', '[']) {
-            bail!("line {n}: a flow mapping or sequence as the whole document");
+        if !root {
+            root = true;
+            if l.starts_with([' ', '\t']) {
+                bail!("line {n}: an indented document root");
+            }
+            if l.starts_with(['{', '[']) || marker(l, "-") {
+                bail!("line {n}: a flow collection or a sequence as the whole document");
+            }
         }
-        first = false;
         let top = !l.starts_with([' ', '\t', '-']) || (l.starts_with('-') && !marker(l, "-"));
-        if !top || marker(l, "...") {
+        if !top {
             continue;
+        }
+        if unclosed(l) {
+            bail!("line {n}: a quote or bracket left open at the end of a top-level line");
         }
         if entry.is_some() && end == lines.len() {
             end = i;
@@ -91,7 +119,8 @@ pub(crate) fn keybinding(text: &str) -> anyhow::Result<Option<Node>> {
     };
     let n = start + 1;
     let (_, rest) = split_key(lines[start], n)?;
-    if !blank(rest) {
+    let rest = rest.split(" #").next().unwrap_or_default().trim();
+    if !matches!(rest, "" | "~" | "null" | "Null" | "NULL" | "{}") {
         bail!("line {n}: `keybinding:` must be followed by a block on the next lines");
     }
     let mut body = Vec::new();
@@ -104,10 +133,24 @@ pub(crate) fn keybinding(text: &str) -> anyhow::Result<Option<Node>> {
         if indent.contains('\t') {
             bail!("line {}: a tab in the indentation", i + 1);
         }
-        body.push((i + 1, indent.len(), content));
+        // `- - x`: an item holding a sequence on the same line, read as `-` then `- x` at the second dash's column.
+        let (mut col, mut content) = (indent.len(), content);
+        while let Some(inner) = content
+            .strip_prefix('-')
+            .map(|r| r.trim_start_matches(' '))
+            .filter(|r| r.len() + 1 < content.len() && is_item(r))
+        {
+            body.push((i + 1, col, "-"));
+            col += content.len() - inner.len();
+            content = inner;
+        }
+        body.push((i + 1, col, content));
     }
-    if body.is_empty() {
-        return Ok(Some(Node::Null));
+    match (body.first(), rest) {
+        (None, "{}") => return Ok(Some(Node::Map(Vec::new()))),
+        (None, _) => return Ok(Some(Node::Null)),
+        (Some((n, _, _)), r) if !r.is_empty() => bail!("line {n}: unexpected indentation"),
+        _ => {}
     }
     let mut pos = 0;
     let node = block(&body, &mut pos, 0, 1)?;
@@ -115,6 +158,65 @@ pub(crate) fn keybinding(text: &str) -> anyhow::Result<Option<Node>> {
         Some((n, _, _)) => bail!("line {n}: unexpected indentation"),
         None => Ok(Some(node)),
     }
+}
+
+/// Refuses the characters yaml.v3's reader refuses (readerc.go:368-380: controls but tab, LF and CR; DEL; C1 but
+/// NEL; U+FFFE, U+FFFF) and the line breaks this reader doesn't split at (a lone CR, NEL, U+2028, U+2029).
+fn check_chars(text: &str) -> anyhow::Result<()> {
+    let mut line = 1;
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        let bad = match c {
+            '\n' => {
+                line += 1;
+                false
+            }
+            '\r' => chars.peek() != Some(&'\n'),
+            '\t' => false,
+            '\u{85}' | '\u{2028}' | '\u{2029}' | '\u{fffe}' | '\u{ffff}' => true,
+            c => c.is_control(),
+        };
+        if bad {
+            bail!(
+                "line {line}: the character {c:?}, which yaml.v3 refuses or reads as a line break"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Whether a top-level line leaves a quote, `[` or `{` open (its value then goes on, and later lines at column 0
+/// aren't entries).
+fn unclosed(line: &str) -> bool {
+    let (mut depth, mut quote, mut prev) = (0usize, None::<char>, ' ');
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match quote {
+            Some('\'') if c == '\'' => {
+                if chars.peek() == Some(&'\'') {
+                    chars.next();
+                } else {
+                    quote = None;
+                }
+            }
+            Some('"') if c == '\\' => {
+                chars.next();
+            }
+            Some('"') if c == '"' => quote = None,
+            Some(_) => {}
+            None => match c {
+                '#' if prev == ' ' || prev == '\t' => break,
+                '\'' | '"' if matches!(prev, ' ' | '\t' | '[' | '{' | ',' | ':') => quote = Some(c),
+                '[' | '{' if matches!(prev, ' ' | '\t' | '[' | '{' | ',' | ':') || depth > 0 => {
+                    depth += 1
+                }
+                ']' | '}' if depth > 0 => depth -= 1,
+                _ => {}
+            },
+        }
+        prev = c;
+    }
+    quote.is_some() || depth > 0
 }
 
 /// A top-level line's key, when it has one.
@@ -333,6 +435,10 @@ impl Cur<'_> {
             Some('[') => self.flow_seq(depth),
             Some('{') => self.flow_map(depth),
             Some('\'' | '"') => Ok(Node::Scalar(self.quoted()?)),
+            // In a flow collection `:` and `?` are always indicators (scannerc.go:795-801): no value starts there.
+            Some(c @ (':' | '?')) if flow => {
+                bail!("line {n}: {c:?} starts no value in a flow collection; quote it")
+            }
             _ => {
                 self.plain_start()?;
                 let start = self.i;
@@ -480,6 +586,9 @@ impl Cur<'_> {
                 }
                 None | Some('#') => bail!("line {n}: a flow collection over several lines"),
                 Some('\'' | '"') => self.quoted()?,
+                Some(c @ (':' | '?')) => {
+                    bail!("line {n}: {c:?} starts no key in a flow mapping; quote it")
+                }
                 _ => {
                     self.plain_start()?;
                     let start = self.i;
@@ -742,8 +851,33 @@ gui: |
             ("keybinding:\n  a: 1\nkeybinding:\n  b: 2\n", 3, "twice"),
             ("{ keybinding: {} }\n", 1, "whole document"),
             ("# c\n[a]\n", 2, "whole document"),
-            ("a: 1\n---\nkeybinding:\n", 2, "second document"),
-            ("---\n---\n", 2, "second document"),
+            ("--- a: 1\n", 1, "text after `---`"),
+            ("---\n{ keybinding: {} }\n", 2, "whole document"),
+            ("- a\n", 1, "whole document"),
+            ("  keybinding:\n    u: {}\n", 1, "indented document root"),
+            // A top-level value going on to later lines: their column-0 text isn't an entry.
+            ("a: \"x\nkeybinding:\n  u:\n    q: x\n\"\n", 1, "left open"),
+            ("a: [x,\n  y]\n", 1, "left open"),
+            ("a: {x: 'y\n", 1, "left open"),
+            // Directives: `%YAML 1.1` and `%TAG`, each once.
+            ("%YAML 1.2\n---\n", 1, "directive"),
+            ("%FOO bar\n---\n", 1, "directive"),
+            ("%YAML 1.1\n%YAML 1.1\n---\n", 2, "directive"),
+            ("%TAG ! a:\n%TAG ! b:\n---\n", 2, "directive"),
+            ("%YAML 1.1\nkeybinding:\n", 2, "not followed by `---`"),
+            // What yaml.v3's reader refuses, and line breaks this reader doesn't split at.
+            ("keybinding:\n  u:\n    q: a\u{7f}\n", 3, "character"),
+            ("a: \u{1}\n", 1, "character"),
+            ("a: \u{9f}\n", 1, "character"),
+            ("a: \u{fffe}\n", 1, "character"),
+            ("keybinding:\n  u:\n    q: a\r    w: b\n", 3, "character"),
+            ("a: \u{85}\n", 1, "character"),
+            ("a: 1\u{2028}b: 2\n", 1, "character"),
+            ("a: 1\n\u{2029}\n", 2, "character"),
+            // `{:a}`: a value with no key, which yaml.v3 refuses.
+            ("keybinding:\n  u: {:a}\n", 2, "starts no key"),
+            ("keybinding:\n  u: {: a}\n", 2, "starts no key"),
+            ("keybinding:\n  u:\n    q: [:a]\n", 3, "starts no value"),
         ] {
             let e = err(text);
             assert!(e.starts_with(&format!("line {line}: ")), "{text:?}: {e}");
@@ -807,12 +941,51 @@ gui: |
         }
         assert_eq!(field(r#""\u0041\x42""#).unwrap(), s("AB"));
         // Directives before the first `---`.
-        assert!(
-            keybinding("%YAML 1.2\n%TAG ! tag:x,2000:\n---\nkeybinding:\n  u:\n    q: x\n")
-                .unwrap()
-                .is_some()
+        assert!(keybinding(
+            "%YAML 1.1 # c\n%TAG ! tag:x,2000:\n%TAG !! y:\n---\nkeybinding:\n  u:\n    q: x\n"
+        )
+        .unwrap()
+        .is_some());
+        // The first document only: what follows `...` or a second `---` isn't read (decode.go:156-168).
+        for end in ["...", "---"] {
+            let text = format!("keybinding:\n  u:\n    q: x\n{end}\nfoo: [\nkeybinding:\n");
+            assert!(keybinding(&text).unwrap().is_some(), "{end}");
+        }
+        assert_eq!(keybinding("a: 1\n---\nkeybinding:\n").unwrap(), None);
+        // A BOM starts the text only: one later is the start of a key (here ending `keybinding`'s block).
+        assert_eq!(
+            keybinding("keybinding:\n\u{feff}  u:\n    q: x\n").unwrap(),
+            Some(Node::Null)
         );
-        assert!(err("%YAML 1.2\nkeybinding:\n").contains("line 2: a directive"));
+        // `keybinding` with no value or a null one, or an empty flow mapping; a tab and CRLF are fine.
+        for (v, want) in [
+            ("~", Node::Null),
+            ("null # c", Node::Null),
+            ("{} # c", Node::Map(vec![])),
+        ] {
+            assert_eq!(
+                keybinding(&format!("keybinding: {v}\n")).unwrap(),
+                Some(want),
+                "{v}"
+            );
+        }
+        assert!(err("keybinding: {}\n  u: {}\n").starts_with("line 2: unexpected indentation"));
+        assert!(keybinding("a: 'x'\t\r\n").is_ok());
+        // `- - x`: a list item holding a list on its line.
+        let text =
+            "keybinding:\n  u:\n    j:\n      - - '1'\n        - '!'\n      - - - x\n      - -\n";
+        let Some(Node::Map(top)) = keybinding(text).unwrap() else {
+            panic!()
+        };
+        let Node::Map(u) = &top[0].1 else { panic!() };
+        assert_eq!(
+            u[0].1,
+            Node::Seq(vec![
+                ab(),
+                Node::Seq(vec![Node::Seq(vec![s("x")])]),
+                Node::Seq(vec![Node::Null])
+            ])
+        );
         // yaml.v3's nulls only.
         for v in ["~", "null", "Null", "NULL"] {
             assert_eq!(field(v).unwrap(), Node::Null, "{v}");
