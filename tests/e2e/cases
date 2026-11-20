@@ -35,7 +35,8 @@ if [ "$PHASE" = x11 ]; then
   # `space b` is mapped only in each window, by a WinCreate hook in tests/e2e/home/.config/kak/kakrc: only the live
   # read from the running session lists it. No kak outlives the case.
   x kakoune        "i3 kakoune" "kakoune|space b|e2e window|mode=normal" -- xterm -e kak /tmp/e2e.c
-  wanted kakoune && { pkill -x kak; for _ in $(seq 50); do pgrep -x kak >/dev/null || break; sleep 0.1; done; }
+  wanted kakoune && { pkill -x kak; for _ in $(seq 50); do pgrep -x kak >/dev/null || break; sleep 0.1; done
+    ! pkill -9 -x kak || { record kakoune-cleanup "FAIL	a kak outlived SIGTERM for 5 s"; FAILED=1; }; }
   x emacs-nw       "i3 emacs"   "emacs|ctrl+c k|kill-buffer"        -- xterm -e emacs -nw /tmp/e2e.c
   # c-mode's map, which only the running Emacs's C buffer has (the batch read lists the global map): proves the
   # server path.

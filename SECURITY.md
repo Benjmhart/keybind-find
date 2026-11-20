@@ -37,11 +37,13 @@ Please report security problems privately, through GitHub's private vulnerabilit
     and starts no session: the focused lazygit's own binary, `/proc/<pid>/exe`, else `lazygit` from PATH) and `git` (`rev-parse` in the focused lazygit's repo, to find the repo's lazygit files), `nnn` (`-V`, which prints
     its version and exits: the focused nnn's own binary, `/proc/<pid>/exe`, else `nnn` from PATH; that binary is
     picked by its comm `nnn`, which any process of yours can set), `kak` (`-version`, which prints its version and
-    exits: the focused kak's own binary, `/proc/<pid>/exe`, else `kak` from PATH; and `-p <session>`, which sends a
-    fixed script to the session of the kak in the focused terminal, yours: in the client with that kak's pid it writes
-    `debug mappings` to `*debug*` and copies `*debug*` and the version into a `0700` temporary directory keybind-find
-    made, removed after; the script also defines one hidden command, `keybind-find-report-<pid>`, and runs one `%sh{}`
-    in the session to list its clients; nothing else in the session is changed);
+    exits: the focused kak's own binary, `/proc/<pid>/exe`, else `kak` from PATH; and, the same binary, `-p
+    <session>`, which sends a fixed script to the session of the kak in the focused terminal, yours: in the client with
+    that kak's pid it writes `debug mappings` to `*debug*` and copies `*debug*` and the version into a `0700` directory
+    keybind-find made with a random name, in kak's `XDG_RUNTIME_DIR` when that is yours and `0700` (an answer arriving
+    after keybind-find gave up can't be redirected there), else the temporary directory, removed after; the script
+    also defines one hidden command, `keybind-find-report-<pid>`, and runs no shell; nothing else in the session is
+    changed);
   - the picker: `alacritty` with `fzf`, `fuzzel` or `dmenu`, or whatever program `KEYBIND_FIND_PICKER` names;
   - `notify-send` for errors under a hotkey.
 

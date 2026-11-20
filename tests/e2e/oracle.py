@@ -443,8 +443,9 @@ def nnn_report(text):
 # --- kakoune ----------------------------------------------------------------------------------------------------------
 # `debug mappings` (commands.cc:1702-1717 at v2026.05.21): ` * MODE KEY: 'KEYS' DOC` per mapping, a docstring's further
 # lines up to the next ` * `; keys as to_string writes them (keys.cc:63-89, 186-224), named in its own table here. No
-# command prints the built-in keys, so the pinned file's rows for the reported version are added: the unit tests check
-# those against the source, this checks the mappings keybind-find reads from the kakrc and autoload files.
+# command prints the built-in keys, so the pinned file's rows for the reported version are added: the unit tests count
+# those and spot-check them against the source, this checks the mappings keybind-find reads from the kakrc and
+# autoload files.
 KAK_NAMES = {"ret": "Return", "space": "space", "tab": "Tab", "lt": "less", "gt": "greater", "backspace": "BackSpace",
              "esc": "Escape", "up": "Up", "down": "Down", "left": "Left", "right": "Right", "pageup": "Prior",
              "pagedown": "Next", "home": "Home", "end": "End", "ins": "Insert", "del": "Delete", "plus": "plus",
@@ -490,7 +491,9 @@ def kakoune_report(text, data=os.path.join(os.path.dirname(os.path.abspath(__fil
     """oracle-kakoune.kak's *debug*: after the last marker, `version: V`, `Mappings:` and the mappings; plus the
     pinned built-in rows (not the default maps: the session lists those it still has) of data/kakoune/V.toml."""
     lines = text.splitlines()
-    at = max(i for i, line in enumerate(lines) if line == KAK_MARKER)
+    at = max((i for i, line in enumerate(lines) if line == KAK_MARKER), default=None)
+    if at is None:
+        return {"!marker"}
     head = lines[at + 1:at + 3]
     if len(head) != 2 or not head[0].startswith("version: ") or head[1] != "Mappings:":
         return {"!line:" + " / ".join(head)}
@@ -499,10 +502,16 @@ def kakoune_report(text, data=os.path.join(os.path.dirname(os.path.abspath(__fil
         m = re.fullmatch(r" \* (\S+) (.+?): '[^']*'(?: .*)?", line)
         if m:
             keys |= kak_bind(*m.groups())
-    with open(os.path.join(data, head[0].removeprefix("version: ") + ".toml"), "rb") as f:
-        for row in tomllib.load(f)["bind"]:
-            if not row.get("map"):
-                keys |= kak_bind(row["mode"], row["key"])
+    # A git build's version is `[v]TAG-N-gHASH` (Kakoune's Makefile:36-37).
+    version = re.sub(r"-[0-9]+-g[0-9a-f]+$", "", head[0].removeprefix("version: ").removeprefix("v"))
+    try:
+        with open(os.path.join(data, version + ".toml"), "rb") as f:
+            rows = tomllib.load(f)["bind"]
+    except FileNotFoundError:
+        return {"!version:" + version}
+    for row in rows:
+        if not row.get("map"):
+            keys |= kak_bind(row["mode"], row["key"])
     return keys
 
 
@@ -563,7 +572,7 @@ KNOWN = {
     "kakoune": [
         ("mode=normal\tspace b", "the e2e kakrc's WinCreate hook maps it in each window: only a running window has it, "
                                  "and kakoune.rs's kakrc read runs no hooks"),
-        ("*[?]*", "a non-ASCII key (`é` in the e2e kakrc) has no X keysym: kakoune.rs leaves it out"),
+        ("*[?]*", "a non-ASCII key keybind-find can't name (`é` in the e2e kakrc): kakoune.rs leaves it out"),
     ],
 }
 
@@ -832,6 +841,9 @@ def self_test():
     # Five new keys: object q is a built-in key already (single quote string).
     assert len(r) == 150 + 13 + 11 + 28 * 2 + 22 + 42 + 5, len(r)
     assert kakoune_report(f"{KAK_MARKER}\nMappings:\n") == {"!line:Mappings:"}
+    assert kakoune_report("no marker\n") == {"!marker"}
+    assert kakoune_report(f"{KAK_MARKER}\nversion: 1999.01.01\nMappings:\n") == {"!version:1999.01.01"}
+    assert len(kakoune_report(f"{KAK_MARKER}\nversion: v2026.05.21-12-g36ad52e\nMappings:\n")) == len(r) - 5
     kk = KNOWN["kakoune"]
     examples = {"*[?]*": "mode=normal\t?é"}
     for p, *_ in kk:
