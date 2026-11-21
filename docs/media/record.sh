@@ -15,6 +15,13 @@
 # (window manager, espanso, herdr, nvim), espanso replacements, window titles, paths, notifications. If anything
 # shows, record again (a demo config, another workspace); never blur. Commit only the approved take.
 #
+# The demo.gif in the repo was not hand-recorded: it is the nvim-demo e2e case (nvim on
+# tests/e2e/home/.config/nvim/demo.lua in alacritty, under i3 in Docker), recorded with captions by
+#   E2E_OUT=/some/dir tests/e2e/record nvim-demo light
+# which types "light" and picks Toggle light theme (Space u l): nvim's dark colour scheme turns light. Copy
+# /some/dir/nvim-demo.gif to docs/media/demo.gif, and a frame with the list open (ffmpeg -ss 6 -i nvim-demo.gif
+# -frames:v 1 screenshot.png) to docs/media/screenshot.png. This script is the hand-recorded alternative.
+#
 # Usage: docs/media/record.sh [WxH+X+Y]   (default: 1280x800 centred on the X screen; with several monitors, pass the
 # region of the one nvim is on, e.g. from `xrandr`)
 # Env: DURATION=<seconds, at most 20> (default 20); SHOT_AT=<seconds into the recording> for the screenshot

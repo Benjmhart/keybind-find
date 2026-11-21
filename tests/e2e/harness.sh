@@ -74,13 +74,15 @@ dump_and_check() {
 
 # demo NAME "PROVIDER|KEY|DESC": with RECORD set (tests/e2e/record), records NAME.gif of the program the case started:
 # keybind-find with no arguments (what a Super+/ binding runs), its picker, QUERY (default: DESC) typed, Return
-# picking the top entry so keybind-find sends its key, then 2 s of the program. X11 displays through x11grab, sway
-# through grim frames; one palette pass to a GIF of about 8 fps, 960 px wide, at most 10 MB, from at most 20 s. It
+# picking the top entry so keybind-find sends its key, then 5 s of the program, with a caption for each key pressed
+# (Super+/ standing for the launch). X11 displays through x11grab, sway through grim frames; one palette pass to a GIF
+# of about 8 fps, 960 px wide, at most 10 MB, from at most 20 s. It
 # passes only when keybind-find logged one send (its usage log): of the case's own PROVIDER and KEY with the default
 # query, of any key with a QUERY given.
 demo() {
   [ -n "${RECORD:-}" ] || return 0
   local name=$1 want query=${QUERY:-} raw="$OUT/$name.rec" gif="$OUT/$name.gif" cap kbf before now="" size t0 t1
+  local ta te tt tr
   local usage="$HOME/.local/state/keybind-find/usage.tsv" sent0 sent
   # The send to expect, as the usage log has it (PROVIDER<TAB>KEY); none for a QUERY of the user's.
   want=""
@@ -107,8 +109,9 @@ demo() {
      done) &
   fi
   cap=$!
-  sleep 1
+  sleep 3
   before=$(focused)
+  ta=$(date +%s.%N)
   setsid "$KBF" >"$OUT/$name.kbf.log" 2>&1 &
   kbf=$!
   for _ in $(seq 100); do
@@ -126,11 +129,13 @@ demo() {
   sleep 1.5
   if [ -n "${DISPLAY:-}" ]; then
     # fzf opens in key search on X11 (it reads pressed keys): Escape switches to text search.
-    xdotool key Escape; sleep 0.5
-    xdotool type --delay 120 -- "$query"; sleep 1.5
-    xdotool key Return
+    te=$(date +%s.%N); xdotool key Escape; sleep 0.5
+    tt=$(date +%s.%N); xdotool type --delay 120 -- "$query"; sleep 1.5
+    tr=$(date +%s.%N); xdotool key Return
   else
     # One wtype: each run uploads a keymap and sway drops a key sent right after it; -s waits that out.
+    te=$(date +%s.%N) tt=$(awk -v t="$(date +%s.%N)" 'BEGIN { printf "%.3f", t + 0.5 }')
+    tr=$(awk -v t="$tt" -v n="${#query}" 'BEGIN { printf "%.3f", t + 0.12 * n + 1.5 }')
     wtype -s 500 -d 120 "$query" -s 1500 -k Return
   fi
   local status=0
@@ -140,29 +145,43 @@ demo() {
   else
     wait "$kbf"; status=$?
   fi
-  sleep 2
+  sleep 5
   t1=$(date +%s.%N)
   local capped
   capped=$(awk -v a="$t0" -v b="$t1" 'BEGIN { if (b - a >= 20) print 1 }')
   # SIGTERM: ffmpeg finishes its file on it (a background job here ignores SIGINT); it ends the grim loop, after its
   # grim (a child) is gone.
   pkill -P "$cap" 2>/dev/null; kill "$cap" 2>/dev/null; wait "$cap" 2>/dev/null
-  local in=(-i "$raw.mkv") n
+  # z: when the capture's first frame was taken. x11grab starts a moment after t0, and its file ends at t1.
+  local in=(-i "$raw.mkv") n z=$t0
+  [ -d "$raw" ] || z=$(awk -v a="$t0" -v b="$t1" -v d="$(ffprobe -v error -show_entries format=duration -of csv=p=0 \
+    "$raw.mkv")" 'BEGIN { printf "%.3f", (d > 0 ? b - d : a) }')
   if [ -d "$raw" ]; then
     # The frames' real rate: grim's own time adds to the 0.15 s between them.
     n=$(ls "$raw"/*.png 2>/dev/null | wc -l)
     in=(-framerate "$(awk -v n="$n" -v a="$t0" -v b="$t1" 'BEGIN { t = b - a; printf "%.2f", (t > 0 ? n / t : 5) }')" \
       -i "$raw/%05d.png")
   fi
+  sent=$(tail -n +"$((sent0 + 1))" "$usage" 2>/dev/null | cut -f2,3)
+  # The captions, each from a file (no escaping): its text from the key's press to the next one's.
+  local cs=("$ta") ce=("$te") ct=("Super+/") draw="" i
+  [ -n "${DISPLAY:-}" ] && { cs+=("$te"); ce+=("$tt"); ct+=("Esc: search by text"); }
+  cs+=("$tt" "$tr"); ce+=("$tr" "$t1"); ct+=("type: $query" "Enter")
+  [ -n "$sent" ] && [[ "$sent" != *$'\n'* ]] && ct[-1]="Enter  →  sends ${sent#*$'\t'}"
+  for i in "${!ct[@]}"; do
+    printf '%s' "${ct[$i]}" >"$OUT/$name.cap$i"
+    draw+=$(awk -v a="${cs[$i]}" -v b="${ce[$i]}" -v z="$z" -v f="$OUT/$name.cap$i" 'BEGIN { printf "drawtext=" \
+      "fontfile=/usr/share/fonts/TTF/DejaVuSans-Bold.ttf:textfile=%s:fontsize=44:fontcolor=white:box=1:" \
+      "boxcolor=black@0.75:boxborderw=18:x=(w-text_w)/2:y=h-text_h-90:enable=\047between(t,%.2f,%.2f)\047,", f, a - z, b - z }')
+  done
   if ! ffmpeg -loglevel error "${in[@]}" \
-       -vf "fps=8,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" -y "$gif" \
+       -vf "${draw}fps=8,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" -y "$gif" \
        </dev/null >>"$OUT/$name.rec.log" 2>&1; then
     record "$name.gif" "FAIL	no GIF	$(tail -c 300 "$OUT/$name.rec.log" | tr '\n\t' '  ')"
     FAILED=1; rm -rf "$raw" "$raw.mkv"; return
   fi
   rm -rf "$raw" "$raw.mkv"
   size=$(stat -c %s "$gif")
-  sent=$(tail -n +"$((sent0 + 1))" "$usage" 2>/dev/null | cut -f2,3)
   # The GIF stays on a FAIL: it may show why.
   if [ "$size" -gt 10485760 ]; then
     record "$name.gif" "FAIL	$size bytes: over GitHub's 10 MB for a GIF"

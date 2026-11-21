@@ -7,7 +7,7 @@ have pressed instead.
 
 The lists are read from the programs' real configuration, your own bindings included, so nothing is kept up by hand.
 
-![keybind-find over nvim: Super+/ opens the list of bindings for the focused window; pressing Space narrows it to the Space bindings; Escape switches to typing; "zen" puts Toggle Zen Mode on top; Enter sends Space u z and nvim enters zen mode.](docs/media/demo.gif)
+![keybind-find over nvim with a dark colour scheme: Super+/ opens a floating list of the bindings for the focused window; Escape switches to typing; "light" narrows the list and puts Toggle light theme (Space u l) on top; Enter sends Space u l and the whole editor turns from dark to light. Captions name each key pressed.](docs/media/demo.gif)
 
 ## Works with
 
