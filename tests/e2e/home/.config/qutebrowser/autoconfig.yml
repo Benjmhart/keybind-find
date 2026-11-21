@@ -5,7 +5,7 @@ settings:
   bindings.commands:
     global:
       normal:
-        ',a': message-info e2e autoconfig
+        ',a': message-info "e2e autoconfig"
         d: null
         <Num+5>: message-info keypad
         <Guide>: message-info guide
