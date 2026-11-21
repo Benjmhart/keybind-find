@@ -60,12 +60,13 @@ if [ "$PHASE" = x11 ]; then
   if wanted qutebrowser-unfocused; then
     setsid qutebrowser --config-py "$HOME/.config/qutebrowser/e2e-live.py" -s qt.force_software_rendering chromium \
       -s qt.chromium.sandboxing disable-all about:blank >"$OUT/qutebrowser-unfocused.app.log" 2>&1 &
-    focused() { for _ in $(seq 150); do [ "$(xdotool getactivewindow getwindowclassname 2>/dev/null)" = "$1" ] && break; sleep 0.1; done; }
+    # Not named `focused`: that is the harness's (the niri cases call it), and a function here would replace it.
+    qute_wait_class() { for _ in $(seq 150); do [ "$(xdotool getactivewindow getwindowclassname 2>/dev/null)" = "$1" ] && break; sleep 0.1; done; }
     for _ in $(seq 150); do ls "$XDG_RUNTIME_DIR"/qutebrowser/ipc-* >/dev/null 2>&1 && break; sleep 0.1; done
-    focused qutebrowser
+    qute_wait_class qutebrowser
     setsid xterm -e zsh >/dev/null 2>&1 &
     xt=$!
-    focused XTerm
+    qute_wait_class XTerm
     timeout 60 "$KBF" dump qutebrowser >"$OUT/qutebrowser-unfocused.json" 2>"$OUT/qutebrowser-unfocused.err"
     if line=$(python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); n=s["binds"]["normal"]
 k=[b["key"] for b in n]; assert "comma a" in k and "comma l" not in k, k[-5:]
