@@ -5,6 +5,8 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-21
+
 ### Added
 
 - lf: its keys in normal, visual and command-line mode, asked of the running lf (`lf -remote "query <pid> maps"`) once it has run a shell command, else lf r42's defaults with your `lfrc` files, `-command`s and `source`d files on top, read as lf reads them ([#54](https://github.com/Benjmhart/keybind-find/issues/54)).
@@ -135,7 +137,8 @@ Everything below is new.
 
 - `config.toml` rebinds keybind-find's own picker keys (run, text search, undo, key search, scope); its own keys are listed too.
 
-[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.2.0...staging
+[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.3.0...staging
+[1.3.0]: https://github.com/Benjmhart/keybind-find/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Benjmhart/keybind-find/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/Benjmhart/keybind-find/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/Benjmhart/keybind-find/compare/v1.1.0...v1.1.1
