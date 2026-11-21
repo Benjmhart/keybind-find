@@ -126,6 +126,9 @@ print("qutebrowser:%d, no comma l" % sum(map(len, s["binds"].values())))' \
   wanted zellij-nvim && { ! pgrep -x zellij >/dev/null || echo "zellij still running" >&2; }
   x zellij-nvim    "i3 zellij nvim" "nvim|backslash x|e2e quit"       -- xterm -e env EDITOR=nvim zellij --layout /tmp/home/.config/zellij/nvim.kdl
   pkill -x zellij || true
+  # The README demo (docs/media/record.sh): nvim on a config of its own in alacritty, where Space u l turns the dark
+  # colour scheme light. NVIM_TEST only hides nvim's warning when the terminal answers its colour query after 100 ms.
+  x nvim-demo      "i3 nvim"    "nvim|space u l|Toggle light theme" -- alacritty --working-directory "$HOME/.config/nvim" -e env NVIM_TEST=1 nvim -u demo.lua demo.lua
   x less           "i3 less"    "less|X|quit"                       -- xterm -e less /etc/os-release
   # sxhkd's hotkeys beside i3's, from the sxhkd running on this display (stopped after, so later cases don't list it).
   # sxhkd exits without SHELL (it runs commands through it), which the harness leaves unset.

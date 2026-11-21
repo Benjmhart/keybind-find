@@ -1,2 +1,4 @@
 bindsym Mod4+Return exec xterm
 bindsym Mod4+q kill
+# The picker floats, as a user's rule would make it (a recording shows it; i3 lists no binding for this).
+for_window [class="^keybind-find$"] floating enable
