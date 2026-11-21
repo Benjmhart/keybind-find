@@ -220,7 +220,8 @@ in that directory, and keybind-find removes the directory. Only the current mode
 macro modes use the `register` bindings): the mode of qutebrowser's last-focused window, the one under `Super+/`.
 qutebrowser runs a command sent over its socket in the window `new_instance_open_target_window` picks (by default that
 same last-focused window) and, unless `new_instance_open_target` is `tab-silent` or `tab-bg-silent`, raises and
-activates it: with `first-opened` or `last-opened` and several windows, another window can come up. For the same
+activates it (`window` and `private-window` count as `tab-silent` there, `app.py:232-234`): with `first-opened` or
+`last-opened` and several windows, another window can come up. For the same
 reason `keybind-find dump qutebrowser` from a terminal never asks the browser. A browser too slow to answer still runs
 the command later, after keybind-find removed the script: it shows one error in its status bar.
 
@@ -228,9 +229,12 @@ When the browser doesn't answer within 2 s (or the script fails, say in a qutebr
 one line says why and keybind-find lists qutebrowser's defaults for the installed version (3.7.0's built in, from
 qutebrowser's source) with `autoconfig.yml`'s bindings (`bindings.commands`) on top, as qutebrowser lays them over: the
 file is read by the Python on the `#!` line of the `qutebrowser` on `PATH`, with PyYAML as qutebrowser loads it, which
-also gives the version (that run has 2 s more, so a slow browser and a slow Python take up to about 4 s; a
-`#!` line that doesn't run `python…`, or a `qutebrowser` not on `PATH`, as for the Flatpak, is one note and the newest
-built-in defaults). `config.py` is Python, so its bindings are read only from the running browser: when it exists,
+also gives the version (that run has 2 s more, so a slow browser and a slow Python take up to about 4 s). Only a Python
+`#!` line is run: an absolute `…/python*`, `…/env python*` or `…/env -S python*`, with flags only. A `qutebrowser` not
+on `PATH` (the Flatpak), a wrapper script (mkvenv's bash wrapper, NixOS's makeWrapper, Gentoo's python-exec, the
+`#!/bin/sh` launcher pip and uv write for a long path), or a Python that fails, as for a `pip install --user` (`-I`
+leaves out the user's site-packages), is an error: the qutebrowser sheet isn't listed. A `bindings.default` in `autoconfig.yml`, which
+qutebrowser drops, gets a note. `config.py` is Python, so its bindings are read only from the running browser: when it exists,
 only the defaults are listed, with a note. The fallback reads `$XDG_CONFIG_HOME/qutebrowser` (else
 `~/.config/qutebrowser`): the Flatpak's config (`~/.var/app/org.qutebrowser.qutebrowser/config`), `--basedir` and
 `--config-py` aren't followed there, and an `autoconfig.yml` of a format other than version 2 gives the defaults alone.

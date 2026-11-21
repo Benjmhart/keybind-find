@@ -629,7 +629,7 @@ KNOWN = {
     ],
     # The report is qutebrowser's own get_bindings_for over the same autoconfig.yml the dump reads.
     "qutebrowser": [
-        ("mode=*\tnum+*", "the keypad modifier (<Num+5> in the e2e autoconfig): keybind-find's notation can't show it "
+        ("mode=*\t*num+*\t=> *", "the keypad modifier (<Num+5> in the e2e autoconfig): keybind-find's notation can't show it "
                           "(FR-019), qutebrowser.rs leaves it out"),
         ("mode=*\tqt:*", "a Qt key with no X keysym (<Guide> in the e2e autoconfig): qutebrowser.rs leaves it out"),
     ],
@@ -920,8 +920,9 @@ def self_test():
     assert dump_keys({"binds": {"n": [{"key": "g t", "desc": "tab-focus", "when": {"mode": "normal"}}]}}, True) == {
         "mode=normal\tg t\t=> tab-focus"}
     qk = KNOWN["qutebrowser"]
-    examples = {"mode=*\tnum+*": "mode=normal\t" + qute_keys("<Num+5>") + "\t=> message-info keypad",
+    examples = {"mode=*\t*num+*\t=> *": "mode=normal\t" + qute_keys("<Num+5>") + "\t=> message-info keypad",
                 "mode=*\tqt:*": "mode=normal\t" + qute_keys("<Guide>") + "\t=> message-info guide"}
+    assert fnmatch.fnmatchcase("mode=insert\t" + qute_keys("<Ctrl+Num+5>") + "\t=> x", qk[0][0])
     for p, *_ in qk:
         assert fnmatch.fnmatchcase(examples[p], p), p
     for k in ("mode=normal\tn\t=> search-next", "mode=normal\tctrl+n\t=> x", "mode=normal\tg t\t=> x",
