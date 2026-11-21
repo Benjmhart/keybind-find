@@ -48,6 +48,48 @@ if [ "$PHASE" = x11 ]; then
   }
   x qutebrowser-live "i3 qutebrowser" "qutebrowser|comma l|e2e live" 3 -- qutebrowser --config-py "$HOME/.config/qutebrowser/e2e-live.py" -s qt.force_software_rendering chromium -s qt.chromium.sandboxing disable-all about:blank
   wanted qutebrowser-live && qute_gone qutebrowser-live
+  # The same browser running, an xterm focused: `dump qutebrowser` never asks it (comma l absent), it reads the files.
+  if wanted qutebrowser-unfocused; then
+    setsid qutebrowser --config-py "$HOME/.config/qutebrowser/e2e-live.py" -s qt.force_software_rendering chromium \
+      -s qt.chromium.sandboxing disable-all about:blank >"$OUT/qutebrowser-unfocused.app.log" 2>&1 &
+    for _ in $(seq 150); do ls "$XDG_RUNTIME_DIR"/qutebrowser/ipc-* >/dev/null 2>&1 && break; sleep 0.1; done
+    sleep 2
+    setsid xterm -e zsh >/dev/null 2>&1 &
+    xt=$!
+    sleep 2
+    timeout 60 "$KBF" dump qutebrowser >"$OUT/qutebrowser-unfocused.json" 2>"$OUT/qutebrowser-unfocused.err"
+    if line=$(python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); n=s["binds"]["normal"]
+k=[b["key"] for b in n]; assert "comma a" in k and "comma l" not in k, k[-5:]
+print("qutebrowser:%d, no comma l" % sum(map(len, s["binds"].values())))' \
+        "$OUT/qutebrowser-unfocused.json" 2>&1) && ls "$XDG_RUNTIME_DIR"/qutebrowser/ipc-* >/dev/null 2>&1; then
+      record qutebrowser-unfocused "ok	$line"
+    else
+      record qutebrowser-unfocused "FAIL	$(echo "$line" | tail -1)	$(tr '\n\t' '  ' < "$OUT/qutebrowser-unfocused.err" | cut -c1-300)"; FAILED=1
+    fi
+    kill -- -"$xt" 2>/dev/null
+    qute_gone qutebrowser-unfocused
+  fi
+  # FALLBACK's limits with the real qutebrowser Python: each hostile autoconfig.yml is one note and the 295 defaults.
+  if wanted qutebrowser-caps; then
+    ok=1 why=""
+    for c in fifo big deep bomb nan; do
+      h=/tmp/qcap/$c; rm -rf "$h"; mkdir -p "$h/.config/qutebrowser"; f=$h/.config/qutebrowser/autoconfig.yml
+      case $c in
+        fifo) mkfifo "$f" ;;
+        big) head -c $((4 * 1024 * 1024 + 1)) /dev/zero | tr '\0' '#' >"$f" ;;
+        deep) python3 -I -c 'print("config_version: 2\nsettings: " + "[" * 40 + "]" * 40)' >"$f" ;;
+        bomb) python3 -I -c 'print("a: &a [" + ",".join(["x"] * 50) + "]"); [print(f"{n}: &{n} [" + ",".join([f"*{p}"] * 50) + "]") for p, n in zip("abcd", "bcde")]' >"$f" ;;
+        nan) printf 'config_version: 2\nsettings:\n  x: {global: .nan}\n' >"$f" ;;
+      esac
+      env -u XDG_CONFIG_HOME HOME="$h" timeout 30 "$KBF" dump qutebrowser >"$OUT/qutebrowser-caps-$c.json" 2>"$OUT/qutebrowser-caps-$c.err"
+      n=$(python3 -I -c 'import json,sys; print(sum(map(len, json.load(open(sys.argv[1]))["binds"].values())))' "$OUT/qutebrowser-caps-$c.json" 2>/dev/null)
+      notes=$(grep -c '^keybind-find: qutebrowser: ' "$OUT/qutebrowser-caps-$c.err")
+      [ "$n" = 295 ] && [ "$notes" = 1 ] && grep -q 'listing the defaults only' "$OUT/qutebrowser-caps-$c.err" ||
+        { ok=""; why+="$c: $n binds, $notes notes; "; }
+    done
+    if [ -n "$ok" ]; then record qutebrowser-caps "ok	fifo big deep bomb nan: one note and 295 defaults each"
+    else record qutebrowser-caps "FAIL	$why"; FAILED=1; fi
+  fi
   x emacs-nw       "i3 emacs"   "emacs|ctrl+c k|kill-buffer"        -- xterm -e emacs -nw /tmp/e2e.c
   # c-mode's map, which only the running Emacs's C buffer has (the batch read lists the global map): proves the
   # server path.

@@ -41,7 +41,8 @@ const REGISTER_MODES: [&str; 4] = ["set_mark", "jump_mark", "record_macro", "run
 /// Run inside qutebrowser by `:debug-pyeval --file` (`misc/utilcmds.py:136-172`), `@DIR@` replaced by the private
 /// directory as a JSON string literal. The bindings as `qute://bindings` lists them (`browser/qutescheme.py:459-473`):
 /// `normal`, then the other modes of both settings, sorted; each mode's `get_bindings_for` (`config/config.py:146-154`).
-/// The answer is written whole (`.part`, then renamed). It runs in `utilcmds`' globals: one function, deleted after.
+/// The answer is written whole (`.part`, then renamed). `exec` runs it in `debug_pyeval`'s locals (`utilcmds.py:154`):
+/// one function, deleted after.
 const ASK: &str = r#"def _keybind_find_ask(d):
     import json, os, traceback
     try:
@@ -70,10 +71,10 @@ finally:
 
 /// Run by qutebrowser's own interpreter (`-I -c FALLBACK <autoconfig.yml>`): its version and the autoconfig as
 /// qutebrowser loads it (`utils.yaml_load`: `CSafeLoader`, else `SafeLoader`), `null` when there is no file. A file that
-/// isn't a regular one, is over 4 MiB, doesn't parse, or nests deeper than 32 or holds over 100000 values (aliases
-/// expanded) is an `error` instead.
+/// isn't a regular one, is over 4 MiB, doesn't parse, nests deeper than 32, holds over 100000 values (aliases
+/// expanded) or a value JSON can't hold (`.nan`) is an `error` instead; so is a `qutebrowser` it can't import (its
+/// `version` then `null`).
 const FALLBACK: &str = r#"import json, os, stat, sys
-import qutebrowser
 def load(path):
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
@@ -94,11 +95,13 @@ def walk(v, depth):
         raise ValueError("too large or nested too deep")
     for x in (v if isinstance(v, list) else [y for kv in v.items() for y in kv] if isinstance(v, dict) else []):
         walk(x, depth + 1)
-out = {"version": qutebrowser.__version__, "autoconfig": None}
+out = {"version": None, "autoconfig": None}
 try:
+    import qutebrowser
+    out["version"] = qutebrowser.__version__
     ac = load(sys.argv[1])
     walk(ac, 0)
-    text = json.dumps(dict(out, autoconfig=ac), default=str)
+    text = json.dumps(dict(out, autoconfig=ac), default=str, allow_nan=False)
 except Exception as e:
     text = json.dumps(dict(out, error=f"{type(e).__name__}: {e}"))
 print(text)
@@ -139,7 +142,8 @@ struct Answer {
 /// `FALLBACK`'s output.
 #[derive(Deserialize)]
 struct Fallback {
-    version: String,
+    #[serde(default)]
+    version: Option<String>,
     #[serde(default)]
     autoconfig: Option<serde_json::Value>,
     #[serde(default)]
@@ -188,6 +192,7 @@ fn read(
     wait: Duration,
 ) -> anyhow::Result<(Sheet, Option<Facts>, Vec<String>)> {
     let mut notes = Vec::new();
+    let pid = pid.filter(|&p| runs_qutebrowser(proc, p));
     let live = match pid.and_then(|p| ipc_socket(proc, p)) {
         None => None,
         Some(socket) => match ask(&socket, wait) {
@@ -250,6 +255,15 @@ fn mode_fact(mode: &str) -> Option<Facts> {
 
 // --- the live read -------------------------------------------------------------------------------------------------
 
+/// Whether the window's pid is qutebrowser's own process (`comm` `qutebrowser`, the script's name, or a `python3…`
+/// running it), not a sandbox or another host's pid that `_NET_WM_PID` can name.
+fn runs_qutebrowser(proc: &Path, pid: u32) -> bool {
+    std::fs::read_to_string(proc.join(pid.to_string()).join("comm")).is_ok_and(|c| {
+        let c = c.trim_end_matches('\n');
+        c == "qutebrowser" || c.starts_with("python3")
+    })
+}
+
 /// qutebrowser's IPC socket: the path, in `<proc>/<pid>/net/unix`, of a unix socket that is one of the process's fds
 /// and whose file name starts with `ipc-` (`misc/ipc.py:55-68`; any `--basedir`, the Flatpak's runtime dir).
 fn ipc_socket(proc: &Path, pid: u32) -> Option<PathBuf> {
@@ -264,14 +278,16 @@ fn ipc_socket(proc: &Path, pid: u32) -> Option<PathBuf> {
             Some(l.strip_prefix("socket:[")?.strip_suffix(']')?.to_string())
         })
         .collect();
-    let mut text = String::new();
+    let mut bytes = Vec::new();
     std::fs::File::open(dir.join("net/unix"))
         .ok()?
         .take(16 << 20)
-        .read_to_string(&mut text)
+        .read_to_end(&mut bytes)
         .ok()?;
-    // `Num RefCount Protocol Flags Type St Inode Path`, the inode right-aligned.
-    text.lines().skip(1).find_map(|line| {
+    // `Num RefCount Protocol Flags Type St Inode Path`, the inode right-aligned; each line decoded on its own, so a
+    // path that isn't UTF-8 (or a line the cap cut) is skipped, not the whole read.
+    bytes.split(|&b| b == b'\n').skip(1).find_map(|line| {
+        let line = std::str::from_utf8(line).ok()?;
         let mut rest = line.trim_start_matches(' ');
         let mut inode = "";
         for _ in 0..7 {
@@ -308,8 +324,21 @@ fn ask(socket: &Path, wait: Duration) -> anyhow::Result<Live> {
         .finish();
     let dir = private_dir(base, &format!("keybind-find-qute-{random:016x}"))?;
     let out = ask_in(socket, &dir, wait);
-    let _ = std::fs::remove_dir_all(&dir);
+    // Once more if the first try failed (an answer landing meanwhile); a directory still left is ours and private.
+    if std::fs::remove_dir_all(&dir).is_err() {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     out
+}
+
+/// `f` run on a thread, its result if it ends within `wait`. ponytail: a thread that never ends (a connect to a
+/// socket whose backlog stays full) is left behind; keybind-find exits soon after.
+fn within<T: Send + 'static>(wait: Duration, f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.recv_timeout(wait).ok()
 }
 
 fn ask_in(socket: &Path, dir: &Path, wait: Duration) -> anyhow::Result<Live> {
@@ -328,8 +357,14 @@ fn ask_in(socket: &Path, dir: &Path, wait: Duration) -> anyhow::Result<Live> {
         .context("writing the script")?;
     let arg = serde_json::to_string(&format!(":debug-pyeval --file {path}/ask.py"))?;
     let line = format!("{{\"args\": [{arg}], \"target_arg\": null, \"protocol_version\": 1}}\n");
-    let mut stream = std::os::unix::net::UnixStream::connect(socket)
-        .with_context(|| format!("connecting to {}", socket.display()))?;
+    let target = socket.to_path_buf();
+    let left = wait.saturating_sub(start.elapsed());
+    let mut stream = within(left, move || {
+        std::os::unix::net::UnixStream::connect(target)
+    })
+    .context("no connection")
+    .and_then(|c| c.map_err(Into::into))
+    .with_context(|| format!("connecting to {}", socket.display()))?;
     stream.set_write_timeout(Some(Duration::from_secs(1)))?;
     stream
         .write_all(line.as_bytes())
@@ -379,17 +414,51 @@ fn fallback(
     wait: Duration,
     notes: &mut Vec<String>,
 ) -> anyhow::Result<(String, Vec<Row>)> {
-    let dir = config_dir(env).context("no HOME to find qutebrowser's config in")?;
-    let autoconfig = dir.join("autoconfig.yml");
-    let out = run_fallback(env, &autoconfig, wait)?;
-    let (pin, note) = pin_for(registry, Some(&out.version))?;
-    notes.extend(note);
+    let found = config_dir(env)
+        .context("no HOME to find qutebrowser's config in")
+        .and_then(|dir| {
+            let out = run_fallback(env, &dir.join("autoconfig.yml"), wait)?;
+            Ok((dir, out))
+        });
+    // Any failure here is a note and the newest pinned defaults (a Flatpak-only qutebrowser, a wrapper script, …).
+    let (dir, out) = match found {
+        Ok((dir, out)) if out.version.is_some() => (Some(dir), out),
+        Ok((_, out)) => {
+            let why = out.error.clone().unwrap_or_else(|| "no version".into());
+            notes.push(format!(
+                "qutebrowser's Python: {why}; listing the newest pinned defaults"
+            ));
+            (None, out)
+        }
+        Err(e) => {
+            notes.push(format!("{e:#}; listing the newest pinned defaults"));
+            (
+                None,
+                Fallback {
+                    version: None,
+                    autoconfig: None,
+                    error: None,
+                },
+            )
+        }
+    };
+    let (pin, note) = pin_for(registry, out.version.as_deref())?;
+    if out.version.is_some() {
+        notes.extend(note);
+    }
     let mut rows = translate(
         pin.bind
             .iter()
             .map(|d| (d.mode.clone(), d.key.clone(), d.command.clone())),
         &pin.keys,
     );
+    let version = out
+        .version
+        .unwrap_or_else(|| pin.qutebrowser_version.clone());
+    let Some(dir) = dir else {
+        return Ok((version, rows));
+    };
+    let autoconfig = dir.join("autoconfig.yml");
     if dir.join("config.py").exists() {
         notes.push(
             "config.py is Python: its bindings are read only from the running qutebrowser (Super+/ over its window)"
@@ -409,7 +478,7 @@ fn fallback(
             )),
         }
     }
-    Ok((out.version, rows))
+    Ok((version, rows))
 }
 
 /// qutebrowser's config directory: Qt's `ConfigLocation` (`$XDG_CONFIG_HOME` when it starts with `/`, else
@@ -426,6 +495,11 @@ fn config_dir(env: Env) -> Option<PathBuf> {
 fn run_fallback(env: Env, autoconfig: &Path, wait: Duration) -> anyhow::Result<Fallback> {
     let script = on_path(env).context("qutebrowser isn't on PATH")?;
     let (program, arg) = shebang(&script)?;
+    ensure!(
+        is_python(&program, arg.as_deref()),
+        "{}'s #! line runs {program}, not Python: not run",
+        script.display()
+    );
     let mut cmd = Command::new(&program);
     cmd.args(arg)
         .args(["-I", "-c", FALLBACK])
@@ -440,12 +514,32 @@ fn run_fallback(env: Env, autoconfig: &Path, wait: Duration) -> anyhow::Result<F
     serde_json::from_str(out.trim()).context("reading what qutebrowser's Python printed")
 }
 
-/// The first executable regular file named `qutebrowser` in `PATH`.
+/// Whether a `#!` line's program (and its one argument) runs Python: its file name starts with `python`, or it is `env`
+/// and the first word of the argument that isn't an option or an assignment does.
+fn is_python(program: &str, arg: Option<&str>) -> bool {
+    let named = |p: &str| {
+        Path::new(p)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("python"))
+    };
+    if Path::new(program).file_name().and_then(|n| n.to_str()) == Some("env") {
+        return arg
+            .and_then(|a| {
+                a.split([' ', '\t'])
+                    .find(|w| !w.is_empty() && !w.starts_with('-') && !w.contains('='))
+            })
+            .is_some_and(named);
+    }
+    named(program)
+}
+
+/// The first executable regular file named `qutebrowser` in `PATH`'s absolute directories.
 fn on_path(env: Env) -> Option<PathBuf> {
     use std::os::unix::fs::PermissionsExt;
     env("PATH")?
         .split(':')
-        .filter(|d| !d.is_empty())
+        .filter(|d| d.starts_with('/'))
         .map(|d| Path::new(d).join("qutebrowser"))
         .find(|p| {
             std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
@@ -584,7 +678,9 @@ fn notation(s: &str, keys: &BTreeMap<String, String>) -> Option<String> {
                 special = false;
             }
             '>' => out.push(single_key('>')?),
-            // As qutebrowser: a second `<` doesn't drop what the first one started.
+            // qutebrowser reads `<<Ctrl+x>` as Ctrl+x, but it also prints `<` then Ctrl+x that way (and Ctrl+< as
+            // `<Ctrl+<>`): a `<` inside `<…>` can't be read back, so the key is left out rather than shown wrong.
+            '<' if special => return None,
             '<' => special = true,
             c if special => key.push(c),
             c => out.push(single_key(c)?),
@@ -674,7 +770,7 @@ fn special_key(s: &str, keys: &BTreeMap<String, String>) -> Option<String> {
 /// many keys were left out.
 fn to_sheet(version: &str, rows: Vec<Row>) -> (Sheet, usize) {
     let mut sheet = Sheet {
-        title: format!("qutebrowser {version}"),
+        title: printable(&format!("qutebrowser {version}")),
         provider: "qutebrowser".into(),
         binds: Default::default(),
     };
@@ -685,6 +781,8 @@ fn to_sheet(version: &str, rows: Vec<Row>) -> (Sheet, usize) {
             left_out += 1;
             continue;
         };
+        // The command comes from the browser or a file: shown, so escaped.
+        let command = printable(&command);
         sheet.binds.entry(mode).or_default().push(Bind {
             key,
             desc: command.clone(),
@@ -717,6 +815,9 @@ fn printable(s: &str) -> String {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    /// A wait no test comes near: only the cases that must time out use a short one.
+    const LONG: Duration = Duration::from_secs(20);
 
     fn pin() -> Pinned {
         pin_for(REGISTRY, Some("3.7.0")).unwrap().0
@@ -811,11 +912,28 @@ mod tests {
             ("<ab", "less a b"),
             ("a>", "a greater"),
             (",a", "comma a"),
+            ("<Cmd-x>", "super+x"),
+            ("<Command-x>", "super+x"),
+            ("<greater>", "greater"),
         ] {
             assert_eq!(notation(key, &keys).as_deref(), Some(want), "{key}");
         }
+        // `<<Ctrl+x>`, `<Ctrl+<>`, `<Ctrl+>>`: what qutebrowser prints for `<` then Ctrl+x, Ctrl+<, Ctrl+> can't be
+        // read back, so they are left out rather than shown wrong.
         for key in [
-            "<F36>", "<Num+5>", "<Guide>", "<Foo-x>", "É", "<Ctrl+>", "<a+b>", "<>", "",
+            "<F36>",
+            "<Num+5>",
+            "<Num-5>",
+            "<Guide>",
+            "<Foo-x>",
+            "É",
+            "<Ctrl+>",
+            "<a+b>",
+            "<>",
+            "",
+            "<<Ctrl+x>",
+            "<Ctrl+<>",
+            "<Ctrl+>>",
         ] {
             assert_eq!(notation(key, &keys), None, "{key}");
         }
@@ -917,6 +1035,7 @@ mod tests {
         let dir = proc.join("4242");
         std::fs::create_dir_all(dir.join("fd")).unwrap();
         std::fs::create_dir_all(dir.join("net")).unwrap();
+        std::fs::write(dir.join("comm"), "qutebrowser\n").unwrap();
         for (i, target) in fds.iter().enumerate() {
             std::os::unix::fs::symlink(target, dir.join("fd").join(i.to_string())).unwrap();
         }
@@ -946,6 +1065,17 @@ mod tests {
                 ("111", Path::new("@abstract")),
             ],
         );
+        assert_eq!(ipc_socket(&proc, 4242), Some(ipc.clone()));
+        // A line that isn't UTF-8 spoils only itself.
+        let unix = proc.join("4242/net/unix");
+        let mut bytes = std::fs::read(&unix).unwrap();
+        let at = bytes.iter().position(|&b| b == b'\n').unwrap() + 1;
+        bytes.splice(
+            at..at,
+            b"0000000000000000: 00000002 00000000 00010000 0001 01   111 /x/ipc-\xff\xfe\n"
+                .to_vec(),
+        );
+        std::fs::write(&unix, bytes).unwrap();
         assert_eq!(ipc_socket(&proc, 4242), Some(ipc.clone()));
         // A socket of this process that isn't an `ipc-` one, or an `ipc-` one of another process: none.
         let proc = fake_proc(
@@ -1092,15 +1222,70 @@ mod tests {
             notes.is_empty() && s.binds["normal"].len() == 189,
             "{notes:?}"
         );
-        // No #! line; no qutebrowser on PATH: errors.
+        // Each failure is one note and the newest pinned defaults: no #! line; a #! that isn't Python (never run);
+        // no qutebrowser on PATH (a relative entry doesn't count); a Python that can't import qutebrowser.
+        let defaults = |env: &BTreeMap<String, String>| {
+            let (s, facts, notes) = run(None, &d, env, TIMEOUT).unwrap();
+            assert!(facts.is_none());
+            assert_eq!(s.binds.values().map(Vec::len).sum::<usize>(), 295);
+            assert_eq!(s.title, "qutebrowser 3.7.0");
+            assert_eq!(notes.len(), 1, "{notes:?}");
+            assert!(
+                notes[0].ends_with("; listing the newest pinned defaults"),
+                "{notes:?}"
+            );
+            notes[0].clone()
+        };
         script(&d.join("bin/qutebrowser"), "import sys\n");
-        assert!(run(None, &d, &env, TIMEOUT).is_err());
-        let none = BTreeMap::from([
-            ("PATH".into(), "/nonexistent".into()),
-            ("HOME".into(), "/x".into()),
+        assert!(defaults(&env).ends_with("has no #! line; listing the newest pinned defaults"));
+        let marker = d.join("ran");
+        script(
+            &d.join("bin/qutebrowser"),
+            &format!("#!/bin/sh\ntouch '{}'\n", marker.display()),
+        );
+        assert!(defaults(&env).contains("'s #! line runs /bin/sh, not Python: not run"));
+        assert!(!marker.exists(), "the shell was run");
+        script(
+            &d.join("bin/qutebrowser"),
+            &format!("#!{}\n", d.join("python").display()),
+        );
+        let rel = BTreeMap::from([
+            ("PATH".into(), "bin".into()),
+            ("HOME".into(), env["HOME"].clone()),
         ]);
-        let err = run(None, &d, &none, TIMEOUT).unwrap_err();
-        assert_eq!(err.to_string(), "qutebrowser isn't on PATH");
+        assert_eq!(
+            defaults(&rel),
+            "qutebrowser isn't on PATH; listing the newest pinned defaults"
+        );
+        std::fs::write(
+            d.join("out.json"),
+            r#"{"version": null, "autoconfig": null, "error": "ModuleNotFoundError: No module named 'qutebrowser'"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            defaults(&env),
+            "qutebrowser's Python: ModuleNotFoundError: No module named 'qutebrowser'; listing the newest pinned defaults"
+        );
+        // A run that fails.
+        std::fs::write(d.join("out.json"), "not json").unwrap();
+        assert!(defaults(&env).starts_with("reading what qutebrowser's Python printed"));
+    }
+
+    #[test]
+    fn which_interpreters_run() {
+        for (program, arg, want) in [
+            ("/usr/bin/python3", None, true),
+            ("/usr/bin/python3.13", None, true),
+            ("/usr/bin/env", Some("python3"), true),
+            ("/usr/bin/env", Some("-S PYTHONX=1 python3 -X dev"), true),
+            ("/bin/zsh", None, false),
+            ("/bin/sh", Some("python3"), false),
+            ("/usr/bin/env", Some("zsh"), false),
+            ("/usr/bin/env", None, false),
+            ("/usr/bin/env", Some("-S"), false),
+        ] {
+            assert_eq!(is_python(program, arg), want, "{program} {arg:?}");
+        }
     }
 
     /// qutebrowser's side of the IPC socket at `socket`: reads the line, checks it, and answers `answer` (none: never).
@@ -1108,8 +1293,20 @@ mod tests {
     fn fake_browser(socket: &Path, answer: Option<String>) -> std::thread::JoinHandle<PathBuf> {
         use std::io::BufRead;
         let listener = std::os::unix::net::UnixListener::bind(socket).unwrap();
+        listener.set_nonblocking(true).unwrap();
         std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
+            // A regression fails the test rather than hang it.
+            let deadline = Instant::now() + Duration::from_secs(20);
+            let stream = loop {
+                match listener.accept() {
+                    Ok((s, _)) => break s,
+                    Err(_) if Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(5))
+                    }
+                    Err(e) => panic!("no connection: {e}"),
+                }
+            };
+            stream.set_nonblocking(false).unwrap();
             let mut line = String::new();
             std::io::BufReader::new(&stream)
                 .read_line(&mut line)
@@ -1133,7 +1330,11 @@ mod tests {
                 serde_json::to_string(dir.to_str().unwrap()).unwrap()
             )));
             match answer {
-                Some(a) => std::fs::write(dir.join("answer.json"), a).unwrap(),
+                // Whole, as the script writes it.
+                Some(a) => {
+                    std::fs::write(dir.join("answer.json.part"), a).unwrap();
+                    std::fs::rename(dir.join("answer.json.part"), dir.join("answer.json")).unwrap();
+                }
                 // Holds the connection until the other side gives up.
                 None => {
                     let _ = std::io::BufReader::new(&stream).read_line(&mut String::new());
@@ -1154,7 +1355,7 @@ mod tests {
         let socket = run_dir.join("ipc-0123");
         let proc = fake_proc(&d, &["socket:[111]"], &[("111", &socket)]);
         let browser = fake_browser(&socket, Some(fixture("answer.json")));
-        let (s, facts, notes) = run(Some(4242), &proc, &env, TIMEOUT).unwrap();
+        let (s, facts, notes) = run(Some(4242), &proc, &env, LONG).unwrap();
         let dir = browser.join().unwrap();
         assert_eq!(notes.len(), 1);
         assert!(notes[0].starts_with("leaving out 2 key(s)"), "{notes:?}");
@@ -1162,13 +1363,15 @@ mod tests {
         assert_eq!(find(&s, "normal", "comma l"), ["message-info e2e live"]);
         assert!(!dir.exists(), "the private directory is removed");
         assert!(dir.starts_with(&run_dir));
+        let mut dirs = vec![dir];
 
         // An error answer: the note, then the fallback.
         std::fs::remove_file(&socket).unwrap();
         let browser = fake_browser(&socket, Some(fixture("answer-error.json")));
-        let (s, facts, notes) = run(Some(4242), &proc, &env, TIMEOUT).unwrap();
+        let (s, facts, notes) = run(Some(4242), &proc, &env, LONG).unwrap();
         let dir = browser.join().unwrap();
         assert!(facts.is_none() && !dir.exists());
+        dirs.push(dir);
         assert_eq!(
             notes,
             ["the running qutebrowser: AttributeError: module 'qutebrowser.keyinput.modeman' has no attribute \
@@ -1178,6 +1381,49 @@ mod tests {
             find(&s, "normal", "comma a"),
             ["message-info e2e autoconfig"]
         );
+
+        // Answers that aren't the script's: a note and the fallback each.
+        for (answer, why) in [
+            ("[".to_string(), "its answer isn't the script's JSON"),
+            (
+                r#"{"mode": "normal", "bindings": []}"#.to_string(),
+                "its answer has no version or mode",
+            ),
+            (
+                " ".repeat(ANSWER_LIMIT as usize + 1),
+                "its answer is over 8388608 bytes",
+            ),
+        ] {
+            std::fs::remove_file(&socket).unwrap();
+            let browser = fake_browser(&socket, Some(answer));
+            let (s, facts, notes) = run(Some(4242), &proc, &env, LONG).unwrap();
+            let dir = browser.join().unwrap();
+            assert!(facts.is_none() && !dir.exists());
+            assert!(
+                notes[0].starts_with(&format!("the running qutebrowser: {why}")),
+                "{notes:?}"
+            );
+            assert_eq!(
+                find(&s, "normal", "comma a"),
+                ["message-info e2e autoconfig"]
+            );
+            dirs.push(dir);
+        }
+        // Each ask made its own directory.
+        let unique: std::collections::BTreeSet<_> = dirs.iter().collect();
+        assert_eq!(unique.len(), dirs.len());
+
+        // The window's pid isn't qutebrowser's process (a sandbox, another host's pid): no live read, silently.
+        std::fs::write(proc.join("4242/comm"), "bwrap\n").unwrap();
+        let (s, facts, notes) = run(Some(4242), &proc, &env, LONG).unwrap();
+        assert!(facts.is_none() && notes.is_empty(), "{notes:?}");
+        assert_eq!(
+            find(&s, "normal", "comma a"),
+            ["message-info e2e autoconfig"]
+        );
+        assert!(!runs_qutebrowser(&proc, 4242));
+        std::fs::write(proc.join("4242/comm"), "python3.13\n").unwrap();
+        assert!(runs_qutebrowser(&proc, 4242));
 
         // No answer in time: the note, the fallback, and nothing left behind.
         std::fs::remove_file(&socket).unwrap();
@@ -1192,21 +1438,80 @@ mod tests {
 
         // Nobody listening: the connect fails; a socket in a directory others can enter isn't used.
         std::fs::remove_file(&socket).unwrap();
-        let (_, _, notes) = run(Some(4242), &proc, &env, TIMEOUT).unwrap();
+        let (_, _, notes) = run(Some(4242), &proc, &env, LONG).unwrap();
         assert!(
             notes[0].starts_with("the running qutebrowser: connecting to "),
             "{notes:?}"
         );
         std::fs::set_permissions(&run_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let (_, _, notes) = run(Some(4242), &proc, &env, TIMEOUT).unwrap();
+        let (_, _, notes) = run(Some(4242), &proc, &env, LONG).unwrap();
         assert!(
             notes[0].contains("isn't a directory only we can enter"),
             "{notes:?}"
         );
         assert_eq!(std::fs::read_dir(&run_dir).unwrap().count(), 0);
         // No socket: no live read, silently.
-        let (_, _, notes) = run(Some(1), &proc, &env, TIMEOUT).unwrap();
+        let (_, _, notes) = run(Some(1), &proc, &env, LONG).unwrap();
         assert!(notes.is_empty());
+    }
+
+    #[test]
+    fn a_bounded_wait() {
+        assert_eq!(within(Duration::from_secs(20), || 7), Some(7));
+        let start = Instant::now();
+        let never = within(Duration::from_millis(50), || {
+            std::thread::sleep(Duration::from_secs(5))
+        });
+        assert!(never.is_none() && start.elapsed() < Duration::from_secs(4));
+    }
+
+    /// AC #3: the shapes autoconfig.yml must have.
+    #[test]
+    fn autoconfig_shapes() {
+        let modes = pin().modes;
+        let read = |json: &str| commands(&serde_json::from_str(json).unwrap(), &modes);
+        let ok = r#"{"config_version": 2, "settings": {"bindings.commands": {"global": {"normal": {"x": "nop", "y": null}, "insert": null}}}}"#;
+        assert_eq!(
+            read(ok).unwrap(),
+            [
+                ("normal".into(), "x".into(), Some("nop".into())),
+                ("normal".into(), "y".into(), None)
+            ]
+        );
+        assert_eq!(
+            read(r#"{"config_version": 2, "settings": {}}"#).unwrap(),
+            []
+        );
+        for (json, why) in [
+            ("[]", "not a mapping"),
+            (r#"{"config_version": 2}"#, "no settings mapping"),
+            (r#"{"settings": {}}"#, "config_version is missing, not 2"),
+            (
+                r#"{"config_version": 2, "settings": {"bindings.commands": {"global": {}, "*://x/*": {}}}}"#,
+                "bindings.commands isn't {global: {mode: {key: command or null}}}",
+            ),
+            (
+                r#"{"config_version": 2, "settings": {"bindings.commands": {"global": {"normal": []}}}}"#,
+                "bindings.commands isn't {global: {mode: {key: command or null}}}",
+            ),
+        ] {
+            assert_eq!(read(json).unwrap_err(), why, "{json}");
+        }
+    }
+
+    /// Commands from the browser or a file are shown escaped, the title too.
+    #[test]
+    fn shown_text_is_printable() {
+        let rows = vec![(
+            "normal".into(),
+            Some("x".into()),
+            "message-info \u{1b}[31m\u{202e}".into(),
+        )];
+        let (s, _) = to_sheet("3.7.0\u{7}", rows);
+        assert_eq!(s.title, "qutebrowser 3.7.0\\u{7}");
+        let b = &s.binds["normal"][0];
+        assert_eq!(b.desc, "message-info \\u{1b}[31m\\u{202e}");
+        assert_eq!(b.action, b.desc);
     }
 
     #[test]

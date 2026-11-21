@@ -554,15 +554,19 @@ def qute_keys(s):
 
 
 def qutebrowser_report(text):
+    """oracle-qutebrowser.py's lines as `mode=MODE<TAB>KEY<TAB>=> COMMAND`: the command is compared too (PAIRS)."""
     keys = set()
     for line in filter(None, text.splitlines()):
         if line.count("\t") != 2:
             keys.add("!line:" + line)
             continue
-        mode, key, _ = line.split("\t")
-        keys.add(f"mode={mode}\t{qute_keys(key)}")
+        mode, key, command = line.split("\t")
+        keys.add(f"mode={mode}\t{qute_keys(key)}\t=> {command}")
     return keys
 
+
+# Providers whose report gives each key's command: their dump keys carry the bind's description (`=> DESC`) too.
+PAIRS = {"qutebrowser"}
 
 REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report, "zellij": zellij_report, "awesome": awesome_report,
            "lf": lf_report, "nnn": nnn_report, "kakoune": kakoune_report, "qutebrowser": qutebrowser_report}
@@ -639,15 +643,16 @@ UNBOUND = {
 
 
 # --- shared -----------------------------------------------------------------------------------------------------------
-def dump_keys(sheet):
-    """Every bind's key, after its `when` scopes (`name=value<TAB>`, sorted), from one `dump PROVIDER` sheet."""
+def dump_keys(sheet, pairs=False):
+    """Every bind's key, after its `when` scopes (`name=value<TAB>`, sorted), from one `dump PROVIDER` sheet; with
+    `pairs`, followed by `<TAB>=> DESC`."""
     keys = set()
     for binds in sheet["binds"].values():
         for b in binds:
             scopes = []
             for name, v in sorted((b.get("when") or {}).items()):
                 scopes += [f"{name}={x}" for x in (v if isinstance(v, list) else [v])]
-            keys.add("\t".join(scopes + [b["key"]]))
+            keys.add("\t".join(scopes + [b["key"]] + ([f"=> {b['desc']}"] if pairs else [])))
     return keys
 
 
@@ -702,7 +707,7 @@ def main(provider, report_path, dump_path):
     try:
         report = REPORTS[provider](open(report_path).read())
         sheet = json.load(open(dump_path))
-        dump = dump_keys(sheet[0] if isinstance(sheet, list) else sheet)
+        dump = dump_keys(sheet[0] if isinstance(sheet, list) else sheet, provider in PAIRS)
     except Exception as e:
         print(f"FAIL\tunreadable report or dump: {e!r}")
         return 1
@@ -911,13 +916,16 @@ def self_test():
                      ("<Alt+Back>", "alt+XF86Back"), ("<F36>", "!F36"), ("<Hyper+x>", "!Hyper+x"), ("é", "?é")):
         assert qute_keys(qk) == want, (qk, qute_keys(qk))
     assert qutebrowser_report("normal\tgt\ttab-focus\ncaret\t<Ctrl+Space>\tselection-drop\nstray\n") == {
-        "mode=normal\tg t", "mode=caret\tctrl+space", "!line:stray"}
+        "mode=normal\tg t\t=> tab-focus", "mode=caret\tctrl+space\t=> selection-drop", "!line:stray"}
+    assert dump_keys({"binds": {"n": [{"key": "g t", "desc": "tab-focus", "when": {"mode": "normal"}}]}}, True) == {
+        "mode=normal\tg t\t=> tab-focus"}
     qk = KNOWN["qutebrowser"]
-    examples = {"mode=*\tnum+*": "mode=normal\t" + qute_keys("<Num+5>"),
-                "mode=*\tqt:*": "mode=normal\t" + qute_keys("<Guide>")}
+    examples = {"mode=*\tnum+*": "mode=normal\t" + qute_keys("<Num+5>") + "\t=> message-info keypad",
+                "mode=*\tqt:*": "mode=normal\t" + qute_keys("<Guide>") + "\t=> message-info guide"}
     for p, *_ in qk:
         assert fnmatch.fnmatchcase(examples[p], p), p
-    for k in ("mode=normal\tn", "mode=normal\tctrl+n", "mode=normal\tg t", "mode=caret\tq"):
+    for k in ("mode=normal\tn\t=> search-next", "mode=normal\tctrl+n\t=> x", "mode=normal\tg t\t=> x",
+              "mode=caret\tq\t=> qt:x", "mode=normal\tx\t=> num+x"):
         assert not [p for p, *_ in qk if fnmatch.fnmatchcase(k, p)], k
     print("oracle.py: self-test ok")
     return 0
