@@ -1,0 +1,14 @@
+{"version": "3.7.0", "mode": "insert", "bindings": [
+  ["normal", "gt", "tab-focus"],
+  ["normal", "O", "cmd-set-text -s :open -t"],
+  ["normal", "<Ctrl+Shift+Tab>", "tab-prev"],
+  ["normal", "<Ctrl++>", "zoom-in"],
+  ["normal", "<Num+5>", "message-info keypad"],
+  ["normal", "<Guide>", "message-info guide"],
+  ["normal", ",l", "message-info e2e live"],
+  ["caret", "v", "selection-toggle"],
+  ["caret", "<Ctrl+Space>", "selection-drop"],
+  ["insert", "<Ctrl+e>", "edit-text"],
+  ["insert", "<Escape>", "mode-leave"],
+  ["register", "<Escape>", "mode-leave"]
+]}

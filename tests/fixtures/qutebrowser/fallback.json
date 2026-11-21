@@ -1,0 +1,5 @@
+{"version": "3.7.0", "autoconfig": {"config_version": 2, "settings": {"bindings.commands": {"global": {
+  "normal": {",a": "message-info e2e autoconfig", "d": null},
+  "insert": {"<Ctrl-e>": ""},
+  "caret": {"<ctrl-shift-E>": "selection-drop"}
+}}}}}

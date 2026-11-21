@@ -170,7 +170,7 @@ fn found_nvim(pid: u32) {
 }
 
 /// The pid of the editor (or lf, lazygit or nnn) found in the focused window, for a provider other than nvim's to ask it or
-/// read its `/proc`: Emacs, vim, lf, lazygit, nnn or kak in the terminal's foreground, or an Emacs or gvim window's own pid (an `emacsclient -c` frame's is the daemon's).
+/// read its `/proc`: Emacs, vim, lf, lazygit, nnn or kak in the terminal's foreground, or an Emacs, gvim or qutebrowser window's own pid (an `emacsclient -c` frame's is the daemon's).
 /// ponytail: beside `Context`, like `NVIM_PID`; first found wins.
 static EDITOR_PID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
 
@@ -204,13 +204,15 @@ fn is_editor_comm(comm: &str) -> bool {
     EMACS_COMMS.contains(&comm) || matches!(comm, "vim" | "vi" | "lf" | "lazygit" | "nnn" | "kak")
 }
 
-/// The pid of an Emacs window (an `emacsclient -c` frame's is the daemon's) or a gvim window, for its provider to ask.
+/// The pid of an Emacs window (an `emacsclient -c` frame's is the daemon's), a gvim window or a qutebrowser window, for
+/// its provider to ask: editors and qutebrowser.
 fn editor_window_pid(props: &Props) -> Option<u32> {
     props.pid.filter(|_| {
-        props
-            .class
-            .as_deref()
-            .is_some_and(|c| is_emacs_window(c) || c.eq_ignore_ascii_case("Gvim"))
+        props.class.as_deref().is_some_and(|c| {
+            is_emacs_window(c)
+                || c.eq_ignore_ascii_case("Gvim")
+                || crate::providers::is_qutebrowser(c)
+        })
     })
 }
 
@@ -872,6 +874,10 @@ fn providers_for(
             .any(|m| m.eq_ignore_ascii_case(c))
     }) {
         providers.push("zathura");
+    }
+    // qutebrowser is the window itself too (`org.qutebrowser.qutebrowser`: its Wayland app id).
+    if class.is_some_and(crate::providers::is_qutebrowser) {
+        providers.push("qutebrowser");
     }
     // Zed's release channels: the window itself, by app id or X11 class.
     if class.is_some_and(crate::providers::is_zed) {
@@ -2235,6 +2241,26 @@ mod tests {
         for (class, child) in [("Alacritty", Some("zathura")), ("zathura-cb", None)] {
             assert!(
                 !providers_for(Some("xmonad"), Some(class), child, &[]).contains(&"zathura"),
+                "{class}"
+            );
+        }
+    }
+
+    #[test]
+    fn qutebrowser_by_window_class() {
+        for wm in ["xmonad", "sway"] {
+            for class in ["qutebrowser", "QuteBrowser", "org.qutebrowser.qutebrowser"] {
+                let got = providers_for(Some(wm), Some(class), None, &[]);
+                assert!(
+                    got.ends_with(&["qutebrowser", "sheets"]),
+                    "{class}: {got:?}"
+                );
+                assert!(!got.contains(&"vimium"), "{class}: {got:?}");
+            }
+        }
+        for (class, child) in [("Alacritty", Some("qutebrowser")), ("qutebrowser-x", None)] {
+            assert!(
+                !providers_for(Some("xmonad"), Some(class), child, &[]).contains(&"qutebrowser"),
                 "{class}"
             );
         }
@@ -4160,7 +4186,15 @@ _NET_WM_NAME(UTF8_STRING) = "a\\b\"c é — \"quoted\", too"
             pid,
             title: None,
         };
-        for class in ["Emacs", "emacs", "Gvim", "gvim"] {
+        for class in [
+            "Emacs",
+            "emacs",
+            "Gvim",
+            "gvim",
+            "qutebrowser",
+            "QuteBrowser",
+            "org.qutebrowser.qutebrowser",
+        ] {
             assert_eq!(
                 editor_window_pid(&props(class, Some(42))),
                 Some(42),

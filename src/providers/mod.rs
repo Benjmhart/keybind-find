@@ -35,6 +35,7 @@ mod nvim;
 mod obsidian;
 mod openbox;
 mod pinned;
+mod qutebrowser;
 mod ranger;
 // `src/plugins.rs`, declared here because `main.rs` is not this story's to edit.
 #[path = "../plugins.rs"]
@@ -58,6 +59,7 @@ mod zathura;
 mod zed;
 mod zellij;
 
+pub(crate) use qutebrowser::is_qutebrowser;
 pub(crate) use sheets::is_browser;
 pub(crate) use sxhkd::running as sxhkd_running;
 pub(crate) use vscode::is_vscode;
@@ -113,6 +115,7 @@ pub const KNOWN: &[&str] = &[
     "nnn",
     "kakoune",
     "openbox",
+    "qutebrowser",
 ];
 
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
@@ -164,6 +167,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "nnn" => nnn::sheet(),
         "kakoune" => kakoune::sheet(),
         "openbox" => openbox::sheet(ctx),
+        "qutebrowser" => qutebrowser::sheet(ctx),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",

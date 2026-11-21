@@ -37,6 +37,78 @@ if [ "$PHASE" = x11 ]; then
   x kakoune        "i3 kakoune" "kakoune|space b|e2e window|mode=normal" -- xterm -e kak /tmp/e2e.c
   wanted kakoune && { pkill -x kak; for _ in $(seq 50); do pgrep -x kak >/dev/null || break; sleep 0.1; done
     ! pkill -9 -x kak || { record kakoune-cleanup "FAIL	a kak outlived SIGTERM for 5 s"; FAILED=1; }; }
+  # `comma l` is bound only by tests/e2e/home/.config/qutebrowser/e2e-live.py (not config.py: the fallback never reads
+  # it): only the live read from the running browser lists it. QtWebEngine runs with software rendering and without
+  # Chromium's sandbox (a container's seccomp refuses it); both are temporary settings. No qutebrowser outlives a case.
+  qute_gone() {
+    pkill -x qutebrowser
+    for _ in $(seq 100); do pgrep -x qutebrowser >/dev/null || pgrep -x QtWebEngineProc >/dev/null || break; sleep 0.1; done
+    ! pkill -9 -x qutebrowser && ! pkill -9 -x QtWebEngineProc ||
+      { record "$1-cleanup" "FAIL	a qutebrowser outlived SIGTERM for 10 s"; FAILED=1; }
+  }
+  x qutebrowser-live "i3 qutebrowser" "qutebrowser|comma l|e2e live" 3 -- qutebrowser --config-py "$HOME/.config/qutebrowser/e2e-live.py" -s qt.force_software_rendering chromium -s qt.chromium.sandboxing disable-all about:blank
+  # Its one note: the two keys keybind-find can't send (<Num+5>, <Guide> in autoconfig.yml).
+  if wanted qutebrowser-live; then
+    notes=$(grep '^keybind-find: qutebrowser: ' "$OUT/qutebrowser-live.err")
+    case $notes in
+      "keybind-find: qutebrowser: leaving out 2 key(s) "*[!$'\n']) record qutebrowser-live-note "ok	leaving out 2 key(s)" ;;
+      *) record qutebrowser-live-note "FAIL	$(echo "$notes" | tr '\n\t' '  ' | cut -c1-300)"; FAILED=1 ;;
+    esac
+    qute_gone qutebrowser-live
+  fi
+  # The same browser running, an xterm focused: `dump qutebrowser` never asks it (comma l absent), it reads the files.
+  if wanted qutebrowser-unfocused; then
+    setsid qutebrowser --config-py "$HOME/.config/qutebrowser/e2e-live.py" -s qt.force_software_rendering chromium \
+      -s qt.chromium.sandboxing disable-all about:blank >"$OUT/qutebrowser-unfocused.app.log" 2>&1 &
+    focused() { for _ in $(seq 150); do [ "$(xdotool getactivewindow getwindowclassname 2>/dev/null)" = "$1" ] && break; sleep 0.1; done; }
+    for _ in $(seq 150); do ls "$XDG_RUNTIME_DIR"/qutebrowser/ipc-* >/dev/null 2>&1 && break; sleep 0.1; done
+    focused qutebrowser
+    setsid xterm -e zsh >/dev/null 2>&1 &
+    xt=$!
+    focused XTerm
+    timeout 60 "$KBF" dump qutebrowser >"$OUT/qutebrowser-unfocused.json" 2>"$OUT/qutebrowser-unfocused.err"
+    if line=$(python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); n=s["binds"]["normal"]
+k=[b["key"] for b in n]; assert "comma a" in k and "comma l" not in k, k[-5:]
+print("qutebrowser:%d, no comma l" % sum(map(len, s["binds"].values())))' \
+        "$OUT/qutebrowser-unfocused.json" 2>&1) && ls "$XDG_RUNTIME_DIR"/qutebrowser/ipc-* >/dev/null 2>&1 &&
+      ! grep -q 'the running qutebrowser' "$OUT/qutebrowser-unfocused.err" &&
+      ! ls -d "$XDG_RUNTIME_DIR"/qutebrowser/keybind-find-qute-* >/dev/null 2>&1; then
+      record qutebrowser-unfocused "ok	$line"
+    else
+      record qutebrowser-unfocused "FAIL	$(echo "$line" | tail -1)	$(tr '\n\t' '  ' < "$OUT/qutebrowser-unfocused.err" | cut -c1-300)"; FAILED=1
+    fi
+    kill -- -"$xt" 2>/dev/null
+    qute_gone qutebrowser-unfocused
+  fi
+  # FALLBACK's limits with the real qutebrowser Python: each hostile autoconfig.yml is one note and the 295 defaults;
+  # one just at each limit (4 MiB; depth 32, root 0; 100000 values counting the root) is read: no note. deep* nest under a
+  # key commands() ignores, so only the depth limit can give the note.
+  if wanted qutebrowser-caps; then
+    ok=1 why=""
+    for c in fifo big deep bomb nan many big-ok deep-ok many-ok; do
+      h=/tmp/qcap/$c; rm -rf "$h"; mkdir -p "$h/.config/qutebrowser"; f=$h/.config/qutebrowser/autoconfig.yml
+      case $c in
+        fifo) mkfifo "$f" ;;
+        big|big-ok) head -c $((4 * 1024 * 1024 + $([ $c = big ] && echo 1 || echo 0))) /dev/zero 2>/dev/null | tr '\0' '#' >"$f" ;;
+        deep|deep-ok) python3 -I -c 'import sys; n = int(sys.argv[1]); print("config_version: 2\nsettings:\n  x: " + "[" * n + "]" * n)' \
+          "$([ $c = deep ] && echo 40 || echo 31)" >"$f" ;;
+        bomb) python3 -I -c 'print("a: &a [" + ",".join(["x"] * 50) + "]"); [print(f"{n}: &{n} [" + ",".join([f"*{p}"] * 50) + "]") for p, n in zip("abcd", "bcde")]' >"$f" ;;
+        nan) printf 'config_version: 2\nsettings:\n  x: {global: .nan}\n' >"$f" ;;
+        # 7 values besides the list's: the root, config_version and 2, settings and its mapping, x, the list.
+        many|many-ok) python3 -I -c 'import sys; print("config_version: 2\nsettings:\n  x: [" + ",".join(["0"] * int(sys.argv[1])) + "]")' \
+          "$([ $c = many ] && echo 99994 || echo 99993)" >"$f" ;;
+      esac
+      env -u XDG_CONFIG_HOME HOME="$h" timeout 30 "$KBF" dump qutebrowser >"$OUT/qutebrowser-caps-$c.json" 2>"$OUT/qutebrowser-caps-$c.err"
+      n=$(python3 -I -c 'import json,sys; print(sum(map(len, json.load(open(sys.argv[1]))["binds"].values())))' "$OUT/qutebrowser-caps-$c.json" 2>/dev/null)
+      notes=$(grep -c '^keybind-find: qutebrowser: ' "$OUT/qutebrowser-caps-$c.err")
+      case $c in
+        *-ok) [ "$n" = 295 ] && [ "$notes" = 0 ] ;;
+        *) [ "$n" = 295 ] && [ "$notes" = 1 ] && grep -q 'listing the defaults only' "$OUT/qutebrowser-caps-$c.err" ;;
+      esac || { ok=""; why+="$c: $n binds, $notes notes; "; }
+    done
+    if [ -n "$ok" ]; then record qutebrowser-caps "ok	fifo big deep bomb nan many: one note each; big-ok deep-ok many-ok: none; 295 defaults"
+    else record qutebrowser-caps "FAIL	$why"; FAILED=1; fi
+  fi
   x emacs-nw       "i3 emacs"   "emacs|ctrl+c k|kill-buffer"        -- xterm -e emacs -nw /tmp/e2e.c
   # c-mode's map, which only the running Emacs's C buffer has (the batch read lists the global map): proves the
   # server path.
@@ -99,6 +171,10 @@ if [ "$PHASE" = x11 ]; then
   # Kakoune's own `debug mappings` in a client (tests/e2e/oracle-kakoune.kak) against the dump, which, with no kak in
   # front, reads the same kakrc and Kakoune's runtime autoload.
   o kakoune-oracle kakoune -- kak -ui dummy -e "source $E/oracle-kakoune.kak"
+  # qutebrowser's own get_bindings_for per mode (tests/e2e/oracle-qutebrowser.py, run at startup, then :quit) against
+  # the dump, which, with no qutebrowser in front, reads the same autoconfig.yml over the pinned defaults.
+  o qutebrowser-oracle qutebrowser -- qutebrowser -s qt.force_software_rendering chromium -s qt.chromium.sandboxing disable-all ":debug-pyeval --file $E/oracle-qutebrowser.py" ":quit"
+  wanted qutebrowser-oracle && qute_gone qutebrowser-oracle
 elif [ "$PHASE" = awesome ]; then
   # awesome on the same display, i3 stopped: its keys from the running awesome over D-Bus
   # (tests/e2e/home/.config/awesome/rc.lua: the stock rc.lua plus keys of our own).

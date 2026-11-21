@@ -77,7 +77,7 @@ fn read(
     if !on_path(env) {
         bail!("mpv isn't on PATH (a Flatpak-only mpv isn't run)");
     }
-    let dir = private_dir(tmp)?;
+    let dir = private_dir(tmp, "keybind-find-mpv")?;
     let out = dump(timeout, &setup, env, &dir);
     let _ = std::fs::remove_dir_all(&dir);
     parse(&out?)
@@ -127,14 +127,15 @@ fn dump(
     run_keeping_output(cmd, timeout, Group::Own).context("running mpv headless")
 }
 
-/// A new directory under `tmp` only this user can enter; creating it fails rather than reuse one that exists.
-fn private_dir(tmp: &Path) -> anyhow::Result<PathBuf> {
+/// A new directory under `tmp`, named `<prefix>-<pid>-<nanos>`, only this user can enter; creating it fails rather
+/// than reuse one that exists.
+pub(super) fn private_dir(tmp: &Path, prefix: &str) -> anyhow::Result<PathBuf> {
     use std::os::unix::fs::DirBuilderExt;
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.subsec_nanos())
         .unwrap_or_default();
-    let dir = tmp.join(format!("keybind-find-mpv-{}-{nanos}", std::process::id()));
+    let dir = tmp.join(format!("{prefix}-{}-{nanos}", std::process::id()));
     std::fs::DirBuilder::new()
         .mode(0o700)
         .create(&dir)

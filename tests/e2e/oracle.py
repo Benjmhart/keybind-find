@@ -515,8 +515,61 @@ def kakoune_report(text, data=os.path.join(os.path.dirname(os.path.abspath(__fil
     return keys
 
 
+# --- qutebrowser ------------------------------------------------------------------------------------------------------
+# oracle-qutebrowser.py's lines: MODE<TAB>KEY<TAB>COMMAND, each key as qutebrowser prints it (str(KeySequence):
+# keyinput/keyutils.py:238-255, 416-450, 540-544 at v3.7.0): `<Mods+Name>` (Qt's key names, `+`-joined modifiers) or a
+# character (an upper-case letter: with shift). Its own table of the names the defaults and the e2e config use.
+QUTE_NAMES = {"back": "XF86Back", "forward": "XF86Forward", "backspace": "BackSpace", "del": "Delete", "ins": "Insert",
+              "down": "Down", "up": "Up", "escape": "Escape", "pgdown": "Next", "pgup": "Prior", "return": "Return",
+              "space": "space", "tab": "Tab"}
+# Qt keys with no X keysym that the e2e config binds.
+QUTE_NO_KEYSYM = {"guide"}
+QUTE_MODS = {"ctrl": "ctrl", "shift": "shift", "alt": "alt", "meta": "super", "num": "num"}
+
+
+def qute_keys(s):
+    """A key as qutebrowser prints it in keybind-find's notation: `num+` kept, `qt:NAME` for a Qt key with no
+    keysym, `!NAME` for a name this table lacks."""
+    out = []
+    for m in re.finditer(r"<((?:[A-Za-z]+\+)*)([^>]+|>)>|(.)", s):
+        if m.group(3):
+            mods, name = [], m.group(3)
+        else:
+            mods = [QUTE_MODS.get(x.lower(), "!" + x) for x in m.group(1).split("+") if x]
+            name = m.group(2)
+        low = name.lower()
+        if len(name) == 1:
+            sym = lf_char(name, mods)
+        elif low in QUTE_NAMES:
+            sym = QUTE_NAMES[low]
+        elif re.fullmatch(r"F([1-9]|[12][0-9]|3[0-5])", name):
+            sym = name
+        elif low in QUTE_NO_KEYSYM:
+            sym = "qt:" + name
+        else:
+            sym = "!" + name
+        ordered = [x for x in MOD_ORDER if x in mods] + [x for x in dict.fromkeys(mods) if x not in MOD_ORDER]
+        out.append("+".join(ordered + [sym]))
+    return " ".join(out)
+
+
+def qutebrowser_report(text):
+    """oracle-qutebrowser.py's lines as `mode=MODE<TAB>KEY<TAB>=> COMMAND`: the command is compared too (PAIRS)."""
+    keys = set()
+    for line in filter(None, text.splitlines()):
+        if line.count("\t") != 2:
+            keys.add("!line:" + line)
+            continue
+        mode, key, command = line.split("\t")
+        keys.add(f"mode={mode}\t{qute_keys(key)}\t=> {command}")
+    return keys
+
+
+# Providers whose report gives each key's command: their dump keys carry the bind's description (`=> DESC`) too.
+PAIRS = {"qutebrowser"}
+
 REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report, "zellij": zellij_report, "awesome": awesome_report,
-           "lf": lf_report, "nnn": nnn_report, "kakoune": kakoune_report}
+           "lf": lf_report, "nnn": nnn_report, "kakoune": kakoune_report, "qutebrowser": qutebrowser_report}
 
 KNOWN = {
     "kitty": [
@@ -574,6 +627,12 @@ KNOWN = {
                                  "and kakoune.rs's kakrc read runs no hooks"),
         ("*[?]*", "a non-ASCII key keybind-find can't name (`é` in the e2e kakrc): kakoune.rs leaves it out"),
     ],
+    # The report is qutebrowser's own get_bindings_for over the same autoconfig.yml the dump reads.
+    "qutebrowser": [
+        ("mode=*\t*num+*\t=> *", "the keypad modifier (<Num+5> in the e2e autoconfig): keybind-find's notation can't show it "
+                          "(FR-019), qutebrowser.rs leaves it out"),
+        ("mode=*\tqt:*", "a Qt key with no X keysym (<Guide> in the e2e autoconfig): qutebrowser.rs leaves it out"),
+    ],
 }
 
 # Keys the e2e config unbinds in every mode: none may stay in the dump. A KNOWN pattern alone can't tell: a key keybind-
@@ -584,15 +643,16 @@ UNBOUND = {
 
 
 # --- shared -----------------------------------------------------------------------------------------------------------
-def dump_keys(sheet):
-    """Every bind's key, after its `when` scopes (`name=value<TAB>`, sorted), from one `dump PROVIDER` sheet."""
+def dump_keys(sheet, pairs=False):
+    """Every bind's key, after its `when` scopes (`name=value<TAB>`, sorted), from one `dump PROVIDER` sheet; with
+    `pairs`, followed by `<TAB>=> DESC`."""
     keys = set()
     for binds in sheet["binds"].values():
         for b in binds:
             scopes = []
             for name, v in sorted((b.get("when") or {}).items()):
                 scopes += [f"{name}={x}" for x in (v if isinstance(v, list) else [v])]
-            keys.add("\t".join(scopes + [b["key"]]))
+            keys.add("\t".join(scopes + [b["key"]] + ([f"=> {b['desc']}"] if pairs else [])))
     return keys
 
 
@@ -647,7 +707,7 @@ def main(provider, report_path, dump_path):
     try:
         report = REPORTS[provider](open(report_path).read())
         sheet = json.load(open(dump_path))
-        dump = dump_keys(sheet[0] if isinstance(sheet, list) else sheet)
+        dump = dump_keys(sheet[0] if isinstance(sheet, list) else sheet, provider in PAIRS)
     except Exception as e:
         print(f"FAIL\tunreadable report or dump: {e!r}")
         return 1
@@ -850,6 +910,24 @@ def self_test():
         assert fnmatch.fnmatchcase(examples.get(p, p), p), p
     for k in ("mode=normal\tspace x", "mode=normal\tspace shift+b", "mode=e2e\tq", "mode=normal\tg q"):
         assert not [p for p, *_ in kk if fnmatch.fnmatchcase(k, p)], k
+    for qk, want in (("gt", "g t"), ("O", "shift+o"), (",a", "comma a"), ("<Ctrl+Shift+Tab>", "ctrl+shift+Tab"),
+                     ("<Ctrl+PgDown>", "ctrl+Next"), ("<Escape>", "Escape"), ("<Ctrl++>", "ctrl+plus"),
+                     ("<Meta+x>", "super+x"), ("<Num+5>", "num+5"), ("<Guide>", "qt:Guide"), ("<F35>", "F35"),
+                     ("<Alt+Back>", "alt+XF86Back"), ("<F36>", "!F36"), ("<Hyper+x>", "!Hyper+x"), ("é", "?é")):
+        assert qute_keys(qk) == want, (qk, qute_keys(qk))
+    assert qutebrowser_report("normal\tgt\ttab-focus\ncaret\t<Ctrl+Space>\tselection-drop\nstray\n") == {
+        "mode=normal\tg t\t=> tab-focus", "mode=caret\tctrl+space\t=> selection-drop", "!line:stray"}
+    assert dump_keys({"binds": {"n": [{"key": "g t", "desc": "tab-focus", "when": {"mode": "normal"}}]}}, True) == {
+        "mode=normal\tg t\t=> tab-focus"}
+    qk = KNOWN["qutebrowser"]
+    examples = {"mode=*\t*num+*\t=> *": "mode=normal\t" + qute_keys("<Num+5>") + "\t=> message-info keypad",
+                "mode=*\tqt:*": "mode=normal\t" + qute_keys("<Guide>") + "\t=> message-info guide"}
+    assert fnmatch.fnmatchcase("mode=insert\t" + qute_keys("<Ctrl+Num+5>") + "\t=> x", qk[0][0])
+    for p, *_ in qk:
+        assert fnmatch.fnmatchcase(examples[p], p), p
+    for k in ("mode=normal\tn\t=> search-next", "mode=normal\tctrl+n\t=> x", "mode=normal\tg t\t=> x",
+              "mode=caret\tq\t=> qt:x", "mode=normal\tx\t=> num+x"):
+        assert not [p for p, *_ in qk if fnmatch.fnmatchcase(k, p)], k
     print("oracle.py: self-test ok")
     return 0
 

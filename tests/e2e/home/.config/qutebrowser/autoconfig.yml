@@ -1,0 +1,15 @@
+# keybind-find's e2e config: qutebrowser's own format (config_version 2). The fallback and the oracle read this file;
+# e2e-live.py (not config.py, so neither of them reads it) loads it and adds a key only the running browser has.
+config_version: 2
+settings:
+  bindings.commands:
+    global:
+      normal:
+        ',a': message-info "e2e autoconfig"
+        d: null
+        <Num+5>: message-info keypad
+        <Guide>: message-info guide
+      insert:
+        <Ctrl-e>: ''
+      caret:
+        <Ctrl-Shift-e>: selection-drop

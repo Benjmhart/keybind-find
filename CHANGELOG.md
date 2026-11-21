@@ -12,6 +12,7 @@ All notable changes to keybind-find are listed here. The format follows
 - nnn: its keys as built (nnn 5.3's key table), plus the plugin (`;` + key) and bookmark (`b` + key) keys of the running nnn's `NNN_PLUG` and `NNN_BMS`, read from its environment as nnn parses them ([#55](https://github.com/Benjmhart/keybind-find/issues/55)).
 - Kakoune: its built-in keys by mode (Kakoune 2026.05.21's, from its source) with the running session's mappings on top, asked through `kak -p` (`debug mappings`: kakrc, plugins, hooks, window and buffer maps), else your kakrc and autoload files read as Kakoune parses them ([#58](https://github.com/Benjmhart/keybind-find/issues/58)).
 - Openbox (alone, or under LXDE or LXQt): the keybinds of the `rc.xml` Openbox loaded (the one its `_OB_CONFIG_FILE` names, else the XDG lookup Openbox does), each with its actions, chains as key sequences, grouped under the comments that head them ([#52](https://github.com/Benjmhart/keybind-find/issues/52)).
+- qutebrowser: its bindings by mode, asked of the running browser over its IPC socket (`:debug-pyeval --file` with a script of keybind-find's: exactly what `qute://bindings` lists, and the mode it is in), else qutebrowser 3.7.0's defaults with your `autoconfig.yml` on top, read by qutebrowser's own Python ([#49](https://github.com/Benjmhart/keybind-find/issues/49)).
 
 ## [1.2.0] - 2026-11-19
 
