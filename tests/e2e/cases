@@ -37,6 +37,17 @@ if [ "$PHASE" = x11 ]; then
   x kakoune        "i3 kakoune" "kakoune|space b|e2e window|mode=normal" -- xterm -e kak /tmp/e2e.c
   wanted kakoune && { pkill -x kak; for _ in $(seq 50); do pgrep -x kak >/dev/null || break; sleep 0.1; done
     ! pkill -9 -x kak || { record kakoune-cleanup "FAIL	a kak outlived SIGTERM for 5 s"; FAILED=1; }; }
+  # `comma l` is bound only by tests/e2e/home/.config/qutebrowser/e2e-live.py (not config.py: the fallback never reads
+  # it): only the live read from the running browser lists it. QtWebEngine runs with software rendering and without
+  # Chromium's sandbox (a container's seccomp refuses it); both are temporary settings. No qutebrowser outlives a case.
+  qute_gone() {
+    pkill -x qutebrowser
+    for _ in $(seq 100); do pgrep -x qutebrowser >/dev/null || pgrep -x QtWebEngineProc >/dev/null || break; sleep 0.1; done
+    ! pkill -9 -x qutebrowser && ! pkill -9 -x QtWebEngineProc ||
+      { record "$1-cleanup" "FAIL	a qutebrowser outlived SIGTERM for 10 s"; FAILED=1; }
+  }
+  x qutebrowser-live "i3 qutebrowser" "qutebrowser|comma l|e2e live" 3 -- qutebrowser --config-py "$HOME/.config/qutebrowser/e2e-live.py" -s qt.force_software_rendering chromium -s qt.chromium.sandboxing disable-all about:blank
+  wanted qutebrowser-live && qute_gone qutebrowser-live
   x emacs-nw       "i3 emacs"   "emacs|ctrl+c k|kill-buffer"        -- xterm -e emacs -nw /tmp/e2e.c
   # c-mode's map, which only the running Emacs's C buffer has (the batch read lists the global map): proves the
   # server path.
@@ -99,6 +110,10 @@ if [ "$PHASE" = x11 ]; then
   # Kakoune's own `debug mappings` in a client (tests/e2e/oracle-kakoune.kak) against the dump, which, with no kak in
   # front, reads the same kakrc and Kakoune's runtime autoload.
   o kakoune-oracle kakoune -- kak -ui dummy -e "source $E/oracle-kakoune.kak"
+  # qutebrowser's own get_bindings_for per mode (tests/e2e/oracle-qutebrowser.py, run at startup, then :quit) against
+  # the dump, which, with no qutebrowser in front, reads the same autoconfig.yml over the pinned defaults.
+  o qutebrowser-oracle qutebrowser -- qutebrowser -s qt.force_software_rendering chromium -s qt.chromium.sandboxing disable-all ":debug-pyeval --file $E/oracle-qutebrowser.py" ":quit"
+  wanted qutebrowser-oracle && qute_gone qutebrowser-oracle
 elif [ "$PHASE" = awesome ]; then
   # awesome on the same display, i3 stopped: its keys from the running awesome over D-Bus
   # (tests/e2e/home/.config/awesome/rc.lua: the stock rc.lua plus keys of our own).

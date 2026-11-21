@@ -58,6 +58,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | zathura | its keys: zathura's defaults for its version (0.5.2, 0.5.11 and 2026.10.23 built in) with your zathurarc's `map`/`unmap` on top | none ([below](#zathura)) |
 | VS Code, VSCodium, Code - OSS | the default keys (1.143.1's built in), your installed extensions' and your `keybindings.json` on top, each tagged with where it works; the file's language guessed from the title | none ([below](#vs-code)) |
 | Zed | its default keymaps (1.25.3's built in) for your base keymap and vim or helix mode, with your `keymap.json` on top, each tagged with its context; the file's extension guessed from the title | none ([below](#zed)) |
+| qutebrowser | its bindings by mode, asked of the running browser (defaults, `config.py`, `autoconfig.yml`, `:bind`s, as `qute://bindings` lists them) with the mode it is in; else 3.7.0's defaults with your `autoconfig.yml` on top | none ([below](#qutebrowser)) |
 | Obsidian | its default hotkeys (1.14.5's built in) with your vault's `.obsidian/hotkeys.json` on top, the vault picked by window title | none ([below](#obsidian)) |
 | st, surf, tabbed, dwm | their stock keys from `config.def.h` at st 0.9.3, surf 2.1, tabbed 0.9 and dwm 6.8 (dwm's in a dwm session, whatever window has focus); a patched `config.h` isn't read: replace the sheet with your own of the same name | none ([below](#suckless-st-surf-tabbed-dwm)) |
 | browsers | built-in sheets for Gmail, YouTube and GitHub; any web app you write a sheet for | none; GitHub's needs a URL-in-title extension ([docs/sheets.md](docs/sheets.md)) |
@@ -206,6 +207,32 @@ Zed's default format (`project — main.rs`), which hides the keys of other file
 needs the default `window_title_format`: one without ` — ` gives no fact, and one that doesn't end in the file name
 gives a wrong one. Keys Zed binds that keybind-find can't send (`fn-`, a lone `shift`,
 `shift-` with a non-letter, media keys such as `copy`) are left out with a count.
+
+### qutebrowser
+
+Over a qutebrowser window (X11 class `qutebrowser`, Wayland app id `org.qutebrowser.qutebrowser`), keybind-find asks the
+running browser for its bindings: it finds qutebrowser's IPC socket among the window process's sockets (any
+`--basedir`, the Flatpak), writes a short script of its own into a new `0700` directory beside that socket (in
+qutebrowser's runtime directory) and sends `:debug-pyeval --file <that directory>/ask.py` over the socket, as a second
+`qutebrowser` command would. The script lists the bindings exactly as `qute://bindings` does (the defaults however
+changed, `config.py`, `autoconfig.yml` and `:bind`s made since) with the mode the browser is in, writes them to one file
+in that directory, and keybind-find removes the directory. Only the current mode's bindings are shown (the mark and
+macro modes use the `register` bindings). qutebrowser raises the window it runs a command in, which already has focus
+here; for the same reason `keybind-find dump qutebrowser` from a terminal never asks the browser.
+
+When the browser doesn't answer within 2 s (or the script fails, say in a qutebrowser whose `:debug-pyeval` changed),
+one line says why and keybind-find lists qutebrowser's defaults for the installed version (3.7.0's built in, from
+qutebrowser's source) with `autoconfig.yml`'s bindings (`bindings.commands`) on top, as qutebrowser lays them over: the
+file is read by the Python on the `#!` line of the `qutebrowser` on `PATH`, with PyYAML as qutebrowser loads it, which
+also gives the version. `config.py` is Python, so its bindings are read only from the running browser: when it exists,
+only the defaults are listed, with a note. The fallback reads `$XDG_CONFIG_HOME/qutebrowser` (else
+`~/.config/qutebrowser`): the Flatpak's config (`~/.var/app/org.qutebrowser.qutebrowser/config`), `--basedir` and
+`--config-py` aren't followed there, and an `autoconfig.yml` of a format other than version 2 gives the defaults alone.
+
+Not listed: `bindings.key_mappings` (aliases such as `<Ctrl-[>` for `<Escape>`); keypad keys (`<Num+…>`) and Qt keys
+with no X keysym (`<Guide>`), counted on one line. A private directory path holding `{…}` would be expanded by
+qutebrowser's command runner (keybind-find makes its own under qutebrowser's runtime directory, so it holds none). Each
+command is shown as written, never run.
 
 ### Obsidian
 

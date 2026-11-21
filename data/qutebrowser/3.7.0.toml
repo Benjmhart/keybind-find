@@ -1,0 +1,530 @@
+# qutebrowser 3.7.0: its default key bindings (`bindings.default`), generated from qutebrowser's source at tag v3.7.0
+# (commit b0a7967f11c1c616d3914f3227113e121efb0fe8), qutebrowser/config/configdata.yml, in its order.
+# qutebrowser is GPL-3.0-or-later licensed: Copyright the qutebrowser contributors
+# (https://github.com/qutebrowser/qutebrowser/blob/v3.7.0/LICENSE).
+# [keys]: every name in Qt's key name table (qtbase v6.12.0, commit 025bdad181de241e81bf853c8a2d7bf3d19261a9, src/gui/kernel/qkeysequence.cpp
+# keyname[], lower case, the first of a name given twice), which qutebrowser's keys use through QKeySequence, as the X
+# keysym that types it: a Latin-1 key's own keysym (Space), else the first non-KP_ keysym that
+# src/gui/platform/unix/qxkbcommon.cpp's KeyTbl maps to that Qt key, else its first (Enter: KP_Enter). 32 names have
+# none and no row (media and phone keys: Bass Boost, Bass Up, Bass Down, Treble Up, ...). Made by a script kept out of the repository
+# (gen.py: PyYAML over configdata.yml, regular expressions over the three Qt files).
+
+qutebrowser_version = "3.7.0"
+modes = ["normal", "insert", "hint", "passthrough", "command", "prompt", "yesno", "caret", "register"]
+bind = [
+  { mode = "normal", key = "<Escape>", command = "clear-keychain ;; search ;; fullscreen --leave" },
+  { mode = "normal", key = "o", command = "cmd-set-text -s :open" },
+  { mode = "normal", key = "go", command = "cmd-set-text :open {url:pretty}" },
+  { mode = "normal", key = "O", command = "cmd-set-text -s :open -t" },
+  { mode = "normal", key = "gO", command = "cmd-set-text :open -t -r {url:pretty}" },
+  { mode = "normal", key = "xo", command = "cmd-set-text -s :open -b" },
+  { mode = "normal", key = "xO", command = "cmd-set-text :open -b -r {url:pretty}" },
+  { mode = "normal", key = "wo", command = "cmd-set-text -s :open -w" },
+  { mode = "normal", key = "wO", command = "cmd-set-text :open -w {url:pretty}" },
+  { mode = "normal", key = "/", command = "cmd-set-text /" },
+  { mode = "normal", key = "?", command = "cmd-set-text ?" },
+  { mode = "normal", key = ":", command = "cmd-set-text :" },
+  { mode = "normal", key = "ga", command = "open -t" },
+  { mode = "normal", key = "<Ctrl-T>", command = "open -t" },
+  { mode = "normal", key = "<Ctrl-N>", command = "open -w" },
+  { mode = "normal", key = "<Ctrl-Shift-N>", command = "open -p" },
+  { mode = "normal", key = "d", command = "tab-close" },
+  { mode = "normal", key = "<Ctrl-W>", command = "tab-close" },
+  { mode = "normal", key = "<Ctrl-Shift-W>", command = "close" },
+  { mode = "normal", key = "D", command = "tab-close -o" },
+  { mode = "normal", key = "co", command = "tab-only" },
+  { mode = "normal", key = "T", command = "cmd-set-text -sr :tab-focus" },
+  { mode = "normal", key = "gm", command = "tab-move" },
+  { mode = "normal", key = "gK", command = "tab-move -" },
+  { mode = "normal", key = "gJ", command = "tab-move +" },
+  { mode = "normal", key = "J", command = "tab-next" },
+  { mode = "normal", key = "<Ctrl-PgDown>", command = "tab-next" },
+  { mode = "normal", key = "K", command = "tab-prev" },
+  { mode = "normal", key = "<Ctrl-PgUp>", command = "tab-prev" },
+  { mode = "normal", key = "gC", command = "tab-clone" },
+  { mode = "normal", key = "r", command = "reload" },
+  { mode = "normal", key = "<F5>", command = "reload" },
+  { mode = "normal", key = "R", command = "reload -f" },
+  { mode = "normal", key = "<Ctrl-F5>", command = "reload -f" },
+  { mode = "normal", key = "H", command = "back" },
+  { mode = "normal", key = "<back>", command = "back" },
+  { mode = "normal", key = "th", command = "back -t" },
+  { mode = "normal", key = "wh", command = "back -w" },
+  { mode = "normal", key = "L", command = "forward" },
+  { mode = "normal", key = "<forward>", command = "forward" },
+  { mode = "normal", key = "tl", command = "forward -t" },
+  { mode = "normal", key = "wl", command = "forward -w" },
+  { mode = "normal", key = "<F11>", command = "fullscreen" },
+  { mode = "normal", key = "f", command = "hint" },
+  { mode = "normal", key = "F", command = "hint all tab" },
+  { mode = "normal", key = "wf", command = "hint all window" },
+  { mode = "normal", key = ";b", command = "hint all tab-bg" },
+  { mode = "normal", key = ";f", command = "hint all tab-fg" },
+  { mode = "normal", key = ";h", command = "hint all hover" },
+  { mode = "normal", key = ";i", command = "hint images" },
+  { mode = "normal", key = ";I", command = "hint images tab" },
+  { mode = "normal", key = ";o", command = "hint links fill :open {hint-url}" },
+  { mode = "normal", key = ";O", command = "hint links fill :open -t -r {hint-url}" },
+  { mode = "normal", key = ";y", command = "hint links yank" },
+  { mode = "normal", key = ";Y", command = "hint links yank-primary" },
+  { mode = "normal", key = ";r", command = "hint --rapid links tab-bg" },
+  { mode = "normal", key = ";R", command = "hint --rapid links window" },
+  { mode = "normal", key = ";d", command = "hint links download" },
+  { mode = "normal", key = ";t", command = "hint inputs" },
+  { mode = "normal", key = "gi", command = "hint inputs --first" },
+  { mode = "normal", key = "h", command = "scroll left" },
+  { mode = "normal", key = "j", command = "scroll down" },
+  { mode = "normal", key = "k", command = "scroll up" },
+  { mode = "normal", key = "l", command = "scroll right" },
+  { mode = "normal", key = "u", command = "undo" },
+  { mode = "normal", key = "U", command = "undo -w" },
+  { mode = "normal", key = "<Ctrl-Shift-T>", command = "undo" },
+  { mode = "normal", key = "gg", command = "scroll-to-perc 0" },
+  { mode = "normal", key = "G", command = "scroll-to-perc" },
+  { mode = "normal", key = "n", command = "search-next" },
+  { mode = "normal", key = "N", command = "search-prev" },
+  { mode = "normal", key = "i", command = "mode-enter insert" },
+  { mode = "normal", key = "v", command = "mode-enter caret" },
+  { mode = "normal", key = "V", command = "mode-enter caret ;; selection-toggle --line" },
+  { mode = "normal", key = "`", command = "mode-enter set_mark" },
+  { mode = "normal", key = "'", command = "mode-enter jump_mark" },
+  { mode = "normal", key = "yy", command = "yank" },
+  { mode = "normal", key = "yY", command = "yank -s" },
+  { mode = "normal", key = "yt", command = "yank title" },
+  { mode = "normal", key = "yT", command = "yank title -s" },
+  { mode = "normal", key = "yd", command = "yank domain" },
+  { mode = "normal", key = "yD", command = "yank domain -s" },
+  { mode = "normal", key = "yp", command = "yank pretty-url" },
+  { mode = "normal", key = "yP", command = "yank pretty-url -s" },
+  { mode = "normal", key = "ym", command = "yank inline [{title}]({url:yank})" },
+  { mode = "normal", key = "yM", command = "yank inline [{title}]({url:yank}) -s" },
+  { mode = "normal", key = "pp", command = "open -- {clipboard}" },
+  { mode = "normal", key = "pP", command = "open -- {primary}" },
+  { mode = "normal", key = "Pp", command = "open -t -- {clipboard}" },
+  { mode = "normal", key = "PP", command = "open -t -- {primary}" },
+  { mode = "normal", key = "wp", command = "open -w -- {clipboard}" },
+  { mode = "normal", key = "wP", command = "open -w -- {primary}" },
+  { mode = "normal", key = "m", command = "quickmark-save" },
+  { mode = "normal", key = "b", command = "cmd-set-text -s :quickmark-load" },
+  { mode = "normal", key = "B", command = "cmd-set-text -s :quickmark-load -t" },
+  { mode = "normal", key = "wb", command = "cmd-set-text -s :quickmark-load -w" },
+  { mode = "normal", key = "M", command = "bookmark-add" },
+  { mode = "normal", key = "gb", command = "cmd-set-text -s :bookmark-load" },
+  { mode = "normal", key = "gB", command = "cmd-set-text -s :bookmark-load -t" },
+  { mode = "normal", key = "wB", command = "cmd-set-text -s :bookmark-load -w" },
+  { mode = "normal", key = "sf", command = "save" },
+  { mode = "normal", key = "ss", command = "cmd-set-text -s :set" },
+  { mode = "normal", key = "sl", command = "cmd-set-text -s :set -t" },
+  { mode = "normal", key = "sk", command = "cmd-set-text -s :bind" },
+  { mode = "normal", key = "-", command = "zoom-out" },
+  { mode = "normal", key = "+", command = "zoom-in" },
+  { mode = "normal", key = "=", command = "zoom" },
+  { mode = "normal", key = "[[", command = "navigate prev" },
+  { mode = "normal", key = "]]", command = "navigate next" },
+  { mode = "normal", key = "{{", command = "navigate prev -t" },
+  { mode = "normal", key = "}}", command = "navigate next -t" },
+  { mode = "normal", key = "gu", command = "navigate up" },
+  { mode = "normal", key = "gU", command = "navigate up -t" },
+  { mode = "normal", key = "<Ctrl-A>", command = "navigate increment" },
+  { mode = "normal", key = "<Ctrl-X>", command = "navigate decrement" },
+  { mode = "normal", key = "wi", command = "devtools" },
+  { mode = "normal", key = "wIh", command = "devtools left" },
+  { mode = "normal", key = "wIj", command = "devtools bottom" },
+  { mode = "normal", key = "wIk", command = "devtools top" },
+  { mode = "normal", key = "wIl", command = "devtools right" },
+  { mode = "normal", key = "wIw", command = "devtools window" },
+  { mode = "normal", key = "wIf", command = "devtools-focus" },
+  { mode = "normal", key = "gd", command = "download" },
+  { mode = "normal", key = "ad", command = "download-cancel" },
+  { mode = "normal", key = "cd", command = "download-clear" },
+  { mode = "normal", key = "gf", command = "view-source" },
+  { mode = "normal", key = "gt", command = "cmd-set-text -s :tab-select" },
+  { mode = "normal", key = "<Ctrl-Tab>", command = "tab-focus last" },
+  { mode = "normal", key = "<Ctrl-Shift-Tab>", command = "nop" },
+  { mode = "normal", key = "<Ctrl-^>", command = "tab-focus last" },
+  { mode = "normal", key = "<Ctrl-V>", command = "mode-enter passthrough" },
+  { mode = "normal", key = "<Ctrl-Q>", command = "quit" },
+  { mode = "normal", key = "ZQ", command = "quit" },
+  { mode = "normal", key = "ZZ", command = "quit --save" },
+  { mode = "normal", key = "<Ctrl-F>", command = "scroll-page 0 1" },
+  { mode = "normal", key = "<Ctrl-B>", command = "scroll-page 0 -1" },
+  { mode = "normal", key = "<Ctrl-D>", command = "scroll-page 0 0.5" },
+  { mode = "normal", key = "<Ctrl-U>", command = "scroll-page 0 -0.5" },
+  { mode = "normal", key = "<Alt-1>", command = "tab-focus 1" },
+  { mode = "normal", key = "g0", command = "tab-focus 1" },
+  { mode = "normal", key = "g^", command = "tab-focus 1" },
+  { mode = "normal", key = "<Alt-2>", command = "tab-focus 2" },
+  { mode = "normal", key = "<Alt-3>", command = "tab-focus 3" },
+  { mode = "normal", key = "<Alt-4>", command = "tab-focus 4" },
+  { mode = "normal", key = "<Alt-5>", command = "tab-focus 5" },
+  { mode = "normal", key = "<Alt-6>", command = "tab-focus 6" },
+  { mode = "normal", key = "<Alt-7>", command = "tab-focus 7" },
+  { mode = "normal", key = "<Alt-8>", command = "tab-focus 8" },
+  { mode = "normal", key = "<Alt-9>", command = "tab-focus -1" },
+  { mode = "normal", key = "g$", command = "tab-focus -1" },
+  { mode = "normal", key = "<Ctrl-h>", command = "home" },
+  { mode = "normal", key = "<Ctrl-s>", command = "stop" },
+  { mode = "normal", key = "<Ctrl-Alt-p>", command = "print" },
+  { mode = "normal", key = "Ss", command = "set" },
+  { mode = "normal", key = "Sb", command = "bookmark-list --jump" },
+  { mode = "normal", key = "Sq", command = "bookmark-list" },
+  { mode = "normal", key = "Sh", command = "history" },
+  { mode = "normal", key = "<Return>", command = "selection-follow" },
+  { mode = "normal", key = "<Ctrl-Return>", command = "selection-follow -t" },
+  { mode = "normal", key = ".", command = "cmd-repeat-last" },
+  { mode = "normal", key = "<Ctrl-p>", command = "tab-pin" },
+  { mode = "normal", key = "<Alt-m>", command = "tab-mute" },
+  { mode = "normal", key = "gD", command = "tab-give" },
+  { mode = "normal", key = "q", command = "macro-record" },
+  { mode = "normal", key = "@", command = "macro-run" },
+  { mode = "normal", key = "tsh", command = "config-cycle -p -t -u *://{url:host}/* content.javascript.enabled ;; reload" },
+  { mode = "normal", key = "tSh", command = "config-cycle -p -u *://{url:host}/* content.javascript.enabled ;; reload" },
+  { mode = "normal", key = "tsH", command = "config-cycle -p -t -u *://*.{url:host}/* content.javascript.enabled ;; reload" },
+  { mode = "normal", key = "tSH", command = "config-cycle -p -u *://*.{url:host}/* content.javascript.enabled ;; reload" },
+  { mode = "normal", key = "tsu", command = "config-cycle -p -t -u {url} content.javascript.enabled ;; reload" },
+  { mode = "normal", key = "tSu", command = "config-cycle -p -u {url} content.javascript.enabled ;; reload" },
+  { mode = "normal", key = "tph", command = "config-cycle -p -t -u *://{url:host}/* content.plugins ;; reload" },
+  { mode = "normal", key = "tPh", command = "config-cycle -p -u *://{url:host}/* content.plugins ;; reload" },
+  { mode = "normal", key = "tpH", command = "config-cycle -p -t -u *://*.{url:host}/* content.plugins ;; reload" },
+  { mode = "normal", key = "tPH", command = "config-cycle -p -u *://*.{url:host}/* content.plugins ;; reload" },
+  { mode = "normal", key = "tpu", command = "config-cycle -p -t -u {url} content.plugins ;; reload" },
+  { mode = "normal", key = "tPu", command = "config-cycle -p -u {url} content.plugins ;; reload" },
+  { mode = "normal", key = "tih", command = "config-cycle -p -t -u *://{url:host}/* content.images ;; reload" },
+  { mode = "normal", key = "tIh", command = "config-cycle -p -u *://{url:host}/* content.images ;; reload" },
+  { mode = "normal", key = "tiH", command = "config-cycle -p -t -u *://*.{url:host}/* content.images ;; reload" },
+  { mode = "normal", key = "tIH", command = "config-cycle -p -u *://*.{url:host}/* content.images ;; reload" },
+  { mode = "normal", key = "tiu", command = "config-cycle -p -t -u {url} content.images ;; reload" },
+  { mode = "normal", key = "tIu", command = "config-cycle -p -u {url} content.images ;; reload" },
+  { mode = "normal", key = "tch", command = "config-cycle -p -t -u *://{url:host}/* content.cookies.accept all no-3rdparty never ;; reload" },
+  { mode = "normal", key = "tCh", command = "config-cycle -p -u *://{url:host}/* content.cookies.accept all no-3rdparty never ;; reload" },
+  { mode = "normal", key = "tcH", command = "config-cycle -p -t -u *://*.{url:host}/* content.cookies.accept all no-3rdparty never ;; reload" },
+  { mode = "normal", key = "tCH", command = "config-cycle -p -u *://*.{url:host}/* content.cookies.accept all no-3rdparty never ;; reload" },
+  { mode = "normal", key = "tcu", command = "config-cycle -p -t -u {url} content.cookies.accept all no-3rdparty never ;; reload" },
+  { mode = "normal", key = "tCu", command = "config-cycle -p -u {url} content.cookies.accept all no-3rdparty never ;; reload" },
+  { mode = "insert", key = "<Ctrl-E>", command = "edit-text" },
+  { mode = "insert", key = "<Shift-Ins>", command = "insert-text -- {primary}" },
+  { mode = "insert", key = "<Escape>", command = "mode-leave" },
+  { mode = "insert", key = "<Shift-Escape>", command = "fake-key <Escape>" },
+  { mode = "hint", key = "<Return>", command = "hint-follow" },
+  { mode = "hint", key = "<Ctrl-R>", command = "hint --rapid links tab-bg" },
+  { mode = "hint", key = "<Ctrl-F>", command = "hint links" },
+  { mode = "hint", key = "<Ctrl-B>", command = "hint all tab-bg" },
+  { mode = "hint", key = "<Escape>", command = "mode-leave" },
+  { mode = "passthrough", key = "<Shift-Escape>", command = "mode-leave" },
+  { mode = "command", key = "<Ctrl-P>", command = "command-history-prev" },
+  { mode = "command", key = "<Ctrl-N>", command = "command-history-next" },
+  { mode = "command", key = "<Up>", command = "completion-item-focus --history prev" },
+  { mode = "command", key = "<Down>", command = "completion-item-focus --history next" },
+  { mode = "command", key = "<Shift-Tab>", command = "completion-item-focus prev" },
+  { mode = "command", key = "<Tab>", command = "completion-item-focus next" },
+  { mode = "command", key = "<Ctrl-Tab>", command = "completion-item-focus next-category" },
+  { mode = "command", key = "<Ctrl-Shift-Tab>", command = "completion-item-focus prev-category" },
+  { mode = "command", key = "<PgDown>", command = "completion-item-focus next-page" },
+  { mode = "command", key = "<PgUp>", command = "completion-item-focus prev-page" },
+  { mode = "command", key = "<Ctrl-D>", command = "completion-item-del" },
+  { mode = "command", key = "<Shift-Delete>", command = "completion-item-del" },
+  { mode = "command", key = "<Ctrl-C>", command = "completion-item-yank" },
+  { mode = "command", key = "<Ctrl-Shift-C>", command = "completion-item-yank --sel" },
+  { mode = "command", key = "<Return>", command = "command-accept" },
+  { mode = "command", key = "<Ctrl-Return>", command = "command-accept --rapid" },
+  { mode = "command", key = "<Ctrl-B>", command = "rl-backward-char" },
+  { mode = "command", key = "<Ctrl-F>", command = "rl-forward-char" },
+  { mode = "command", key = "<Alt-B>", command = "rl-backward-word" },
+  { mode = "command", key = "<Alt-F>", command = "rl-forward-word" },
+  { mode = "command", key = "<Ctrl-A>", command = "rl-beginning-of-line" },
+  { mode = "command", key = "<Ctrl-E>", command = "rl-end-of-line" },
+  { mode = "command", key = "<Ctrl-U>", command = "rl-unix-line-discard" },
+  { mode = "command", key = "<Ctrl-K>", command = "rl-kill-line" },
+  { mode = "command", key = "<Alt-D>", command = "rl-kill-word" },
+  { mode = "command", key = "<Ctrl-W>", command = "rl-rubout \" \"" },
+  { mode = "command", key = "<Ctrl-Shift-W>", command = "rl-filename-rubout" },
+  { mode = "command", key = "<Alt-Backspace>", command = "rl-backward-kill-word" },
+  { mode = "command", key = "<Ctrl-Y>", command = "rl-yank" },
+  { mode = "command", key = "<Ctrl-?>", command = "rl-delete-char" },
+  { mode = "command", key = "<Ctrl-H>", command = "rl-backward-delete-char" },
+  { mode = "command", key = "<Escape>", command = "mode-leave" },
+  { mode = "prompt", key = "<Return>", command = "prompt-accept" },
+  { mode = "prompt", key = "<Ctrl-X>", command = "prompt-open-download" },
+  { mode = "prompt", key = "<Ctrl-P>", command = "prompt-open-download --pdfjs" },
+  { mode = "prompt", key = "<Shift-Tab>", command = "prompt-item-focus prev" },
+  { mode = "prompt", key = "<Up>", command = "prompt-item-focus prev" },
+  { mode = "prompt", key = "<Tab>", command = "prompt-item-focus next" },
+  { mode = "prompt", key = "<Down>", command = "prompt-item-focus next" },
+  { mode = "prompt", key = "<Alt-Y>", command = "prompt-yank" },
+  { mode = "prompt", key = "<Alt-Shift-Y>", command = "prompt-yank --sel" },
+  { mode = "prompt", key = "<Alt-E>", command = "prompt-fileselect-external" },
+  { mode = "prompt", key = "<Ctrl-B>", command = "rl-backward-char" },
+  { mode = "prompt", key = "<Ctrl-F>", command = "rl-forward-char" },
+  { mode = "prompt", key = "<Alt-B>", command = "rl-backward-word" },
+  { mode = "prompt", key = "<Alt-F>", command = "rl-forward-word" },
+  { mode = "prompt", key = "<Ctrl-A>", command = "rl-beginning-of-line" },
+  { mode = "prompt", key = "<Ctrl-E>", command = "rl-end-of-line" },
+  { mode = "prompt", key = "<Ctrl-U>", command = "rl-unix-line-discard" },
+  { mode = "prompt", key = "<Ctrl-K>", command = "rl-kill-line" },
+  { mode = "prompt", key = "<Alt-D>", command = "rl-kill-word" },
+  { mode = "prompt", key = "<Ctrl-W>", command = "rl-rubout \" \"" },
+  { mode = "prompt", key = "<Ctrl-Shift-W>", command = "rl-filename-rubout" },
+  { mode = "prompt", key = "<Alt-Backspace>", command = "rl-backward-kill-word" },
+  { mode = "prompt", key = "<Ctrl-?>", command = "rl-delete-char" },
+  { mode = "prompt", key = "<Ctrl-H>", command = "rl-backward-delete-char" },
+  { mode = "prompt", key = "<Ctrl-Y>", command = "rl-yank" },
+  { mode = "prompt", key = "<Escape>", command = "mode-leave" },
+  { mode = "yesno", key = "<Return>", command = "prompt-accept" },
+  { mode = "yesno", key = "y", command = "prompt-accept yes" },
+  { mode = "yesno", key = "n", command = "prompt-accept no" },
+  { mode = "yesno", key = "Y", command = "prompt-accept --save yes" },
+  { mode = "yesno", key = "N", command = "prompt-accept --save no" },
+  { mode = "yesno", key = "<Alt-Y>", command = "prompt-yank" },
+  { mode = "yesno", key = "<Alt-Shift-Y>", command = "prompt-yank --sel" },
+  { mode = "yesno", key = "<Escape>", command = "mode-leave" },
+  { mode = "caret", key = "v", command = "selection-toggle" },
+  { mode = "caret", key = "V", command = "selection-toggle --line" },
+  { mode = "caret", key = "<Space>", command = "selection-toggle" },
+  { mode = "caret", key = "<Ctrl-Space>", command = "selection-drop" },
+  { mode = "caret", key = "c", command = "mode-enter normal" },
+  { mode = "caret", key = "j", command = "move-to-next-line" },
+  { mode = "caret", key = "k", command = "move-to-prev-line" },
+  { mode = "caret", key = "l", command = "move-to-next-char" },
+  { mode = "caret", key = "h", command = "move-to-prev-char" },
+  { mode = "caret", key = "e", command = "move-to-end-of-word" },
+  { mode = "caret", key = "w", command = "move-to-next-word" },
+  { mode = "caret", key = "b", command = "move-to-prev-word" },
+  { mode = "caret", key = "o", command = "selection-reverse" },
+  { mode = "caret", key = "]", command = "move-to-start-of-next-block" },
+  { mode = "caret", key = "[", command = "move-to-start-of-prev-block" },
+  { mode = "caret", key = "}", command = "move-to-end-of-next-block" },
+  { mode = "caret", key = "{", command = "move-to-end-of-prev-block" },
+  { mode = "caret", key = "0", command = "move-to-start-of-line" },
+  { mode = "caret", key = "$", command = "move-to-end-of-line" },
+  { mode = "caret", key = "gg", command = "move-to-start-of-document" },
+  { mode = "caret", key = "G", command = "move-to-end-of-document" },
+  { mode = "caret", key = "Y", command = "yank selection -s" },
+  { mode = "caret", key = "y", command = "yank selection" },
+  { mode = "caret", key = "<Return>", command = "yank selection" },
+  { mode = "caret", key = "H", command = "scroll left" },
+  { mode = "caret", key = "J", command = "scroll down" },
+  { mode = "caret", key = "K", command = "scroll up" },
+  { mode = "caret", key = "L", command = "scroll right" },
+  { mode = "caret", key = "<Escape>", command = "mode-leave" },
+  { mode = "register", key = "<Escape>", command = "mode-leave" },
+]
+
+[keys]
+"space" = "space"
+"esc" = "Escape"
+"tab" = "Tab"
+"backtab" = "ISO_Left_Tab"
+"backspace" = "BackSpace"
+"return" = "Return"
+"enter" = "KP_Enter"
+"ins" = "Insert"
+"del" = "Delete"
+"pause" = "Pause"
+"print" = "Print"
+"sysreq" = "Sys_Req"
+"home" = "Home"
+"end" = "End"
+"left" = "Left"
+"up" = "Up"
+"right" = "Right"
+"down" = "Down"
+"pgup" = "Prior"
+"pgdown" = "Next"
+"capslock" = "Caps_Lock"
+"numlock" = "Num_Lock"
+"scrolllock" = "Scroll_Lock"
+"menu" = "Menu"
+"help" = "Help"
+"back" = "XF86Back"
+"forward" = "XF86Forward"
+"stop" = "XF86Stop"
+"refresh" = "XF86Refresh"
+"volume down" = "XF86AudioLowerVolume"
+"volume mute" = "XF86AudioMute"
+"volume up" = "XF86AudioRaiseVolume"
+"media play" = "XF86AudioPlay"
+"media stop" = "XF86AudioStop"
+"media previous" = "XF86AudioPrev"
+"media next" = "XF86AudioNext"
+"media record" = "XF86AudioRecord"
+"media pause" = "XF86AudioPause"
+"home page" = "XF86HomePage"
+"favorites" = "XF86Favorites"
+"search" = "XF86Search"
+"standby" = "XF86Standby"
+"open url" = "XF86OpenURL"
+"launch mail" = "XF86Mail"
+"launch media" = "XF86AudioMedia"
+"launch (0)" = "XF86Launch0"
+"launch (1)" = "XF86Launch1"
+"launch (2)" = "XF86Launch2"
+"launch (3)" = "XF86Launch3"
+"launch (4)" = "XF86Launch4"
+"launch (5)" = "XF86Launch5"
+"launch (6)" = "XF86Launch6"
+"launch (7)" = "XF86Launch7"
+"launch (8)" = "XF86Launch8"
+"launch (9)" = "XF86Launch9"
+"launch (a)" = "XF86LaunchA"
+"launch (b)" = "XF86LaunchB"
+"launch (c)" = "XF86LaunchC"
+"launch (d)" = "XF86LaunchD"
+"launch (e)" = "XF86LaunchE"
+"launch (f)" = "XF86LaunchF"
+"monitor brightness up" = "XF86MonBrightnessUp"
+"monitor brightness down" = "XF86MonBrightnessDown"
+"keyboard light on/off" = "XF86KbdLightOnOff"
+"keyboard brightness up" = "XF86KbdBrightnessUp"
+"keyboard brightness down" = "XF86KbdBrightnessDown"
+"power off" = "XF86PowerOff"
+"wake up" = "XF86WakeUp"
+"eject" = "XF86Eject"
+"screensaver" = "XF86ScreenSaver"
+"www" = "XF86WWW"
+"sleep" = "XF86Sleep"
+"lightbulb" = "XF86LightBulb"
+"shop" = "XF86Shop"
+"history" = "XF86History"
+"add favorite" = "XF86AddFavorite"
+"hot links" = "XF86HotLinks"
+"adjust brightness" = "XF86BrightnessAdjust"
+"finance" = "XF86Finance"
+"community" = "XF86Community"
+"media rewind" = "XF86AudioRewind"
+"back forward" = "XF86BackForward"
+"application left" = "XF86ApplicationLeft"
+"application right" = "XF86ApplicationRight"
+"book" = "XF86Book"
+"cd" = "XF86CD"
+"calculator" = "XF86Calculater"
+"calendar" = "XF86Calendar"
+"clear" = "XF86Clear"
+"clear grab" = "XF86ClearGrab"
+"close" = "XF86Close"
+"adjust contrast" = "XF86ContrastAdjust"
+"copy" = "XF86Copy"
+"cut" = "XF86Cut"
+"display" = "XF86Display"
+"dos" = "XF86DOS"
+"documents" = "XF86Documents"
+"spreadsheet" = "XF86Excel"
+"browser" = "XF86Explorer"
+"game" = "XF86Game"
+"go" = "XF86Go"
+"itouch" = "XF86iTouch"
+"logoff" = "XF86LogOff"
+"market" = "XF86Market"
+"meeting" = "XF86Meeting"
+"memo" = "XF86Memo"
+"keyboard menu" = "XF86MenuKB"
+"menu pb" = "XF86MenuPB"
+"my sites" = "XF86MySites"
+"news" = "XF86News"
+"home office" = "XF86OfficeHome"
+"option" = "XF86Option"
+"paste" = "XF86Paste"
+"phone" = "XF86Phone"
+"reply" = "XF86Reply"
+"reload" = "XF86Reload"
+"rotate windows" = "XF86RotateWindows"
+"rotation pb" = "XF86RotationPB"
+"rotation kb" = "XF86RotationKB"
+"save" = "XF86Save"
+"send" = "XF86Send"
+"spellchecker" = "XF86Spell"
+"split screen" = "XF86SplitScreen"
+"support" = "XF86Support"
+"task panel" = "XF86TaskPane"
+"terminal" = "XF86Terminal"
+"to-do list" = "XF86ToDoList"
+"tools" = "XF86Tools"
+"travel" = "XF86Travel"
+"video" = "XF86Video"
+"word processor" = "XF86Word"
+"xfer" = "XF86Xfer"
+"zoom in" = "XF86ZoomIn"
+"zoom out" = "XF86ZoomOut"
+"away" = "XF86Away"
+"messenger" = "XF86Messenger"
+"webcam" = "XF86WebCam"
+"mail forward" = "XF86MailForward"
+"pictures" = "XF86Pictures"
+"music" = "XF86Music"
+"battery" = "XF86Battery"
+"bluetooth" = "XF86Bluetooth"
+"wireless" = "XF86WLAN"
+"ultra wide band" = "XF86UWB"
+"media fast forward" = "XF86AudioForward"
+"audio repeat" = "XF86AudioRepeat"
+"audio random play" = "XF86AudioRandomPlay"
+"subtitle" = "XF86Subtitle"
+"audio cycle track" = "XF86AudioCycleTrack"
+"time" = "XF86Time"
+"hibernate" = "XF86Hibernate"
+"view" = "XF86View"
+"top menu" = "XF86TopMenu"
+"power down" = "XF86PowerDown"
+"suspend" = "XF86Suspend"
+"microphone mute" = "XF86AudioMicMute"
+"red" = "XF86Red"
+"green" = "XF86Green"
+"yellow" = "XF86Yellow"
+"blue" = "XF86Blue"
+"keyboard" = "XF86Keyboard"
+"new" = "XF86New"
+"open" = "XF86Open"
+"find" = "Find"
+"undo" = "Undo"
+"redo" = "Redo"
+"print screen" = "Print"
+"page up" = "Prior"
+"page down" = "Next"
+"caps lock" = "Caps_Lock"
+"num lock" = "Num_Lock"
+"number lock" = "Num_Lock"
+"scroll lock" = "Scroll_Lock"
+"insert" = "Insert"
+"delete" = "Delete"
+"escape" = "Escape"
+"system request" = "Sys_Req"
+"select" = "XF86Select"
+"call" = "XF86PickupPhone"
+"hangup" = "XF86HangupPhone"
+"kanji" = "Kanji"
+"muhenkan" = "Muhenkan"
+"henkan" = "Henkan_Mode"
+"romaji" = "Romaji"
+"hiragana" = "Hiragana"
+"katakana" = "Katakana"
+"hiragana katakana" = "Hiragana_Katakana"
+"zenkaku" = "Zenkaku"
+"hankaku" = "Hankaku"
+"zenkaku hankaku" = "Zenkaku_Hankaku"
+"touroku" = "Touroku"
+"massyo" = "Massyo"
+"kana lock" = "Kana_Lock"
+"kana shift" = "Kana_Shift"
+"eisu shift" = "Eisu_Shift"
+"eisu toggle" = "Eisu_toggle"
+"code input" = "Codeinput"
+"multiple candidate" = "MultipleCandidate"
+"previous candidate" = "PreviousCandidate"
+"hangul" = "Hangul"
+"hangul start" = "Hangul_Start"
+"hangul end" = "Hangul_End"
+"hangul hanja" = "Hangul_Hanja"
+"hangul jamo" = "Hangul_Jamo"
+"hangul romaja" = "Hangul_Romaja"
+"hangul jeonja" = "Hangul_Jeonja"
+"hangul banja" = "Hangul_Banja"
+"hangul prehanja" = "Hangul_PreHanja"
+"hangul posthanja" = "Hangul_PostHanja"
+"hangul special" = "Hangul_Special"
+"cancel" = "Cancel"
+"touchpad toggle" = "XF86TouchpadToggle"
+"touchpad on" = "XF86TouchpadOn"
+"touchpad off" = "XF86TouchpadOff"
+"shift" = "Shift_L"
+"control" = "Control_L"
+"alt" = "Alt_L"
+"meta" = "Meta_L"

@@ -43,9 +43,17 @@ Please report security problems privately, through GitHub's private vulnerabilit
     keybind-find made with a random name in kak's `XDG_RUNTIME_DIR`, else keybind-find's own, whichever is yours and
     `0700` (an answer arriving after keybind-find gave up can't be redirected there; with neither, nothing is sent),
     removed after; the script also defines one hidden command, `keybind-find-report-<pid>`, emptied once it ran, and
-    runs no shell; nothing else in the session is changed);
+    runs no shell; nothing else in the session is changed), qutebrowser's Python (the interpreter on the `#!` line of
+    the `qutebrowser` on PATH, `-I -c` with a fixed script that prints qutebrowser's version and your `autoconfig.yml`
+    as PyYAML loads it);
   - the picker: `alacritty` with `fzf`, `fuzzel` or `dmenu`, or whatever program `KEYBIND_FIND_PICKER` names;
   - `notify-send` for errors under a hotkey.
+- **It has your qutebrowser run a script of its own.** Over a qutebrowser window, keybind-find writes a fixed Python
+  script (only its directory's path filled in, as a string literal) into a `0700` directory with a random name that it
+  creates beside qutebrowser's IPC socket, in qutebrowser's runtime directory (only if that directory is yours and
+  `0700`), and sends `:debug-pyeval --file` with it over that socket, which runs it inside the browser. The script
+  only reads qutebrowser's bindings and current mode and writes them to one file in that directory; keybind-find
+  removes the directory afterwards, answer or not, and treats the answer as data (commands are shown, never run).
 
   Config text never goes through a shell. Fixed commands do: `/bin/sh` kills a timed-out child's process group (the
   group id is an argument), and fzf's bindings run through `sh -c` (the scope switch, `cat` of the run directory's
@@ -64,7 +72,9 @@ Please report security problems privately, through GitHub's private vulnerabilit
   and the focused lf's and lazygit's config files (`/proc/<pid>/{cmdline,environ,cwd}` of your `sxhkd` processes and
   of that `lf` or `lazygit` only, and that lazygit's `/proc/<pid>/exe`), and `/proc/<pid>/{comm,environ}` of the nnn in
   the focused terminal (its `NNN_PLUG` and `NNN_BMS` are shown, never run), and `/proc/<pid>/{comm,cmdline,environ,exe}`
-  of the kak in the focused terminal (its session name and socket directory, and its config and runtime paths).
+  of the kak in the focused terminal (its session name and socket directory, and its config and runtime paths), and
+  `/proc/<pid>/{fd,net/unix}` of the focused qutebrowser window's process (to find its IPC socket); qutebrowser's
+  `autoconfig.yml` (read by qutebrowser's own Python; a `config.py` beside it is only checked for, never read).
 - **It writes:** the usage log, `$XDG_STATE_HOME/keybind-find/usage.tsv` (default `~/.local/state/...`), which holds
   the time, provider and key of each pick (an espanso trigger, never its replacement); and, while the fzf picker is
   open, a `0700` directory under `$XDG_RUNTIME_DIR` (else the temporary directory) with the list, the key-search list,
