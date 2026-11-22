@@ -84,8 +84,8 @@ Please report security problems privately, through GitHub's private vulnerabilit
   `shortcutsrc` (its `GIMP3_DIRECTORY` or `GIMP/3.N` config directory; the file is read whole, at most 4 MiB and a regular
   file only, and only its `action` forms are used); Inkscape's `preferences.xml` and keys files (the preset in its
   `share/inkscape/keys/`, the shared and your profile's `keys/default.xml`, and the files they `xi:include`: any local
-  path, absolute too, but no URL; at most 8 deep, never one already being read, and at most 64 included files in all
-  per run; each file read whole, at most 4 MiB and a regular file only; only `bind` elements are used, their actions
+  path, absolute too, but no URL; at most 8 deep, never one already being read, and at most 64 includes in all per
+  run; each file read whole, at most 4 MiB and a regular file only; only `bind` elements are used, their actions
   shown as text, never run).
 - **It writes:** the usage log, `$XDG_STATE_HOME/keybind-find/usage.tsv` (default `~/.local/state/...`), which holds
   the time, provider and key of each pick (an espanso trigger, never its replacement); and, while the fzf picker is

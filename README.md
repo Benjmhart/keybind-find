@@ -291,15 +291,16 @@ against Inkscape itself. The e2e test checks that every `app.` action `inkscape 
 extensions' and those with no action data) is in the table; `win.` and `doc.` actions can't be listed without a window.
 
 Limits: keybind-find's own environment is used, not Inkscape's (the Flatpak's `~/.var/app/org.inkscape.Inkscape/config`
-profile and an AppImage's `share` aren't followed). The XML reader is stricter than Inkscape's: a file with a DOCTYPE,
+profile and an AppImage's `share` aren't followed), and a wrapper script on `PATH` named `inkscape` gives its own prefix
+(its `../share`, when that has an `inkscape` folder). The XML reader is stricter than Inkscape's: a file with a DOCTYPE,
 an undeclared prefix or broken XML is skipped with a note where Inkscape may still read it. Mouse modifiers
 (`<modifier>`) aren't listed. Labels are English. A file changed after Inkscape started is listed already (Inkscape reads
 them at start and when you change its preferences). A bind to an action not in the built-in table is left out, so an
 action new in a later Inkscape is missing until its table is added; an extension's (`app.<id with a dot>`) is listed
 under `Extensions` by its id. Left out with a count on one line: keys keybind-find can't send (`<Meta>`, `<Hyper>`,
 `<Mod2>`, `<Mod3>`, `<Mod5>`, `<Release>`), keys GTK can't parse, binds to actions Inkscape doesn't have, Inkscape 0.92's
-`verb=` binds, and includes it doesn't follow (`parse="text"`, `xpointer`, a URL; one that fails, has no `href`, or
-goes past 64 included files in all is a note).
+`verb=` binds, and includes it doesn't follow (no `href`, `parse="text"`, `xpointer`, a URL, or past 64 includes in
+all, which also gives a note; one whose file fails to load is a note).
 
 ### Obsidian
 

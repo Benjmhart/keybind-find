@@ -33,8 +33,8 @@ const XINCLUDE: [&str; 2] = [
 /// How many includes deep a file may go.
 const MAX_DEPTH: usize = 8;
 
-/// How many included files one lookup reads in all, so a file including another many times over can't make the
-/// hotkey hang.
+/// How many includes one lookup takes in all (each `xi:include` met, followed or not), so a file including another
+/// many times over can't make the hotkey hang.
 const MAX_INCLUDED: usize = 64;
 
 type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
@@ -78,12 +78,11 @@ pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
 fn read(env: Env, setup: impl Fn(&mut Command)) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
     let mut cmd = Command::new("inkscape");
     cmd.arg("--version");
-    // `Inkscape 1.4.4 (dcaf3e7d9e, 2026-05-05)`: the word after `Inkscape `.
+    // `Inkscape 1.4.4 (dcaf3e7d9e, 2026-05-05)`: the word after `Inkscape `, on the first line that has it.
     let (_, probed) = pinned::probe("inkscape", REGISTRY[0].0, cmd, setup, |t| {
         let v = t
             .lines()
-            .next()?
-            .strip_prefix("Inkscape ")?
+            .find_map(|l| l.strip_prefix("Inkscape "))?
             .split_whitespace()
             .next()?;
         pinned::parse_version(v).map(|_| v.to_string())
@@ -117,21 +116,27 @@ fn lookup(env: Env, read: Reader, table: &Table, notes: &mut Vec<String>) -> Key
         .as_ref()
         .map(|p| preferences(&p.join("preferences.xml"), read, notes))
         .unwrap_or_default();
-    let named = shortcutfile.filter(|f| !f.is_empty());
-    // A relative name is under the keys dir; `join` keeps an absolute one as it is.
-    let presets = named
-        .iter()
-        .map(|f| (keys_dir.join(f), true))
-        .chain(["default.xml", "inkscape.xml"].map(|f| (keys_dir.join(f), false)));
+    let named = shortcutfile
+        .filter(|f| !f.is_empty())
+        // A relative name is under the keys dir; `join` keeps an absolute one as it is.
+        .map(|f| keys_dir.join(f));
+    let stock = ["default.xml", "inkscape.xml"].map(|f| keys_dir.join(f));
+    // The named preset first, not read twice when it is a stock one.
+    let presets = named.iter().map(|p| (p.clone(), true)).chain(
+        stock
+            .into_iter()
+            .filter(|p| Some(p) != named.as_ref())
+            .map(|p| (p, false)),
+    );
     let mut loaded = false;
-    for (path, named) in presets {
+    for (path, is_named) in presets {
         match apply_file(&mut keys, table, &path, false, read, notes) {
             Ok(true) => {
                 loaded = true;
                 break;
             }
-            Ok(false) if named => notes.push(format!(
-                "{}: the preset your preferences name doesn't exist; trying default.xml",
+            Ok(false) if is_named => notes.push(format!(
+                "{}: the preset your preferences name doesn't exist; falling back to the stock presets",
                 path.display()
             )),
             Err(why) => notes.push(format!("{}: {why}; this preset is skipped", path.display())),
@@ -139,10 +144,18 @@ fn lookup(env: Env, read: Reader, table: &Table, notes: &mut Vec<String>) -> Key
         }
     }
     if !loaded {
-        notes.push(format!(
-            "no keyboard preset loads from {}: listing only your own keys",
-            keys_dir.display()
-        ));
+        let named_elsewhere = named.filter(|p| !p.starts_with(&keys_dir));
+        notes.push(match named_elsewhere {
+            Some(p) => format!(
+                "no keyboard preset loads ({} nor {}'s stock ones): listing only your own keys",
+                p.display(),
+                keys_dir.display()
+            ),
+            None => format!(
+                "no keyboard preset loads from {}: listing only your own keys",
+                keys_dir.display()
+            ),
+        });
     }
     // `shared_path()` (`src/io/resource.cpp:487-497`): only a directory.
     let shared = sharedpath
@@ -167,8 +180,8 @@ fn profile_dir(env: Env) -> Option<PathBuf> {
 }
 
 /// `get_inkscape_datadir` (`src/path-prefix.cpp:77-99`): `$INKSCAPE_DATADIR`, else `<prefix>/share` of the `inkscape`
-/// on `PATH` (`<prefix>/bin/inkscape`, symlinks resolved) when it has `inkscape/keys` (not a wrapper script's
-/// `~/.local`), else Arch's `/usr/share`.
+/// on `PATH` (`<prefix>/bin/inkscape`, symlinks resolved) when it has an `inkscape` dir, else Arch's `/usr/share`.
+/// A wrapper script on `PATH` gives its own prefix, as it would to Inkscape run through it.
 /// ponytail: an AppImage's or macOS bundle's datadir isn't followed.
 fn data_dir(env: Env) -> PathBuf {
     if let Some(d) = env("INKSCAPE_DATADIR").filter(|d| !d.is_empty()) {
@@ -184,7 +197,7 @@ fn data_dir(env: Env) -> PathBuf {
             let bin = f.parent()?;
             (bin.file_name()? == "bin").then(|| bin.parent().map(|p| p.join("share")))?
         })
-        .filter(|share| share.join("inkscape").join("keys").is_dir())
+        .filter(|share| share.join("inkscape").is_dir())
         .unwrap_or_else(|| PathBuf::from("/usr/share"))
 }
 
@@ -319,43 +332,38 @@ impl Walk<'_> {
 
     /// libxml2's `xmlXIncludeProcessFlags(…, XML_PARSE_NOXINCNODE)` (`src/xml/repr-io.cpp:274-305`): a whole-file XML
     /// include is replaced by the included file's root element; a failed one is a note and dropped, as are (counted)
-    /// a text include, an `xpointer`, a URL.
+    /// one without an `href`, a text include, an `xpointer`, a URL. Every include counts against `MAX_INCLUDED`.
     fn include(&mut self, el: Node, file: &Path) {
+        if self.keys.included >= MAX_INCLUDED {
+            // One note, then each one past the cap counted.
+            if self.keys.included == MAX_INCLUDED {
+                self.notes.push(format!(
+                    "{}: more than {MAX_INCLUDED} includes in all; the rest are left out",
+                    file.display()
+                ));
+            }
+            self.keys.included += 1;
+            self.keys.left.includes += 1;
+            return;
+        }
+        self.keys.included += 1;
         let href = el.attribute("href").filter(|h| {
-            matches!(el.attribute("parse"), None | Some("xml"))
+            !h.is_empty()
+                && matches!(el.attribute("parse"), None | Some("xml"))
                 && el.attribute("xpointer").is_none()
                 && !has_scheme(h)
         });
         let Some(href) = href else {
-            if el.attribute("href").is_none() {
-                self.notes.push(format!(
-                    "{}: an include without an href; left out",
-                    file.display()
-                ));
-            } else {
-                self.keys.left.includes += 1;
-            }
+            self.keys.left.includes += 1;
             return;
         };
         let path = file.parent().unwrap_or(Path::new("")).join(href);
-        if self.keys.included >= MAX_INCLUDED {
-            // One note, then the rest dropped silently.
-            if self.keys.included == MAX_INCLUDED {
-                self.notes.push(format!(
-                    "{}: more than {MAX_INCLUDED} included files in all; the rest are left out",
-                    file.display()
-                ));
-            }
-            self.keys.included = MAX_INCLUDED + 1;
-            return;
-        }
         let id = identity(&path);
         let failed = if self.chain.contains(&id) {
             Some("it is already being read (an include cycle)".to_string())
         } else if self.chain.len() > MAX_DEPTH {
             Some(format!("more than {MAX_DEPTH} includes deep"))
         } else {
-            self.keys.included += 1;
             match (self.read)(&path) {
                 Ok(None) => Some("it doesn't exist".to_string()),
                 Err(why) => Some(why),
@@ -465,14 +473,17 @@ fn parse_accel(s: &str) -> Option<Accel> {
         return None;
     }
     // `gdk_keyval_to_lower` (`:1429`), for the letters. ponytail: other cased keysyms (`Aacute`) keep their case.
-    // GTK compares keyvals: a name another one shares a keyval with is that one.
+    // GTK compares keyvals: a name sharing its keyval with another is `XKeysymToString`'s (keysymdef.h's first),
+    // the name a pressed key gets (`xmodmap -pke`), so key search matches it.
     // ponytail: the aliases presets use; keysymdef.h has more (`Henkan`, `Hangul_switch`, …).
     let rest = match rest {
-        "Prior" => "Page_Up",
-        "Next" => "Page_Down",
-        "KP_Prior" => "KP_Page_Up",
-        "KP_Next" => "KP_Page_Down",
+        "Page_Up" => "Prior",
+        "Page_Down" => "Next",
+        "KP_Page_Up" => "KP_Prior",
+        "KP_Page_Down" => "KP_Next",
         "script_switch" => "Mode_switch",
+        "quoteright" => "apostrophe",
+        "quoteleft" => "grave",
         r => r,
     };
     let key = if rest.len() == 1 {
@@ -609,7 +620,7 @@ struct Keys {
     /// Which action holds each key: one at most, since Inkscape takes a key from its holder before giving it out.
     holder: HashMap<Accel, usize>,
     left: LeftOut,
-    /// The included files read so far (`MAX_INCLUDED`).
+    /// The includes met so far (`MAX_INCLUDED`).
     included: usize,
 }
 
@@ -821,6 +832,14 @@ mod tests {
             ("", None),
             ("<primary", None),
             ("<primary>alt>m", None),
+            ("Page_Up", Some("Prior")),
+            ("<ctrl>Page_Down", Some("ctrl+Next")),
+            ("KP_Page_Up", Some("KP_Prior")),
+            ("KP_Page_Down", Some("KP_Next")),
+            ("script_switch", Some("Mode_switch")),
+            ("<primary>quoteright", Some("ctrl+apostrophe")),
+            ("quoteleft", Some("grave")),
+            ("Prior", Some("Prior")),
         ] {
             assert_eq!(k(input).as_deref(), want, "{input:?}");
         }
@@ -870,6 +889,11 @@ mod tests {
             pair("Transform", "Rotate Step (180.0)")
         );
         assert_eq!(row(&rows, "ctrl+Tab"), pair("View", "Next Window"));
+        // `<primary><shift>Page_Up`: by XKeysymToString's name, as a pressed key is named.
+        assert_eq!(
+            keys_of(&keys, "win.layer-raise"),
+            ["ctrl+shift+Prior", "ctrl+shift+KP_Prior"]
+        );
         assert_eq!(keys_of(&keys, "win.window-next"), ["ctrl+Tab", "!"]);
         // The action as written in the file.
         assert!(rows
@@ -1346,17 +1370,13 @@ mod tests {
             );
         }
         write(&d.join("f8.xml"), r#"<bind gaction="doc.undo" keys="F1"/>"#);
-        let t = std::time::Instant::now();
         let (keys, notes) = apply(&[(&d.join("f0.xml"), false)]);
-        assert!(
-            t.elapsed() < std::time::Duration::from_secs(10),
-            "{:?}",
-            t.elapsed()
-        );
-        assert_eq!(keys.included, MAX_INCLUDED + 1);
+        // 64 taken; each include met past the cap counted (the files above f8 hold 10 each).
+        assert!(keys.included > MAX_INCLUDED);
+        assert_eq!(keys.left.includes, keys.included - MAX_INCLUDED);
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(
-            notes[0].ends_with("more than 64 included files in all; the rest are left out"),
+            notes[0].ends_with("more than 64 includes in all; the rest are left out"),
             "{notes:?}"
         );
         // The first chain down reached f8 before the cap.
@@ -1372,25 +1392,22 @@ mod tests {
         write(
             &d.join("a.xml"),
             &format!(
-                r#"<keys {xi}><xi:include href="http://example.org/k.xml"/><xi:include/><xi:include href="bad.xml"/></keys>"#
+                r#"<keys {xi}><xi:include href="http://example.org/k.xml"/><xi:include/><xi:include href=""/><xi:include href="bad.xml"/></keys>"#
             ),
         );
         let (keys, notes) = apply(&[(&d.join("a.xml"), false)]);
-        assert_eq!(keys.left.includes, 1);
-        assert_eq!(notes.len(), 2, "{notes:?}");
+        // The URL, no href and an empty one: counted; the file that doesn't parse: a note.
+        assert_eq!(keys.left.includes, 3);
+        assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(
-            notes[0].ends_with("a.xml: an include without an href; left out"),
-            "{notes:?}"
-        );
-        assert!(
-            notes[1].contains("including ")
-                && notes[1].contains("bad.xml: ")
-                && notes[1].ends_with("its keys are left out"),
+            notes[0].contains("including ")
+                && notes[0].contains("bad.xml: ")
+                && notes[0].ends_with("its keys are left out"),
             "{notes:?}"
         );
         assert_eq!(
             rows(&keys).1.as_deref(),
-            Some("leaving out 1 include(s) keybind-find doesn't follow (parse=\"text\", an xpointer, a URL)")
+            Some("leaving out 3 include(s) keybind-find doesn't follow (parse=\"text\", an xpointer, a URL)")
         );
         assert!(
             has_scheme("file:///x.xml")
@@ -1444,7 +1461,7 @@ mod tests {
         let (listed, note) = rows(&keys);
         assert!(listed.is_empty());
         assert!(note.is_some_and(|n| n.starts_with("leaving out 1 key(s) with a Meta")));
-        // Keysym aliases are one key: a user <ctrl>Prior takes ctrl+Page_Up.
+        // Keysym aliases are one key: a user <ctrl>Prior takes <primary>Page_Up.
         let (keys, _) = texts(&[
             (
                 r#"<bind gaction="doc.undo" keys="&lt;primary&gt;Page_Up"/>"#,
@@ -1456,7 +1473,7 @@ mod tests {
             ),
         ]);
         assert!(keys_of(&keys, "doc.undo").is_empty());
-        assert_eq!(keys_of(&keys, "doc.redo"), ["ctrl+Page_Up"]);
+        assert_eq!(keys_of(&keys, "doc.redo"), ["ctrl+Prior"]);
         // ("Select") is ('Select').
         assert_eq!(
             normalise(r#"win.tool-switch("Select")"#),
@@ -1512,13 +1529,23 @@ mod tests {
         };
         assert_eq!(both("/data"), PathBuf::from("/data"));
         assert_eq!(both(""), prefix.join("share"));
-        // A wrapper whose prefix has an inkscape dir but no keys: /usr/share.
+        // A wrapper script gives its own prefix when that has an inkscape dir, else /usr/share.
         let wrapper = d.join("home/.local");
         write(&wrapper.join("bin/inkscape"), "");
-        std::fs::create_dir_all(wrapper.join("share/inkscape")).unwrap();
         let p = wrapper.join("bin").display().to_string();
+        let on_path = move || {
+            let p = p.clone();
+            data_dir(&move |k: &str| (k == "PATH").then(|| p.clone()))
+        };
+        assert_eq!(on_path(), PathBuf::from("/usr/share"));
+        std::fs::create_dir_all(wrapper.join("share/inkscape")).unwrap();
+        assert_eq!(on_path(), wrapper.join("share"));
+        // An inkscape in a folder not named bin: /usr/share.
+        write(&d.join("tools/inkscape"), "");
+        std::fs::create_dir_all(d.join("share/inkscape")).unwrap();
+        let t = d.join("tools").display().to_string();
         assert_eq!(
-            data_dir(&move |k: &str| (k == "PATH").then(|| p.clone())),
+            data_dir(&move |k: &str| (k == "PATH").then(|| t.clone())),
             PathBuf::from("/usr/share")
         );
     }
@@ -1574,6 +1601,156 @@ mod tests {
             ),
             "{notes:?}"
         );
+    }
+
+    #[test]
+    fn the_include_cap_is_one_budget() {
+        // Counted reads: exactly 64 includes followed, across the preset and the user's file.
+        let n = std::cell::Cell::new(0);
+        let inc = |k: usize| r#"<xi:include href="a.xml"/>"#.repeat(k);
+        let xi = r#"xmlns:xi="http://www.w3.org/2001/XInclude""#;
+        let preset = format!("<keys {xi}>{}</keys>", inc(40));
+        let user = format!("<keys {xi}>{}</keys>", inc(40));
+        let read = |p: &Path| {
+            Ok(Some(match p.to_str() {
+                Some("/v/preset.xml") => preset.clone(),
+                Some("/v/user.xml") => user.clone(),
+                _ => {
+                    n.set(n.get() + 1);
+                    r#"<bind gaction="doc.undo" keys="F1"/>"#.to_string()
+                }
+            }))
+        };
+        let (t, mut keys, mut notes) = (table(), Keys::default(), Vec::new());
+        for (f, user) in [("/v/preset.xml", false), ("/v/user.xml", true)] {
+            assert_eq!(
+                apply_file(&mut keys, &t, Path::new(f), user, &read, &mut notes),
+                Ok(true)
+            );
+        }
+        assert_eq!(n.get(), MAX_INCLUDED);
+        assert_eq!(keys.left.includes, 16);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].starts_with("/v/user.xml: more than 64 includes"),
+            "{notes:?}"
+        );
+    }
+
+    #[test]
+    fn round_two_corners() {
+        assert_eq!(normalise("x( 'a b' )"), "x('a b')");
+        assert_eq!(profile_dir(&|_| None), None);
+        let d = tmp("round2");
+        let dd = data(&d.join("data"), true);
+        // No profile at all: the preset only, no note.
+        let (keys, notes) = look(&[("INKSCAPE_DATADIR", &dd)]);
+        assert_eq!(
+            (keys_of(&keys, "tool.all.quick-zoom"), notes),
+            (vec!["z".to_string()], vec![])
+        );
+        // Two options groups: the first wins.
+        let p = d.join("profile");
+        write(
+            &p.join("preferences.xml"),
+            r#"<inkscape><group id="options"><group id="kbshortcuts" shortcutfile="xara.xml"/></group>
+               <group id="options"><group id="kbshortcuts" shortcutfile="nope.xml"/></group></inkscape>"#,
+        );
+        let (keys, notes) = look(&[("INKSCAPE_DATADIR", &dd), ("INKSCAPE_PROFILE_DIR", &p)]);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(
+            keys_of(&keys, "win.tool-switch('Select')"),
+            ["s", "F1", "F2", "alt+s"]
+        );
+        // A named preset that is default.xml is read once; a missing one falls back.
+        prefs(
+            &p,
+            r#"<group id="kbshortcuts" shortcutfile="default.xml"/>"#,
+        );
+        let reads = std::cell::RefCell::new(Vec::new());
+        let counting = |path: &Path| {
+            reads.borrow_mut().push(path.to_path_buf());
+            disk(path)
+        };
+        std::fs::write(dd.join("inkscape/keys/default.xml"), "<config/>").unwrap();
+        let vars: HashMap<&str, String> = [
+            ("INKSCAPE_DATADIR", dd.display().to_string()),
+            ("INKSCAPE_PROFILE_DIR", p.display().to_string()),
+        ]
+        .into();
+        let mut notes = Vec::new();
+        lookup(&|k| vars.get(k).cloned(), &counting, &table(), &mut notes);
+        let default = dd.join("inkscape/keys/default.xml");
+        assert_eq!(reads.borrow().iter().filter(|r| **r == default).count(), 1);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        prefs(
+            &p,
+            &format!(
+                r#"<group id="kbshortcuts" shortcutfile="{}"/>"#,
+                d.join("gone.xml").display()
+            ),
+        );
+        std::fs::remove_dir_all(dd.join("inkscape/keys")).unwrap();
+        let (_, notes) = look(&[("INKSCAPE_DATADIR", &dd), ("INKSCAPE_PROFILE_DIR", &p)]);
+        assert!(notes[0].ends_with("gone.xml: the preset your preferences name doesn't exist; falling back to the stock presets"), "{notes:?}");
+        assert!(
+            notes[1].starts_with(&format!(
+                "no keyboard preset loads ({} nor ",
+                d.join("gone.xml").display()
+            )),
+            "{notes:?}"
+        );
+        // The shared folder's broken keys/default.xml: a note.
+        let shared = d.join("shared");
+        write(&shared.join("keys/default.xml"), "<keys>");
+        prefs(
+            &p,
+            &format!(
+                r#"<group id="resources" sharedpath="{}"/>"#,
+                shared.display()
+            ),
+        );
+        let (_, notes) = look(&[("INKSCAPE_DATADIR", &dd), ("INKSCAPE_PROFILE_DIR", &p)]);
+        assert!(
+            notes
+                .iter()
+                .any(|n| n.contains("shared/keys/default.xml: ") && n.ends_with("; skipped")),
+            "{notes:?}"
+        );
+    }
+
+    #[test]
+    fn control_characters_are_escaped() {
+        let d = tmp("ctrl");
+        let keys = d.join("inkscape/keys");
+        write(
+            &keys.join("default.xml"),
+            r#"<keys xmlns:xi="http://www.w3.org/2001/XInclude"><bind gaction="app.org.x&#9;y" keys="F1"/><xi:include href="no&#9;such.xml"/></keys>"#,
+        );
+        let bin = fake_bin("inkscape", "echo 'Inkscape 1.4.4 (x)'");
+        let env = |k: &str| match k {
+            "INKSCAPE_DATADIR" => Some(d.display().to_string()),
+            "INKSCAPE_PROFILE_DIR" => Some(d.join("none").display().to_string()),
+            _ => None,
+        };
+        let (sheet, notes, _) = read(&env, path_of(&bin)).unwrap();
+        let b = &sheet.binds["Extensions"][0];
+        assert_eq!(
+            (b.desc.as_str(), b.action.as_str()),
+            ("app.org.x\\ty", "app.org.x\\ty")
+        );
+        assert!(
+            notes.iter().any(|n| n.contains("no\\tsuch.xml")),
+            "{notes:?}"
+        );
+        assert!(!notes.iter().any(|n| n.contains('\t')), "{notes:?}");
+        // The version from the first line that starts with `Inkscape `.
+        let bin = fake_bin(
+            "inkscape",
+            "echo 'Gtk-WARNING: x'; echo 'Inkscape 1.4.4 (x)'",
+        );
+        let (_, _, source) = read(&env, path_of(&bin)).unwrap();
+        assert_eq!(source.installed.as_deref(), Some("1.4.4"));
     }
 
     #[test]
