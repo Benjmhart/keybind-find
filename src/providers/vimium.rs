@@ -105,7 +105,7 @@ fn build(
         .iter()
         .map(|(key, command)| format!("map {key} {command}\n"))
         .collect();
-    let (mapped, skipped_lines) = apply(
+    let (mapped, skipped_lines, cleared) = apply(
         &(defaults + user.as_deref().unwrap_or_default()),
         &registry.commands,
     );
@@ -153,7 +153,8 @@ fn build(
             "skipped {skipped_keys} key(s) keybind-find can't send (<m-…>, unknown key names)"
         ));
     }
-    Ok((sheet, notes, Some(source)))
+    // An `unmapAll` of the user's dropped every default: none of the list comes from them.
+    Ok((sheet, notes, (!cleared).then_some(source)))
 }
 
 /// The backup's `keyMappings` text: `None` if the file or the field is missing (Vimium leaves it out until it's
@@ -242,10 +243,11 @@ fn select(
 }
 
 /// Applies a `keyMappings` text the way Vimium does, returning (key, command) in the order mapped (the defaults first, sorted; none shadows another) and the number of
-/// lines skipped. Keys stay in Vimium's notation; `unmap` names a key exactly as it was mapped.
-fn apply(text: &str, commands: &HashMap<String, Command>) -> (Vec<(String, String)>, usize) {
+/// lines skipped, and whether an `unmapAll` ran. Keys stay in Vimium's notation; `unmap` names a key exactly as it was mapped.
+fn apply(text: &str, commands: &HashMap<String, Command>) -> (Vec<(String, String)>, usize, bool) {
     let mut mapped: Vec<(String, String)> = Vec::new();
     let mut skipped = 0;
+    let mut cleared = false;
     for line in text.replace("\\\n", "").split('\n') {
         let line = line.trim();
         if line.is_empty() || line.starts_with(['#', '"']) {
@@ -261,11 +263,14 @@ fn apply(text: &str, commands: &HashMap<String, Command>) -> (Vec<(String, Strin
                 }
             }
             ("unmap", [key]) => mapped.retain(|(k, _)| k != key),
-            ("unmapall", _) => mapped.clear(),
+            ("unmapall", _) => {
+                mapped.clear();
+                cleared = true;
+            }
             _ => skipped += 1,
         }
     }
-    (mapped, skipped)
+    (mapped, skipped, cleared)
 }
 
 /// A Vimium key (`gg`, `<c-e>`, `<a-f>`, `<c-X>`, `<f12>`) in the crate's notation (`g g`, `ctrl+e`, ...). `None`
@@ -418,7 +423,8 @@ mod tests {
     }
 
     fn mappings(text: &str) -> (Vec<(String, String)>, usize) {
-        apply(text, &registry().commands)
+        let (mapped, skipped, _) = apply(text, &registry().commands);
+        (mapped, skipped)
     }
 
     #[test]
@@ -690,6 +696,14 @@ mod tests {
             assert_eq!(source, None);
         }
         assert!(build(None, None).unwrap().0.binds.is_empty());
+        // The backup's `unmapAll` drops every default: no source.
+        let cleared =
+            crate::test_tmp().join(format!("kbf-vimium-unmapall-{}.json", std::process::id()));
+        std::fs::write(&cleared, r#"{"keyMappings": "unmapAll\nmap X removeTab"}"#).unwrap();
+        let (sheet, _, source) = build(Some(&none), Some(&cleared)).unwrap();
+        std::fs::remove_file(&cleared).unwrap();
+        assert_eq!(find(&sheet, "X")[0].1.action, "removeTab");
+        assert_eq!(source, None);
         // Only the backup: it applies, with the newest registry and a note.
         let (sheet, notes, _) = build(Some(&none), Some(&fixture("mappings.json"))).unwrap();
         assert_eq!(find(&sheet, "X")[0].1.action, "removeTab");

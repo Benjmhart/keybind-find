@@ -64,7 +64,7 @@ pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     if !notes.is_empty() {
         eprintln!("keybind-find: kitty: {}", notes.join("; "));
     }
-    Ok((sheet, Some(source)))
+    Ok((sheet, source))
 }
 
 /// `name` (`kitty`, `kitten`) on `PATH`, else in `~/.local/kitty.app/bin`, where kitty's installer puts it.
@@ -89,7 +89,7 @@ fn sheet_with(
     version: anyhow::Result<String>,
     system: &Path,
     env: Env,
-) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
+) -> anyhow::Result<(Sheet, Vec<String>, Option<Source>)> {
     let mut notes = Vec::new();
     let installed = match &version {
         Ok(text) => version_of(text),
@@ -128,13 +128,14 @@ fn sheet_with(
             true
         }
     });
-    let (sheet, left_out) = parse(&pinned.map, &lines);
+    let (sheet, left_out, defaults) = parse(&pinned.map, &lines);
     if left_out > 0 {
         notes.push(format!(
             "leaving out {left_out} maps (a hyper, caps_lock or num_lock modifier, a key with no X keysym, a mode no --new-mode defined or whose name can't be a scope, or --when-focus-on)"
         ));
     }
-    Ok((sheet, notes, source))
+    // `clear_all_shortcuts yes` dropped the defaults: none of the list comes from them.
+    Ok((sheet, notes, defaults.then_some(source)))
 }
 
 /// The version in `kitty 0.49.2 created by Kovid Goyal` (`kitty 0.49.2 (abc) created by …` for a build from git).
@@ -430,8 +431,9 @@ struct Out {
 
 /// The sheet from the pinned `defaults` and the config's logical `lines`, and how many maps were left out. Like kitty
 /// (`finalize_keys`): `clear_all_shortcuts yes` drops every map before it, `kitty_mod`'s last value applies to every
-/// map, and a later map of the same keys in the same mode replaces the earlier one (with no action, removes it).
-fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize) {
+/// map, and a later map of the same keys in the same mode replaces the earlier one (with no action, removes it). Also
+/// whether any default is still there after the config (not cleared).
+fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize, bool) {
     let mut maps: Vec<(Option<&str>, Map)> = defaults
         .iter()
         .filter_map(|d| Some((Some(d.title.as_str()), split_map(&d.map)?)))
@@ -451,6 +453,7 @@ fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize) {
             _ => {}
         }
     }
+    let defaults_kept = maps.iter().any(|(title, _)| title.is_some());
     let mut left_out = 0;
     let mut out: Vec<Out> = Vec::new();
     // Modes defined so far by `--new-mode`, in order.
@@ -543,7 +546,7 @@ fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize) {
             run: Vec::new(),
         });
     }
-    (sheet, left_out)
+    (sheet, left_out, defaults_kept)
 }
 
 /// A shortcut (`kitty_mod+c`, `ctrl+a>n`) in keybind-find's notation, `kitty_mod` standing for its value; `None` for
@@ -791,7 +794,7 @@ mod tests {
         // kitty 0.49.2's definition.py: 134 `map(` entries, 54 of them macOS-only and one a documentation example
         // (`add_to_default=False`): the 79 of types.py's default keymap.
         assert_eq!(pinned.map.len(), 134 - 54 - 1);
-        let (sheet, left_out) = parse(&pinned.map, &[]);
+        let (sheet, left_out, _) = parse(&pinned.map, &[]);
         assert_eq!(left_out, 0);
         let binds: Vec<&Bind> = sheet.binds.values().flatten().collect();
         assert_eq!(binds.len(), pinned.map.len());
@@ -843,7 +846,7 @@ mod tests {
             &env,
         )
         .unwrap();
-        assert_eq!(source.installed.as_deref(), Some("0.49.2"));
+        assert_eq!(source.unwrap().installed.as_deref(), Some("0.49.2"));
         let one = |key: &str| {
             let got = find(&s, key);
             assert_eq!(got.len(), 1, "{key}: {got:?}");
@@ -923,13 +926,15 @@ mod tests {
                     .into_owned()
             })
         };
-        let (s, notes, _) = sheet_with(
+        let (s, notes, source) = sheet_with(
             REGISTRY,
             Ok("kitty 0.49.2 created by Kovid Goyal".into()),
             &no_system(),
             &env,
         )
         .unwrap();
+        // No default is left: no source.
+        assert_eq!(source, None);
         let keys: Vec<&str> = s.binds.values().flatten().map(|b| b.key.as_str()).collect();
         assert_eq!(keys, ["ctrl+y"]);
         assert!(notes.is_empty(), "{notes:?}");
@@ -939,7 +944,7 @@ mod tests {
     fn modes_clear_and_kitty_mod_as_kitty_does() {
         let lines = |text: &str| logical_lines(text);
         let keys = |text: &str| {
-            let (s, left_out) = parse(&[], &lines(text));
+            let (s, left_out, _) = parse(&[], &lines(text));
             let mut k: Vec<String> = s
                 .binds
                 .values()

@@ -49,15 +49,17 @@ pub(crate) fn select(
 }
 
 /// A checked `Source`: `installed` kept only when `parse_version` accepts it, so nothing else a program printed
-/// reaches the picker's header. `mismatch`: the pick wrote its note.
+/// reaches the picker's header. `mismatch`: the pick wrote its note; always, when no installed version is kept (a
+/// provider's own parser may accept what `parse_version` doesn't).
 pub(crate) fn source(defaults: &str, installed: Option<&str>, mismatch: bool) -> Source {
+    let installed: Option<String> = installed
+        .filter(|v| parse_version(v).is_some())
+        .map(Into::into);
     Source {
         defaults: defaults.into(),
-        installed: installed
-            .filter(|v| parse_version(v).is_some())
-            .map(Into::into),
+        mismatch: mismatch || installed.is_none(),
+        installed,
         checked: true,
-        mismatch,
     }
 }
 
@@ -108,12 +110,31 @@ pub(crate) fn parse_version(v: &str) -> Option<Vec<u64>> {
     v.split('.').map(|p| p.parse().ok()).collect()
 }
 
+/// A directory for `fake_bin`, removed when dropped.
+#[cfg(test)]
+pub(crate) struct FakeBin(std::path::PathBuf);
+
+#[cfg(test)]
+impl std::ops::Deref for FakeBin {
+    type Target = std::path::Path;
+    fn deref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+impl Drop for FakeBin {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// A directory holding `name`, a `sh` script running `body` (a version probe's stand-in), for a `PATH`.
 #[cfg(test)]
-pub(crate) fn fake_bin(name: &str, body: &str) -> std::path::PathBuf {
+pub(crate) fn fake_bin(name: &str, body: &str) -> FakeBin {
     static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = crate::test_tmp().join(format!("kbf-probe-{name}-{n}"));
+    let dir = crate::test_tmp().join(format!("kbf-probe-{name}-{}-{n}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     // Written by `sh`, not by this process (ETXTBSY: see `xfce.rs`'s `fake`).
     let ok = Command::new("sh")
@@ -127,7 +148,17 @@ pub(crate) fn fake_bin(name: &str, body: &str) -> std::path::PathBuf {
         .status()
         .unwrap();
     assert!(ok.success());
-    dir
+    FakeBin(dir)
+}
+
+/// Fails unless `data/<program>/<file>` exists: a pin's version constant names its data file.
+#[cfg(test)]
+pub(crate) fn assert_data(program: &str, file: &str) {
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("data")
+        .join(program)
+        .join(file);
+    assert!(p.is_file(), "{}", p.display());
 }
 
 /// A `setup` giving the probe only `dir` as its `PATH`.
@@ -144,6 +175,14 @@ mod tests {
     use super::*;
 
     const REGISTRY: &[(&str, &str)] = &[("7.2", "a"), ("8.4", "b"), ("9.2", "c")];
+
+    #[test]
+    fn no_installed_version_is_a_mismatch() {
+        let s = source("1.0", Some("1.0-preview"), false);
+        assert_eq!((s.installed, s.checked, s.mismatch), (None, true, true));
+        assert!(source("1.0", None, false).mismatch);
+        assert!(!source("1.0", Some("1.0"), false).mismatch);
+    }
 
     #[test]
     fn listed_defaults_have_a_source() {

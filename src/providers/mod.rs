@@ -238,6 +238,10 @@ mod tests {
         let (alacritty, source) = sheet("alacritty", &ctx).unwrap();
         assert_eq!(alacritty.provider, "alacritty");
         assert_eq!(source, Some(Source::unchecked("0.17.0")));
+        assert_eq!(
+            sheet("zed", &ctx).ok().map(|(_, s)| s),
+            Some(Some(Source::unchecked("1.25.3")))
+        );
         assert_eq!(sheet("sheets", &ctx).unwrap().0.provider, "sheets");
         // kitty falls back to its pinned defaults with no kitty installed.
         assert_eq!(sheet("kitty", &ctx).unwrap().0.provider, "kitty");

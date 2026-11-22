@@ -418,6 +418,7 @@ mod tests {
 
     #[test]
     fn the_version() {
+        pinned::assert_data("mc", &format!("{VERSION}.keymap"));
         let out =
             "GNU Midnight Commander 4.8.33\nBuilt with GLib 2.86.0\nUsing the S-Lang library\n";
         assert_eq!(version_of(out).as_deref(), Some("4.8.33"));

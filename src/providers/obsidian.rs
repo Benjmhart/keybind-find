@@ -671,6 +671,7 @@ mod tests {
 
     #[test]
     fn the_version_in_the_title() {
+        super::pinned::assert_data("obsidian", &format!("{VERSION}.toml"));
         assert!(PINNED.contains(VERSION));
         let src = |i: Option<&str>, mismatch| Source {
             defaults: "1.14.5".into(),

@@ -428,8 +428,8 @@ command lf ran. lf fills that list only when it runs a shell command (opening a 
 an `on-cd` or `on-init` hook), so a fresh lf that hasn't run one yet, an lf started with `-single` (no server) or one
 that doesn't answer within a second
 is read from its config instead, with a line saying why (nothing for the fresh lf). keybind-find sends lf nothing.
-Reading the config, it runs `lf -version` to check the installed lf against r42 (see [Where the keys come
-from](#where-the-keys-come-from)).
+Reading the config, it runs `lf -version` to check the installed lf against r42, which the header calls `42`, as
+`lf -version` prints it on Arch (see [Where the keys come from](#where-the-keys-come-from)).
 
 The config read is lf r42's built-in keys (built in), then the files lf loads, as lf reads them: with `-config FILE` on
 lf's command line only that file, else `/etc/lf/lfrc` and `$LF_CONFIG_HOME/lf/lfrc` (else `$XDG_CONFIG_HOME/lf/lfrc`,
@@ -1093,8 +1093,10 @@ The line is red when keybind-find has no defaults for the installed version (it 
 which file to add, on stderr), or the installed version is unknown (`installed version unknown`: the program's version
 couldn't be read). A close enough version isn't red: screen's defaults serve every release of the same major.minor.
 VS Code's, Zed's and alacritty's versions aren't checked (VS Code's CLI is too slow to run on every press; the other
-two have no check yet): `installed version not checked`. A program whose keys come only from itself (lf and qutebrowser when they answer, Vimium when it isn't
-installed) has no line. Other pickers have no header: there a mismatch is the same line on stderr as before.
+two have no check yet): `installed version not checked`. A program none of whose listed keys are the built-in
+defaults has no line: lf and qutebrowser when they answer (their own complete list), ranger with
+`RANGER_LOAD_DEFAULT_RC=false` and a config file it reads, kitty after `clear_all_shortcuts yes`, and Vimium when
+neither it nor its backup file is found, or when your `keyMappings` run `unmapAll`. Other pickers have no header: there a mismatch is the same line on stderr as before.
 `keybind-find dump` carries it as data, a `source` object on each such sheet: `defaults` (the built-in version),
 `installed` (the installed version, `null` when unknown or not checked), `checked` (whether the installed version was
 looked up) and `mismatch` (true when the line is red).

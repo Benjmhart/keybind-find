@@ -575,6 +575,7 @@ mod tests {
 
     #[test]
     fn the_version() {
+        pinned::assert_data("ranger", &format!("{VERSION}.conf"));
         let out = "ranger version: ranger 1.9.4\nPython version: 3.13.7 (main, Aug 15 2025)\nLocale: C.UTF-8\n";
         assert_eq!(version_of(out).as_deref(), Some("1.9.4"));
         for junk in [

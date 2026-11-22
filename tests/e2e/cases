@@ -79,9 +79,26 @@ assert sum(map(len, s["binds"].values())) > 0, "no binds"' "$OUT/defaults-source
     ds_is vscode "$(ds_src 1.143.1 null false false)"
     ds_dump less less
     ds_is less null
+    # Bare `dump` (every sheet for the focused window) carries it too: nano's, in an xterm.
+    ds_before=$(xdotool getactivewindow 2>/dev/null)
+    setsid xterm -e nano >/dev/null 2>&1 &
+    ds_pid=$!
+    for _ in $(seq 150); do
+      ds_w=$(xdotool getactivewindow 2>/dev/null)
+      [ -n "$ds_w" ] && [ "$ds_w" != "$ds_before" ] && break
+      sleep 0.1
+    done
+    sleep 1
+    timeout 60 "$KBF" dump >"$OUT/defaults-source-all.json" 2>"$OUT/defaults-source-all.err"
+    python3 -I -c 'import json,sys
+s=[x for x in json.load(open(sys.argv[1])) if x["provider"] == "nano"]
+assert len(s) == 1 and s[0]["source"]["checked"] and s[0]["source"]["defaults"], s' "$OUT/defaults-source-all.json" >/dev/null 2>&1 ||
+      ds_why+="dump: no nano sheet with a source; "
+    i3-msg -q kill >/dev/null 2>&1
+    sleep 0.3; kill -- -"$ds_pid" 2>/dev/null; sleep 0.3
     rm -rf "$ds_tmp"
     if [ -z "$ds_why" ]; then
-      record defaults-source "ok	lazygit $ds_v: no mismatch; 0.60.0: mismatch and note; konsole mc ranger ncmpcpp lf: their own versions; mc failing: unknown; vscode unchecked; less none"
+      record defaults-source "ok	lazygit $ds_v: no mismatch; 0.60.0: mismatch and note; konsole mc ranger ncmpcpp lf: their own versions; mc failing: unknown; vscode unchecked; less none; dump: nano's source"
     else
       record defaults-source "FAIL	$ds_why"; FAILED=1
     fi

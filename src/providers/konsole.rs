@@ -554,6 +554,7 @@ mod tests {
 
     #[test]
     fn the_version() {
+        pinned::assert_data("konsole", &format!("{VERSION}.toml"));
         assert_eq!(version_of("konsole 26.08.2\n").as_deref(), Some("26.08.2"));
         for junk in [
             "",
@@ -594,9 +595,9 @@ mod tests {
         // No konsole, or one that fails: unknown.
         let none = crate::test_tmp().join("kbf-konsole-none");
         let fails = pinned::fake_bin("konsole", "echo 'konsole 26.08.2'; exit 1");
-        for dir in [none, fails] {
+        for dir in [none.as_path(), &fails] {
             assert_eq!(
-                pick(pinned::path_of(&dir)).unwrap(),
+                pick(pinned::path_of(dir)).unwrap(),
                 (
                     Some("konsole's version is unknown: using the defaults of 26.08.2".into()),
                     src(None, true)

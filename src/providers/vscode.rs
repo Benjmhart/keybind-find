@@ -1023,6 +1023,7 @@ mod tests {
 
     #[test]
     fn the_defaults_are_unchecked() {
+        super::super::pinned::assert_data("vscode", &format!("{VERSION}.json"));
         let ctx = Context {
             window_id: None,
             class: None,

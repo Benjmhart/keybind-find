@@ -1159,6 +1159,7 @@ mod tests {
 
     #[test]
     fn the_version() {
+        pinned::assert_data("lf", &format!("r{VERSION}.lfrc"));
         for out in ["42\n", "r42\n"] {
             assert_eq!(version_of(out).as_deref(), Some("42"), "{out:?}");
         }
