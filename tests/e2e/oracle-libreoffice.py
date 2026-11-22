@@ -3,17 +3,31 @@
 # as svtools' AcceleratorExecute::impl_ts_findCommand), each labelled as UICommandDescription names it. One
 # KEYCODE<TAB>MODIFIERS<TAB>COMMAND<TAB>LABEL line per key (css.awt.Key, css.awt.KeyModifier). soffice is terminated
 # at the end; the harness checks none survives.
+import os
+import signal
 import subprocess
 import sys
 import time
 
 import uno
+from com.sun.star.container import NoSuchElementException
 
 MODULE = "com.sun.star.text.TextDocument"
 PIPE = "kbf-e2e-oracle"
 
 soffice = subprocess.Popen(["soffice", "--headless", "--invisible", "--norestore", "--nologo", "--nodefault",
-                            f"--accept=pipe,name={PIPE};urp;"], stdout=subprocess.DEVNULL)
+                            f"--accept=pipe,name={PIPE};urp;"], stdout=subprocess.DEVNULL, start_new_session=True)
+
+
+def kill():
+    """SIGKILL soffice's whole process group: oosplash and the soffice.bin it starts."""
+    try:
+        os.killpg(soffice.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    soffice.wait()
+
+
 local = uno.getComponentContext()
 resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
 ctx = None
@@ -26,7 +40,7 @@ for _ in range(200):
     except Exception:
         time.sleep(0.2)
 if ctx is None:
-    soffice.kill()
+    kill()
     sys.exit("oracle-libreoffice.py: soffice never answered on its pipe")
 smgr = ctx.ServiceManager
 try:
@@ -38,7 +52,7 @@ try:
     def label(command):
         try:
             props = {p.Name: p.Value for p in labels.getByName(command)}
-        except Exception:
+        except NoSuchElementException:
             return command
         return props.get("Name") or command
 
@@ -60,4 +74,4 @@ finally:
     try:
         soffice.wait(timeout=20)
     except subprocess.TimeoutExpired:
-        soffice.kill()
+        kill()

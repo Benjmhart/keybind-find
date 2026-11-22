@@ -1023,6 +1023,10 @@ def self_test():
         "ctrl+c\t=> .uno:Copy\t=> Copy", "ctrl+shift+1\t=> .uno:X\t=> X",
         "ctrl+KP_Add\t=> .uno:CalculateSel\t=> Calculate", "KEY_COPY\t=> .uno:Copy\t=> Copy",
         "super+shift+Prior\t=> .uno:Y\t=> Y", "super+ctrl+alt+Next\t=> .uno:Z\t=> Z", "!line:noise"}
+    # Key.idl's codes for a few names (PAGEUP 1030, PAGEDOWN 1031, NUMBERSIGN 191, COLON 1320, NUM0 256, A 512, F1 768,
+    # ADD 1287, HANGUL_HANJA 1308).
+    assert [LO_KEYS[c] for c in (1030, 1031, 191, 1320, 256, 512, 768, 1287, 1308)] == [
+        "Prior", "Next", "numbersign", "colon", "0", "a", "F1", "KP_Add", "KEY_HANGUL_HANJA"]
     # Both fields of the dump, in the report's order.
     assert dump_keys({"binds": {"Writer": [{"key": "ctrl+b", "desc": "Bold", "action": ".uno:Bold"}]}},
                      ("action", "desc")) == {"ctrl+b\t=> .uno:Bold\t=> Bold"}

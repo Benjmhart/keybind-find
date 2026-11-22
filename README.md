@@ -307,8 +307,8 @@ all, which also gives a note; one whose file fails to load is a note).
 
 Over a LibreOffice window, keybind-find lists the shortcuts of the module in front, by its window class (X11's
 `WM_CLASS` class, Wayland's app id, any case): `libreoffice-writer`, `-calc`, `-impress`, `-draw`, `-math`, `-base` and
-`-startcenter`. The module's own keys come first (category `Writer`, `Calc`, …), then each global key on a key the
-module doesn't bind (category `LibreOffice`), as LibreOffice looks a key up. Each is described by the command's name as
+`-startcenter`. The module's own keys sit under its own category (`Writer`, `Calc`, …) and the global keys under
+`LibreOffice`, each global key only where the module doesn't bind that key, as LibreOffice looks a key up. Each is described by the command's name as
 LibreOffice's command description gives it, the text Tools › Customize › Keyboard shows (`Bold`, `Find and Replace`):
 its label from the module's commands, else the generic ones (each under `Commands`, then `Popups`), with `~` and
 trailing dots removed. `keybind-find dump libreoffice` from a terminal lists Writer's, with a note.

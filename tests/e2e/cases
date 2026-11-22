@@ -326,16 +326,25 @@ else: print(f"ok\t{len(ours)} ids, {len(undescribed)} without action data, {len(
   lo_gone() {
     pkill -x soffice.bin
     for _ in $(seq 100); do pgrep -x soffice.bin >/dev/null || pgrep -x oosplash >/dev/null || break; sleep 0.1; done
-    ! pkill -9 -x soffice.bin && ! pkill -9 -x oosplash ||
-      { record "$1-cleanup" "FAIL	a soffice outlived SIGTERM for 10 s"; FAILED=1; }
+    k=1; pkill -9 -x soffice.bin && k=0; pkill -9 -x oosplash && k=0
+    # A killed soffice leaves its profile lock, which would stop the next one.
+    [ $k = 1 ] || { rm -f "${HOME:?}/.config/libreoffice/4/.lock"
+      record "$1-cleanup" "FAIL	a soffice outlived SIGTERM for 10 s"; FAILED=1; }
   }
   o libreoffice-oracle libreoffice -- python3 -I "$E/oracle-libreoffice.py"
   if wanted libreoffice-oracle; then
     lo_gone libreoffice-oracle
     # LibreOffice's defaults come from its own install: no `source` in the dump (10.1).
-    if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); d=d[0] if isinstance(d, list) else d; sys.exit("source" in d)' \
-      "$OUT/libreoffice-oracle.json" >/dev/null 2>&1; then record libreoffice-source "ok	none: LibreOffice's own registry"
-    else record libreoffice-source "FAIL	$(grep -o '"source":.*' "$OUT/libreoffice-oracle.json" | cut -c1-200)"; FAILED=1; fi
+    # Exit 0: no source; 1: a source; 2: no dump (missing, or not a sheet's JSON).
+    python3 -I -c 'import json,sys
+try: d=json.load(open(sys.argv[1])); d=d[0] if isinstance(d, list) else d; s="source" in d
+except Exception: sys.exit(2)
+sys.exit(s)' "$OUT/libreoffice-oracle.json" >/dev/null 2>&1
+    case $? in
+      0) record libreoffice-source "ok	none: LibreOffice's own registry" ;;
+      1) record libreoffice-source "FAIL	$(grep -o '"source":.*' "$OUT/libreoffice-oracle.json" | cut -c1-200)"; FAILED=1 ;;
+      *) record libreoffice-source "FAIL	no dump: $OUT/libreoffice-oracle.json is missing or not a sheet"; FAILED=1 ;;
+    esac
   fi
   x libreoffice    "i3 libreoffice" "libreoffice|ctrl+alt+shift+q|Exit" 5 -- soffice --writer --norestore
   wanted libreoffice && lo_gone libreoffice
