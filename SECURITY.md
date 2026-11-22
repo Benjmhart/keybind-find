@@ -83,9 +83,10 @@ Please report security problems privately, through GitHub's private vulnerabilit
   bytes of the `qutebrowser` on PATH (its `#!` line); qutebrowser's `autoconfig.yml` (read by qutebrowser's own Python; a `config.py` beside it is only checked for, never read); GIMP's
   `shortcutsrc` (its `GIMP3_DIRECTORY` or `GIMP/3.N` config directory; the file is read whole, at most 4 MiB and a regular
   file only, and only its `action` forms are used); Inkscape's `preferences.xml` and keys files (the preset in its
-  `share/inkscape/keys/`, the shared and your profile's `keys/default.xml`, and the local files they `xi:include`, at
-  most 8 deep and never one already being read; each read whole, at most 4 MiB and a regular file only; only `bind`
-  elements are used, their actions shown as text, never run).
+  `share/inkscape/keys/`, the shared and your profile's `keys/default.xml`, and the files they `xi:include`: any local
+  path, absolute too, but no URL; at most 8 deep, never one already being read, and at most 64 included files in all
+  per run; each file read whole, at most 4 MiB and a regular file only; only `bind` elements are used, their actions
+  shown as text, never run).
 - **It writes:** the usage log, `$XDG_STATE_HOME/keybind-find/usage.tsv` (default `~/.local/state/...`), which holds
   the time, provider and key of each pick (an espanso trigger, never its replacement); and, while the fzf picker is
   open, a `0700` directory under `$XDG_RUNTIME_DIR` (else the temporary directory) with the list, the key-search list,

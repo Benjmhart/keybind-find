@@ -287,7 +287,8 @@ The profile directory is `$INKSCAPE_PROFILE_DIR`, else `$XDG_CONFIG_HOME/inkscap
 Labels and sections come from Inkscape 1.4.4's action table, built in ([data/inkscape/1.4.4.toml](data/inkscape/1.4.4.toml),
 from Inkscape's source); fzf's source line names that table's version against `inkscape --version`, while the keys
 themselves always come from your installed files. Inkscape prints no list of its keys, so nothing checks the list
-against Inkscape itself; the e2e test checks the table against `inkscape --action-list`.
+against Inkscape itself. The e2e test checks that every `app.` action `inkscape --action-list` lists (except
+extensions' and those with no action data) is in the table; `win.` and `doc.` actions can't be listed without a window.
 
 Limits: keybind-find's own environment is used, not Inkscape's (the Flatpak's `~/.var/app/org.inkscape.Inkscape/config`
 profile and an AppImage's `share` aren't followed). The XML reader is stricter than Inkscape's: a file with a DOCTYPE,
@@ -297,7 +298,8 @@ them at start and when you change its preferences). A bind to an action not in t
 action new in a later Inkscape is missing until its table is added; an extension's (`app.<id with a dot>`) is listed
 under `Extensions` by its id. Left out with a count on one line: keys keybind-find can't send (`<Meta>`, `<Hyper>`,
 `<Mod2>`, `<Mod3>`, `<Mod5>`, `<Release>`), keys GTK can't parse, binds to actions Inkscape doesn't have, Inkscape 0.92's
-`verb=` binds, and includes it doesn't follow (`parse="text"`, `xpointer`, a URL; one that fails is a note).
+`verb=` binds, and includes it doesn't follow (`parse="text"`, `xpointer`, a URL; one that fails, has no `href`, or
+goes past 64 included files in all is a note).
 
 ### Obsidian
 
