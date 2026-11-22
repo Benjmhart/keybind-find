@@ -7,7 +7,7 @@ use super::pinned;
 use crate::sheet::{chord, Bind, Sheet, Source};
 use anyhow::{ensure, Context as _};
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -73,7 +73,7 @@ fn read(env: Env, setup: impl Fn(&mut Command)) -> anyhow::Result<(Sheet, Vec<St
         pin.gimp_version
     );
     let mut notes: Vec<String> = note.into_iter().collect();
-    let mut acts = defaults(&pin);
+    let mut keys = Keys::new(defaults(&pin));
     if let Some(path) = gimp_dir(env, installed.as_deref()).map(|d| d.join("shortcutsrc")) {
         match load(&path) {
             Ok(None) => {}
@@ -84,7 +84,7 @@ fn read(env: Env, setup: impl Fn(&mut Command)) -> anyhow::Result<(Sheet, Vec<St
             Ok(Some(bytes)) => {
                 let (forms, parse_notes) = parse(&bytes);
                 for (name, accels) in forms {
-                    apply(&mut acts, &name, &accels);
+                    keys.apply(&name, &accels);
                 }
                 notes.extend(
                     parse_notes
@@ -94,7 +94,7 @@ fn read(env: Env, setup: impl Fn(&mut Command)) -> anyhow::Result<(Sheet, Vec<St
             }
         }
     }
-    let (sheet, left_out) = to_sheet(&acts);
+    let (sheet, left_out) = to_sheet(&keys.acts);
     if left_out > 0 {
         notes.push(format!(
             "leaving out {left_out} key(s) keybind-find can't send: a Hyper, Meta, Mod2, Mod3, Mod5 or Release \
@@ -286,8 +286,10 @@ impl Lexer<'_> {
 /// `shortcuts_rc_parse` (`shortcuts-rc.c:59-157`): the `(action "NAME" "ACCEL"…)` forms in file order, and the notes:
 /// a `file-version` other than 1, or where reading stopped (the forms before it still apply, as in GIMP).
 fn parse(bytes: &[u8]) -> (Vec<(String, Vec<String>)>, Vec<String>) {
+    // NUL ends the input, as GScanner's `g_scanner_get_char` reads it, in a string or comment too.
+    let end = bytes.iter().position(|&c| c == 0).unwrap_or(bytes.len());
     let mut lx = Lexer {
-        b: bytes,
+        b: &bytes[..end],
         i: 0,
         line: 1,
     };
@@ -314,10 +316,16 @@ fn forms_of(
         }
         match lx.next()? {
             Some(Tok::Ident(s)) if s.eq_ignore_ascii_case("file-version") => {
-                let Some(Tok::Int(n)) = lx.next()? else {
+                // `gimp_scanner_parse_int`: an optional `-`, then a number.
+                let (sign, t) = match lx.next()? {
+                    Some(Tok::Other(b'-')) => ("-", lx.next()?),
+                    t => ("", t),
+                };
+                let Some(Tok::Int(n)) = t else {
                     return Err("file-version isn't followed by a number".into());
                 };
-                if n != "1" {
+                let n = format!("{sign}{n}");
+                if n.parse::<i64>() != Ok(1) {
                     notes.push(format!("file-version {n}, not 1; reading it as version 1"));
                 }
                 match lx.next()? {
@@ -385,7 +393,7 @@ const UNSENDABLE: u16 = MOD2 | MOD3 | MOD5 | HYPER | META | RELEASE;
 
 /// An accelerator as `gtk_accelerator_parse` leaves it: GTK's modifier bits and the key's name (`gdk_keyval_to_lower`
 /// of a letter, `XF86` put back on GDK's names for XF86 keys). Two accelerators are the same chord when equal.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Accel {
     mods: u16,
     key: String,
@@ -451,6 +459,8 @@ fn notation(a: &Accel) -> Option<String> {
 // --- the overlay -----------------------------------------------------------------------------------------------------
 
 struct Act {
+    /// One of the pin's, not a name only the user's file has.
+    known: bool,
     category: String,
     label: Option<String>,
     defaults: Vec<Accel>,
@@ -464,6 +474,7 @@ fn defaults(pin: &Pin) -> BTreeMap<String, Act> {
         .map(|a| {
             let keys: Vec<Accel> = a.keys.iter().filter_map(|k| parse_accel(k)).collect();
             let act = Act {
+                known: true,
                 category: a.category.clone(),
                 label: a.label.clone(),
                 defaults: keys.clone(),
@@ -474,38 +485,89 @@ fn defaults(pin: &Pin) -> BTreeMap<String, Act> {
         .collect()
 }
 
-/// `shortcuts_action_deserialize` (`shortcuts-rc.c:242-342`): each accelerator that parses is kept unless another
-/// action holding it is off its defaults (then it is dropped); one on its defaults loses all its keys
-/// (`gimp_action_use_default_accels`, `app/widgets/gimpaction.c:675-712`). The kept ones replace the action's. A name
-/// the pin lacks (a plug-in's) is added under `Other`.
-fn apply(acts: &mut BTreeMap<String, Act>, name: &str, accels: &[String]) {
-    let mut kept = Vec::new();
-    for a in accels.iter().filter_map(|s| parse_accel(s)) {
-        let mut add = true;
-        for (other, act) in acts.iter_mut() {
-            if other == name || !act.current.contains(&a) {
-                continue;
-            }
-            if act.current == act.defaults {
-                act.current.clear();
-            } else {
-                add = false;
-                break;
+/// The actions' keys, with an index of which pin actions hold each chord.
+struct Keys {
+    acts: BTreeMap<String, Act>,
+    /// The pin's actions only: a name GIMP doesn't have never gets keys there ("not existing action … ignored"), so
+    /// it never holds a chord.
+    holders: HashMap<Accel, BTreeSet<String>>,
+}
+
+impl Keys {
+    fn new(acts: BTreeMap<String, Act>) -> Keys {
+        let mut holders: HashMap<Accel, BTreeSet<String>> = HashMap::new();
+        for (name, act) in &acts {
+            for a in &act.current {
+                holders.entry(a.clone()).or_default().insert(name.clone());
             }
         }
-        // A key given twice in one line is kept once.
-        if add && !kept.contains(&a) {
-            kept.push(a);
+        Keys { acts, holders }
+    }
+
+    /// A pin action's keys replaced, the index kept up to date.
+    fn set(&mut self, name: &str, keys: Vec<Accel>) {
+        let Some(act) = self.acts.get_mut(name) else {
+            return;
+        };
+        for a in &act.current {
+            if let Some(h) = self.holders.get_mut(a) {
+                h.remove(name);
+            }
+        }
+        for a in &keys {
+            self.holders
+                .entry(a.clone())
+                .or_default()
+                .insert(name.to_string());
+        }
+        act.current = keys;
+    }
+
+    /// `shortcuts_action_deserialize` (`shortcuts-rc.c:242-342`): each accelerator that parses is kept unless another
+    /// action holding it is off its defaults (then it is dropped); one on its defaults loses all its keys
+    /// (`gimp_action_use_default_accels`, `app/widgets/gimpaction.c:675-712`). The kept ones replace the action's. A
+    /// name the pin lacks (a plug-in's) is listed under `Other` but holds no chord; an empty name (NULL in GIMP) only
+    /// runs the conflict pass.
+    fn apply(&mut self, name: &str, accels: &[String]) {
+        let mut kept = Vec::new();
+        for a in accels.iter().filter_map(|s| parse_accel(s)) {
+            let others: Vec<String> = self
+                .holders
+                .get(&a)
+                .map(|h| h.iter().filter(|o| *o != name).cloned().collect())
+                .unwrap_or_default();
+            let mut add = true;
+            for other in others {
+                let Some(act) = self.acts.get(&other) else {
+                    continue;
+                };
+                if act.current == act.defaults {
+                    self.set(&other, Vec::new());
+                } else {
+                    add = false;
+                    break;
+                }
+            }
+            // A key given twice in one line is kept once.
+            if add && !kept.contains(&a) {
+                kept.push(a);
+            }
+        }
+        match self.acts.get(name) {
+            _ if name.is_empty() => {}
+            Some(act) if act.known => self.set(name, kept),
+            _ => {
+                let act = Act {
+                    known: false,
+                    category: "Other".into(),
+                    label: None,
+                    defaults: Vec::new(),
+                    current: kept,
+                };
+                self.acts.insert(name.to_string(), act);
+            }
         }
     }
-    acts.entry(name.to_string())
-        .or_insert_with(|| Act {
-            category: "Other".into(),
-            label: None,
-            defaults: Vec::new(),
-            current: Vec::new(),
-        })
-        .current = kept;
 }
 
 /// One bind per chord of each action, by category then action name; and how many chords were left out.
@@ -583,11 +645,11 @@ mod tests {
 
     /// The pin with `text` laid over it.
     fn overlay(text: &[u8]) -> BTreeMap<String, Act> {
-        let mut acts = defaults(&pin());
+        let mut keys = Keys::new(defaults(&pin()));
         for (name, accels) in parse(text).0 {
-            apply(&mut acts, &name, &accels);
+            keys.apply(&name, &accels);
         }
-        acts
+        keys.acts
     }
 
     /// Each action's current chords in keybind-find's notation (`!` for a left-out one).
@@ -649,6 +711,22 @@ mod tests {
         assert_eq!(
             parse(b"(action \"a\"").1,
             ["line 1: the file ends inside a form; reading stopped there"]
+        );
+        // file-version as a number; NUL ends the input, in a string or a comment too.
+        for (v, noted) in [
+            ("01", false),
+            ("-1", true),
+            ("2", true),
+            ("99999999999999999999", true),
+        ] {
+            let (forms, notes) = parse(format!("(file-version {v})\n(action \"a\")").as_bytes());
+            assert_eq!((forms.len(), notes.len()), (1, usize::from(noted)), "{v}");
+        }
+        assert_eq!(parse(b"(action \"a\")\0(action \"b\")").0.len(), 1);
+        assert_eq!(parse(b"(action \"a\")# x\0\n(action \"b\")").0.len(), 1);
+        assert_eq!(
+            parse(b"(action \"a\0\")\n").1,
+            ["line 1: a string isn't closed; reading stopped there"]
         );
         // CRLF: GLib skips `\r` too, so GIMP reads the whole file.
         let (forms, notes) = parse(b"# GIMP shortcutsrc\r\n(action \"a\")\r\n(action \"b\")\r\n");
@@ -854,6 +932,33 @@ mod tests {
     }
 
     #[test]
+    fn names_gimp_lacks() {
+        // A name the pin lacks never holds a key against a real action, but still takes one from an action on its
+        // defaults; it is listed under Other.
+        let acts =
+            overlay(b"(action \"old-name\" \"<Primary>k\")\n(action \"edit-undo\" \"<Primary>k\")");
+        assert_eq!(keys(&acts, "edit-undo"), ["ctrl+k"]);
+        assert_eq!(keys(&acts, "old-name"), ["ctrl+k"]);
+        assert_eq!(acts["old-name"].category, "Other");
+        let acts = overlay(b"(action \"old-name\" \"<Primary>z\")");
+        assert!(acts["edit-undo"].current.is_empty());
+        // An empty name runs the conflict pass only.
+        let acts = overlay(b"(action \"\" \"<Primary>z\")");
+        assert!(acts["edit-undo"].current.is_empty() && !acts.contains_key(""));
+        // Many forms: a lookup each, not a pass over every action.
+        let many: String = (0..20_000)
+            .map(|i| format!("(action \"plug-in-{i}\" \"<Primary>F{}\")\n", i % 12 + 1))
+            .collect();
+        let t = std::time::Instant::now();
+        assert_eq!(overlay(many.as_bytes()).len(), 1132 + 20_000);
+        assert!(
+            t.elapsed() < std::time::Duration::from_secs(20),
+            "{:?}",
+            t.elapsed()
+        );
+    }
+
+    #[test]
     fn the_pin_matches_gimps_own_file() {
         // GIMP 3.2.6's file with no user changes: its commented lines are its defaults, the pin's keys.
         let text = String::from_utf8(fixture("shortcutsrc-default")).unwrap();
@@ -869,6 +974,63 @@ mod tests {
         for (name, accels) in forms {
             let a = pin.action.iter().find(|a| a.name == name).unwrap();
             assert_eq!(accels, a.keys, "{name}");
+        }
+        // Each category is its action group's label (`app/actions/actions.c` action_groups[], the longest
+        // `<group>-` prefix), else Plug-ins.
+        const GROUPS: &[(&str, &str)] = &[
+            ("brush-editor", "Brush Editor"),
+            ("brushes", "Brushes"),
+            ("buffers", "Buffers"),
+            ("channels", "Channels"),
+            ("colormap", "Colormap"),
+            ("context", "Context"),
+            ("cursor-info", "Pointer Information"),
+            ("dashboard", "Dashboard"),
+            ("debug", "Debug"),
+            ("dialogs", "Dialogs"),
+            ("dock", "Dock"),
+            ("dockable", "Dockable"),
+            ("documents", "Document History"),
+            ("drawable", "Drawable"),
+            ("dynamics", "Paint Dynamics"),
+            ("dynamics-editor", "Paint Dynamics Editor"),
+            ("edit", "Edit"),
+            ("error-console", "Error Console"),
+            ("file", "File"),
+            ("filters", "Filters"),
+            ("fonts", "Fonts"),
+            ("gradient-editor", "Gradient Editor"),
+            ("gradients", "Gradients"),
+            ("tool-presets", "Tool Presets"),
+            ("tool-preset-editor", "Tool Preset Editor"),
+            ("help", "Help"),
+            ("image", "Image"),
+            ("images", "Images"),
+            ("layers", "Layers"),
+            ("mypaint-brushes", "MyPaint Brushes"),
+            ("palette-editor", "Palette Editor"),
+            ("palettes", "Palettes"),
+            ("patterns", "Patterns"),
+            ("plug-in", "Plug-ins"),
+            ("quick-mask", "Quick Mask"),
+            ("sample-points", "Sample Points"),
+            ("select", "Select"),
+            ("templates", "Templates"),
+            ("text-tool", "Text Tool"),
+            ("text-editor", "Text Editor"),
+            ("tool-options", "Tool Options"),
+            ("tool-path", "Tool Path"),
+            ("tools", "Tools"),
+            ("paths", "Paths"),
+            ("view", "View"),
+            ("windows", "Windows"),
+        ];
+        for a in &pin.action {
+            let group = GROUPS
+                .iter()
+                .filter(|(g, _)| a.name.starts_with(&format!("{g}-")))
+                .max_by_key(|(g, _)| g.len());
+            assert_eq!(a.category, group.map_or("Plug-ins", |g| g.1), "{}", a.name);
         }
         // The data file: no mnemonic left, sorted by category then name.
         assert!(pin
@@ -1006,6 +1168,22 @@ mod tests {
         // Missing: the defaults, no note.
         let (s, notes, _) = run(&[("HOME", &d.join("nobody"))], Some(V326));
         assert_eq!((undo(&s).as_str(), notes.len()), ("ctrl+z", 0));
+        // Both kinds of note through `read`: the parse note under the file's path, then the left-out count.
+        let notes_dir = d.join("notes");
+        put(
+            &notes_dir,
+            "(action \"edit-undo\" \"<Hyper>u\")\n(action \"x\" 5)\n",
+        );
+        let (_, notes, _) = run(&[("GIMP3_DIRECTORY", &notes_dir)], Some(V326));
+        assert_eq!(
+            notes,
+            [
+                format!("{}/shortcutsrc: line 2: unexpected `5`; reading stopped there", notes_dir.display()),
+                "leaving out 1 key(s) keybind-find can't send: a Hyper, Meta, Mod2, Mod3, Mod5 or Release modifier, \
+                 a keycode, or a key name with no X keysym"
+                    .to_string(),
+            ]
+        );
         // A version of another major: its directory isn't GIMP 3's, the scan is used. 3.10 is above 3.9.
         let two = run(
             &[("HOME", &home)],
