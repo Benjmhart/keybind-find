@@ -60,6 +60,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | Zed | its default keymaps (1.25.3's built in) for your base keymap and vim or helix mode, with your `keymap.json` on top, each tagged with its context; the file's extension guessed from the title | none ([below](#zed)) |
 | qutebrowser | its bindings by mode, asked of the running browser (defaults, `config.py`, `autoconfig.yml`, `:bind`s, as `qute://bindings` lists them) with the mode it is in; else 3.7.0's defaults with your `autoconfig.yml` on top | none ([below](#qutebrowser)) |
 | GIMP | its keyboard shortcuts by menu group, named as its menus name them: GIMP 3.2.6's defaults (built in) with your `shortcutsrc` applied as GIMP applies it | none ([below](#gimp)) |
+| Inkscape | its keyboard shortcuts by section, named as its Keyboard preferences name them: the preset it loads (its own, Xara, Corel, …) with your `keys/default.xml` on top, as Inkscape reads them | none ([below](#inkscape)) |
 | Obsidian | its default hotkeys (1.14.5's built in) with your vault's `.obsidian/hotkeys.json` on top, the vault picked by window title | none ([below](#obsidian)) |
 | st, surf, tabbed, dwm | their stock keys from `config.def.h` at st 0.9.3, surf 2.1, tabbed 0.9 and dwm 6.8 (dwm's in a dwm session, whatever window has focus); a patched `config.h` isn't read: replace the sheet with your own of the same name | none ([below](#suckless-st-surf-tabbed-dwm)) |
 | browsers | built-in sheets for Gmail, YouTube and GitHub; any web app you write a sheet for | none; GitHub's needs a URL-in-title extension ([docs/sheets.md](docs/sheets.md)) |
@@ -264,6 +265,39 @@ action in your file that GIMP no longer has is still listed (GIMP would drop it)
 GIMP's menus, not a shortcut, and isn't listed. Keys keybind-find can't send (a `<Hyper>`, `<Meta>`, `<Mod2>`,
 `<Mod3>`, `<Mod5>` or `<Release>` modifier, a keycode, a key name with no X keysym) are left out with a count. The e2e
 test checks the list against the `shortcutsrc` GIMP 3.2.6 itself writes for the same file.
+
+### Inkscape
+
+Over an Inkscape window (X11 class `Inkscape`, Wayland app id `org.inkscape.Inkscape`), keybind-find lists Inkscape's
+keyboard shortcuts by section, each named as Inkscape's Edit → Preferences → Interface → Keyboard names it (`Open
+Export` under `Dialog`, `Rotate (90.0)` under `Transform`). The keys are read from the files Inkscape 1.x reads at start,
+as it reads them:
+
+- the **preset**: the file your preferences name (`shortcutfile` in `preferences.xml`, set by the Keyboard preferences'
+  "Shortcut file" choice: Inkscape's own, Xara, Corel DRAW, Adobe Illustrator, …), relative to Inkscape's
+  `share/inkscape/keys/`; else that directory's `default.xml`, else its `inkscape.xml`. The presets other than
+  Inkscape's own include `inkscape.xml` (`xi:include`) and change some of its keys, and keybind-find follows the include;
+- then **your changes**: the shared directory's `keys/default.xml` (Preferences → System → "Shared default resources
+  folder") and your own `keys/default.xml` in Inkscape's profile directory, which the Keyboard preferences write. A key
+  you bind there takes it from any action that had it, and the action you bind keeps only your key (its preset keys are
+  gone, as in Inkscape); a file binding two keys to one action keeps only the last, as Inkscape 1.4 does.
+
+The profile directory is `$INKSCAPE_PROFILE_DIR`, else `$XDG_CONFIG_HOME/inkscape` (`~/.config/inkscape`); Inkscape's
+`share` is `$INKSCAPE_DATADIR`, else the `share` beside the `bin` of the `inkscape` on `PATH`, else `/usr/share`.
+Labels and sections come from Inkscape 1.4.4's action table, built in ([data/inkscape/1.4.4.toml](data/inkscape/1.4.4.toml),
+from Inkscape's source); fzf's source line names that table's version against `inkscape --version`, while the keys
+themselves always come from your installed files. Inkscape prints no list of its keys, so nothing checks the list
+against Inkscape itself; the e2e test checks the table against `inkscape --action-list`.
+
+Limits: keybind-find's own environment is used, not Inkscape's (the Flatpak's `~/.var/app/org.inkscape.Inkscape/config`
+profile and an AppImage's `share` aren't followed). The XML reader is stricter than Inkscape's: a file with a DOCTYPE,
+an undeclared prefix or broken XML is skipped with a note where Inkscape may still read it. Mouse modifiers
+(`<modifier>`) aren't listed. Labels are English. A file changed after Inkscape started is listed already (Inkscape reads
+them at start and when you change its preferences). A bind to an action not in the built-in table is left out, so an
+action new in a later Inkscape is missing until its table is added; an extension's (`app.<id with a dot>`) is listed
+under `Extensions` by its id. Left out with a count on one line: keys keybind-find can't send (`<Meta>`, `<Hyper>`,
+`<Mod2>`, `<Mod3>`, `<Mod5>`, `<Release>`), keys GTK can't parse, binds to actions Inkscape doesn't have, Inkscape 0.92's
+`verb=` binds, and includes it doesn't follow (`parse="text"`, `xpointer`, a URL; one that fails is a note).
 
 ### Obsidian
 
@@ -1118,6 +1152,8 @@ two have no check yet): `installed version not checked`. A program none of whose
 defaults has no line: lf and qutebrowser when they answer (their own complete list), ranger with
 `RANGER_LOAD_DEFAULT_RC=false` and a config file it reads, kitty after `clear_all_shortcuts yes`, and Vimium when
 neither it nor its backup file is found, or when your `keyMappings` run `unmapAll`. Other pickers have no header: there a mismatch is the same line on stderr as before.
+Inkscape's keys are your installed files, not built-in defaults, but its labels are Inkscape 1.4.4's built-in action
+table: its line (`inkscape: 1.4.4 defaults built in (installed …)`) names that table's version.
 `keybind-find dump` carries it as data, a `source` object on each such sheet: `defaults` (the built-in version),
 `installed` (the installed version, `null` when unknown or not checked), `checked` (whether the installed version was
 looked up) and `mismatch` (true when the line is red).

@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<!-- A user's keys/default.xml (synthetic), as Inkscape writes one. -->
+<keys name="User Shortcuts">
+  <bind gaction="win.dialog-open('Export')" keys="&lt;primary&gt;&lt;alt&gt;F12" />
+  <bind gaction="doc.undo" keys="F4" />
+</keys>

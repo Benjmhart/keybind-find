@@ -42,6 +42,8 @@ default-members = [".", "crates/keybind-find-sheet"]
 anyhow = "1"
 kdl = { version = "6.7.1", default-features = false, features = ["span", "v1"] }
 keybind-find-sheet = { path = "crates/keybind-find-sheet", version = "0.2.0" }
+# XML for Inkscape's keys files (and 10.4's); `std` only: no byte positions.
+roxmltree = { version = "=0.21.2", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"

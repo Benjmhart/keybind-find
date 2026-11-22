@@ -50,8 +50,8 @@ Please report security problems privately, through GitHub's private vulnerabilit
     limit and only a version read from what it prints: `konsole --version` (with Qt's offscreen platform, so it needs
     no display; it prints its version and exits before any window or D-Bus, though, as on every Konsole start, it may
     first rename old keys in `konsolerc`), `mc --version`, `ranger --version` (before any config is read), `ncmpcpp
-    --version` (before connecting to MPD), `lf -version` and `gimp --version` (it prints its version and exits before
-    any window or plug-in);
+    --version` (before connecting to MPD), `lf -version`, `gimp --version` (it prints its version and exits before
+    any window or plug-in) and `inkscape --version` (it prints its version and exits before any window or document);
   - the picker: `alacritty` with `fzf`, `fuzzel` or `dmenu`, or whatever program `KEYBIND_FIND_PICKER` names;
   - `notify-send` for errors under a hotkey.
 - **It has your qutebrowser run a script of its own.** Over a qutebrowser window, keybind-find writes a fixed Python
@@ -82,7 +82,10 @@ Please report security problems privately, through GitHub's private vulnerabilit
   `/proc/<pid>/{comm,fd,net/unix}` of the focused qutebrowser window's process (to find its IPC socket); the first 256
   bytes of the `qutebrowser` on PATH (its `#!` line); qutebrowser's `autoconfig.yml` (read by qutebrowser's own Python; a `config.py` beside it is only checked for, never read); GIMP's
   `shortcutsrc` (its `GIMP3_DIRECTORY` or `GIMP/3.N` config directory; the file is read whole, at most 4 MiB and a regular
-  file only, and only its `action` forms are used).
+  file only, and only its `action` forms are used); Inkscape's `preferences.xml` and keys files (the preset in its
+  `share/inkscape/keys/`, the shared and your profile's `keys/default.xml`, and the local files they `xi:include`, at
+  most 8 deep and never one already being read; each read whole, at most 4 MiB and a regular file only; only `bind`
+  elements are used, their actions shown as text, never run).
 - **It writes:** the usage log, `$XDG_STATE_HOME/keybind-find/usage.tsv` (default `~/.local/state/...`), which holds
   the time, provider and key of each pick (an espanso trigger, never its replacement); and, while the fzf picker is
   open, a `0700` directory under `$XDG_RUNTIME_DIR` (else the temporary directory) with the list, the key-search list,

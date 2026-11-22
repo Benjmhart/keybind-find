@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- A preferences.xml (synthetic): the preset is xara.xml; the first kbshortcuts, under another group, is a decoy. -->
+<inkscape version="1">
+  <group id="window">
+    <group id="kbshortcuts" shortcutfile="decoy.xml" />
+  </group>
+  <group id="options">
+    <group id="boot" showsplash="0" showwelcome="0" />
+    <group id="kbshortcuts" shortcutfile="xara.xml" />
+  </group>
+</inkscape>

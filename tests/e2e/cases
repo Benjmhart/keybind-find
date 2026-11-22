@@ -272,6 +272,40 @@ assert json.load(open(sys.argv[1]))["source"] == {"defaults": "3.2.6", "installe
     for _ in $(seq 100); do pgrep -x 'gimp(-[0-9.]+)?' >/dev/null || break; sleep 0.1; done
     ! pkill -9 -x 'gimp(-[0-9.]+)?' || { record gimp-cleanup "FAIL	a gimp outlived SIGTERM for 10 s"; FAILED=1; }
   fi
+  # Inkscape (tests/e2e/home/.config/inkscape): its preferences name the preset xara.xml, which includes inkscape.xml;
+  # the user's keys/default.xml binds ctrl+alt+F12 to Open Export. Inkscape prints no list of its keys: no oracle.
+  wanted inkscape && printf '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"/>\n' >/tmp/e2e.svg
+  x inkscape       "i3 inkscape" "inkscape|ctrl+alt+F12|Open Export"  5 -- inkscape /tmp/e2e.svg
+  # The preset's own key (xara.xml's alt+s) with no Inkscape window, and the dump's `source`: the snapshot's Inkscape.
+  d inkscape-preset inkscape "inkscape|alt+s|Selector Tool" -- true
+  if wanted inkscape-preset; then
+    if python3 -I -c 'import json,sys
+assert json.load(open(sys.argv[1]))[0]["source"] == {"defaults": "1.4.4", "installed": "1.4.4", "checked": True, "mismatch": False}' \
+      "$OUT/inkscape-preset.json" >/dev/null 2>&1; then record inkscape-source "ok	1.4.4, installed 1.4.4, no mismatch"
+    else record inkscape-source "FAIL	$(grep -o '"source":.*' "$OUT/inkscape-preset.json" | cut -c1-200)"; FAILED=1; fi
+  fi
+  # The pinned table against Inkscape's own `--action-list` (app. actions only, each with its tooltip from the same
+  # action data): every one it describes is in data/inkscape/1.4.4.toml. Left out: extensions' effects (an id with a
+  # `.`, or whose `.noprefs` twin is listed) and actions with no tooltip (not in the action data: Inkscape binds no key
+  # to them either).
+  if wanted inkscape-actions; then
+    timeout 20 inkscape --action-list >"$OUT/inkscape-actions.txt" 2>"$OUT/inkscape-actions.err"
+    record inkscape-actions "$(python3 -I -c 'import sys, tomllib
+table = {a["id"].split("(")[0] for a in tomllib.load(open(sys.argv[1], "rb"))["action"]}
+rows = [l.split(":", 1) for l in open(sys.argv[2]) if ":" in l]
+ids = {i.strip() for i, _ in rows}
+ours = [i.strip() for i, tip in rows if tip.strip() and "." not in i.strip() and i.strip() + ".noprefs" not in ids]
+missing = [i for i in ours if "app." + i not in table]
+print(f"FAIL\tnot in the table: {missing}" if missing or len(ours) < 100 else f"ok\t{len(ours)} ids")' \
+      /src/data/inkscape/1.4.4.toml "$OUT/inkscape-actions.txt" 2>&1 | tail -1)"
+    [[ "${RESULTS[-1]}" == *$'\tok\t'* ]] || FAILED=1
+  fi
+  # No Inkscape outlives the case.
+  if wanted inkscape || wanted inkscape-actions; then
+    pkill -x inkscape
+    for _ in $(seq 100); do pgrep -x inkscape >/dev/null || break; sleep 0.1; done
+    ! pkill -9 -x inkscape || { record inkscape-cleanup "FAIL	an inkscape outlived SIGTERM for 10 s"; FAILED=1; }
+  fi
 elif [ "$PHASE" = awesome ]; then
   # awesome on the same display, i3 stopped: its keys from the running awesome over D-Bus
   # (tests/e2e/home/.config/awesome/rc.lua: the stock rc.lua plus keys of our own).
