@@ -153,9 +153,9 @@ fn install_root(env: Env, roots: &[&str]) -> anyhow::Result<PathBuf> {
     }
 }
 
-/// `PATH`'s directories, empty entries skipped (not the current directory).
+/// `PATH`'s absolute directories: empty and relative entries (`.`, `bin`) skipped, never the current directory.
 fn path_dirs(path: &str) -> impl Iterator<Item = PathBuf> + '_ {
-    std::env::split_paths(path).filter(|d| !d.as_os_str().is_empty())
+    std::env::split_paths(path).filter(|d| d.is_absolute())
 }
 
 /// `registrymodifications.xcu` under `UserInstallation=$SYSUSERCONFIG/libreoffice/4` (Arch's bootstraprc), with
@@ -180,7 +180,12 @@ fn listing(
     notes: &mut Vec<String>,
 ) -> Sheet {
     let mut reg = Registry::new(module.labels);
-    load_layer(&mut reg, registry, nodes_limit, notes);
+    if load_layer(&mut reg, registry, nodes_limit, notes) == 0 {
+        notes.push(format!(
+            "{}: no .xcd file loads, so LibreOffice's own keys and labels are missing",
+            registry.display()
+        ));
+    }
     load_layer(&mut reg, &registry.join("res"), nodes_limit, notes);
     let locale = user
         .and_then(|u| apply_user(&mut reg, u, nodes_limit, notes))
@@ -208,8 +213,13 @@ fn parse<'a>(text: &'a str, root: &str, nodes_limit: u32) -> Result<Document<'a>
     // The walk follows the registry's own shape (a few levels), so this only keeps hostile nesting out.
     if doc
         .descendants()
-        // `ancestors()` counts the node itself and the document node: more than MAX_DEPTH elements deep.
-        .any(|n| n.ancestors().nth(MAX_DEPTH + 1).is_some())
+        // `ancestors()` counts the node itself: more than MAX_DEPTH elements deep.
+        .any(|n| {
+            n.ancestors()
+                .filter(Node::is_element)
+                .nth(MAX_DEPTH)
+                .is_some()
+        })
     {
         return Err(format!("its elements nest deeper than {MAX_DEPTH}"));
     }
@@ -217,13 +227,16 @@ fn parse<'a>(text: &'a str, root: &str, nodes_limit: u32) -> Result<Document<'a>
 }
 
 /// `Components::parseXcdFiles` (`configmgr/source/components.cxx:750-818`): every `.xcd` in `dir`, each after the
-/// files its `<dependency file="…"/>` name, else in name order. A missing `dir` is no layer.
+/// files its `<dependency file="…"/>` name, else in name order. A missing `dir` is no layer. Returns the files loaded.
 /// ponytail: name order where configmgr takes the directory's order; only a file's dependencies order it there too.
-fn load_layer(reg: &mut Registry, dir: &Path, nodes_limit: u32, notes: &mut Vec<String>) {
+fn load_layer(reg: &mut Registry, dir: &Path, nodes_limit: u32, notes: &mut Vec<String>) -> usize {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
-        Err(e) => return notes.push(format!("{}: {e}; skipped", dir.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return 0,
+        Err(e) => {
+            notes.push(format!("{}: {e}; skipped", dir.display()));
+            return 0;
+        }
     };
     let mut names: Vec<String> = entries
         .filter_map(Result::ok)
@@ -302,6 +315,7 @@ fn load_layer(reg: &mut Registry, dir: &Path, nodes_limit: u32, notes: &mut Vec<
             waits.join(", ")
         ));
     }
+    done.len()
 }
 
 /// The user layer (`parseModificationLayer`, `components.cxx:871-`): each `Accelerators` item applied at the node its
@@ -657,11 +671,20 @@ fn erase_mnemonics(s: &str) -> String {
 
 // --- the keys -------------------------------------------------------------------------------------------------------
 
-/// Why a key is left out.
+/// A key's name read: its event, or why it is left out.
 #[derive(Debug, PartialEq)]
-enum Out {
+enum Name {
+    Event(Event),
     Unknown,
     Invalid,
+}
+
+/// The key a `KEY_<key>` code is sent as: a keysym, left out (`Unsent`), or a name `KeyMapping` doesn't know.
+#[derive(Debug, PartialEq)]
+enum Key {
+    Sym(String),
+    Unsent,
+    Unknown,
 }
 
 /// A key event: LibreOffice's key name (`KEY_` dropped) and modifier bits (SHIFT 1, MOD1 2, MOD2 4, MOD3 8).
@@ -669,31 +692,33 @@ type Event = (String, u8);
 
 /// `impl_ts_load` (`acceleratorconfiguration.cxx:941-1047`): `B_SHIFT_MOD1` → `("B", SHIFT|MOD1)`; an unknown key name
 /// (`mapIdentifierToCode` throws), an empty or unknown modifier piece, or four of them: left out.
-fn event(name: &str) -> Result<Event, Out> {
+fn event(name: &str) -> Name {
     let mut pieces = name.split('_');
     let key = pieces.next().unwrap_or("");
-    keysym(key).map_err(|_| Out::Unknown)?;
+    if keysym(key) == Key::Unknown {
+        return Name::Unknown;
+    }
     let mut mods = 0;
     for (k, p) in pieces.enumerate() {
         mods |= match p {
-            _ if k == 3 => return Err(Out::Invalid),
+            _ if k == 3 => return Name::Invalid,
             "SHIFT" => 1,
             "MOD1" => 2,
             "MOD2" => 4,
             "MOD3" => 8,
-            _ => return Err(Out::Invalid),
+            _ => return Name::Invalid,
         };
     }
-    Ok((key.to_string(), mods))
+    Name::Event((key.to_string(), mods))
 }
 
 /// The X keysym LibreOffice's GTK backend turns into key code `KEY_<key>` (`keymapping.cxx:31-140`, `gtkframe.cxx`
-/// `GetKeyCode` 126-322): `Ok(None)` for the codes left out (AC #6), which GTK gives only for vendor and XF86
-/// keysyms (`XF86Copy`, `XF86Cut`, `XF86Open`, `XF86Paste`, Sun's, Apollo's, OSF's) or none (MENU); `Err` for a name
-/// `KeyMapping` doesn't know.
+/// `GetKeyCode` 126-322): `Unsent` for the codes left out (AC #6), which GTK gives only for vendor and XF86
+/// keysyms (`XF86Copy`, `XF86Cut`, `XF86Open`, `XF86Paste`, Sun's, Apollo's, OSF's) or none (MENU); `Unknown` for a
+/// name `KeyMapping` doesn't know (the tables match `KeyIdentifierMap` but for `HANGUL_HANJA`, which can't arrive).
 /// ponytail: `GetKeyCode` also turns F13, F14, F16, F18 and F20 (Sun's L3, L4, L6, L8, L10) into PROPERTIES, UNDO,
 /// COPY, PASTE and CUT; AC #6 lists F13-F26 as themselves.
-fn keysym(key: &str) -> Result<Option<String>, ()> {
+fn keysym(key: &str) -> Key {
     const NAMED: &[(&str, &str)] = &[
         ("DOWN", "Down"),
         ("UP", "Up"),
@@ -747,23 +772,23 @@ fn keysym(key: &str) -> Result<Option<String>, ()> {
     let mut chars = key.chars();
     if let (Some(c), None) = (chars.next(), chars.next()) {
         if c.is_ascii_digit() || c.is_ascii_uppercase() {
-            return Ok(Some(c.to_ascii_lowercase().to_string()));
+            return Key::Sym(c.to_ascii_lowercase().to_string());
         }
     }
     if let Some(n) = key.strip_prefix('F').and_then(|n| n.parse::<u8>().ok()) {
         if (1..=26).contains(&n) && key[1..] == n.to_string() {
-            return Ok(Some(key.to_string()));
+            return Key::Sym(key.to_string());
         }
     }
     if let Some((_, s)) = NAMED.iter().find(|(k, _)| *k == key) {
-        return Ok(Some(s.to_string()));
+        return Key::Sym(s.to_string());
     }
     // `HANGUL_HANJA` holds a `_`, so it is split as `HANGUL` + `HANJA` first, and `KEY_HANGUL` is unknown, as it is
     // to LibreOffice: counted as an unknown name.
     if NONE.contains(&key) {
-        return Ok(None);
+        return Key::Unsent;
     }
-    Err(())
+    Key::Unknown
 }
 
 /// The left-out counts.
@@ -807,13 +832,13 @@ fn set_events(
                 continue;
             }
             match event(name) {
-                Ok(ev) => {
+                Name::Event(ev) => {
                     if taken.insert(ev.clone()) {
                         out.push((ev, command.clone()));
                     }
                 }
-                Err(Out::Unknown) => left.unknown += 1,
-                Err(_) => left.invalid += 1,
+                Name::Unknown => left.unknown += 1,
+                Name::Invalid => left.invalid += 1,
             }
         }
     }
@@ -849,7 +874,7 @@ fn to_sheet(
     };
     let mut count = 0;
     for (cat, ((key, mods), command)) in rows {
-        let Ok(Some(sym)) = keysym(key) else {
+        let Key::Sym(sym) = keysym(key) else {
             left.no_keysym += 1;
             continue;
         };
@@ -1680,7 +1705,7 @@ mod tests {
             ("REPEAT", "Redo"),
         ];
         for (code, sym) in rows {
-            assert_eq!(keysym(code), Ok(Some(sym.to_string())), "{code}");
+            assert_eq!(keysym(code), Key::Sym(sym.to_string()), "{code}");
             assert!(super::super::openbox::is_keysym(sym), "{sym}");
         }
         for code in [
@@ -1692,7 +1717,7 @@ mod tests {
             "FRONT",
             "MENU",
         ] {
-            assert_eq!(keysym(code), Ok(None), "{code}");
+            assert_eq!(keysym(code), Key::Unsent, "{code}");
         }
         for code in [
             "F0",
@@ -1706,18 +1731,20 @@ mod tests {
             "HANGUL",
             "HANGUL_HANJA",
         ] {
-            assert_eq!(keysym(code), Err(()), "{code}");
+            assert_eq!(keysym(code), Key::Unknown, "{code}");
         }
-        assert_eq!(event("1_SHIFT_MOD1"), Ok(("1".into(), 3)));
-        assert_eq!(event("A_MOD3"), Ok(("A".into(), 8)));
-        assert_eq!(event("A_MOD1_SHIFT_MOD2"), Ok(("A".into(), 7)));
-        assert_eq!(event("A_FOO"), Err(Out::Invalid));
-        assert_eq!(event("A__MOD1"), Err(Out::Invalid));
-        assert_eq!(event("A_"), Err(Out::Invalid));
-        assert_eq!(event("A_SHIFT_MOD1_MOD2_MOD3"), Err(Out::Invalid));
-        assert_eq!(event("ZZZ_MOD1"), Err(Out::Unknown));
-        assert_eq!(event("HANGUL_HANJA"), Err(Out::Unknown));
-        assert_eq!(event("COPY_MOD1"), Ok(("COPY".into(), 2)));
+        assert_eq!(event("1_SHIFT_MOD1"), Name::Event(("1".into(), 3)));
+        assert_eq!(event("A_MOD3"), Name::Event(("A".into(), 8)));
+        assert_eq!(event("A_MOD1_SHIFT_MOD2"), Name::Event(("A".into(), 7)));
+        assert_eq!(event("A_FOO"), Name::Invalid);
+        assert_eq!(event("A__MOD1"), Name::Invalid);
+        assert_eq!(event("A_"), Name::Invalid);
+        assert_eq!(event("A_SHIFT_MOD1_MOD2_MOD3"), Name::Invalid);
+        assert_eq!(event("ZZZ_MOD1"), Name::Unknown);
+        assert_eq!(event("HANGUL_HANJA"), Name::Unknown);
+        assert_eq!(event("COPY_MOD1"), Name::Event(("COPY".into(), 2)));
+        // Three modifier pieces, one repeated: valid (`impl_ts_load` ORs them).
+        assert_eq!(event("A_MOD1_MOD1_SHIFT"), Name::Event(("A".into(), 3)));
     }
 
     #[test]
@@ -1951,17 +1978,56 @@ mod tests {
                 m.class
             );
         }
-        let labels: Vec<_> = MODULES.iter().map(|m| (m.class, m.labels)).collect();
+        // AC #1's rows.
+        let rows: Vec<_> = MODULES
+            .iter()
+            .map(|m| (m.class, m.id, m.title, m.labels))
+            .collect();
         assert_eq!(
-            labels,
+            rows,
             [
-                ("libreoffice-writer", "WriterCommands"),
-                ("libreoffice-calc", "CalcCommands"),
-                ("libreoffice-impress", "DrawImpressCommands"),
-                ("libreoffice-draw", "DrawImpressCommands"),
-                ("libreoffice-math", "MathCommands"),
-                ("libreoffice-base", "DbuCommands"),
-                ("libreoffice-startcenter", "StartModuleCommands"),
+                (
+                    "libreoffice-writer",
+                    "com.sun.star.text.TextDocument",
+                    "LibreOffice Writer",
+                    "WriterCommands"
+                ),
+                (
+                    "libreoffice-calc",
+                    "com.sun.star.sheet.SpreadsheetDocument",
+                    "LibreOffice Calc",
+                    "CalcCommands"
+                ),
+                (
+                    "libreoffice-impress",
+                    "com.sun.star.presentation.PresentationDocument",
+                    "LibreOffice Impress",
+                    "DrawImpressCommands"
+                ),
+                (
+                    "libreoffice-draw",
+                    "com.sun.star.drawing.DrawingDocument",
+                    "LibreOffice Draw",
+                    "DrawImpressCommands"
+                ),
+                (
+                    "libreoffice-math",
+                    "com.sun.star.formula.FormulaProperties",
+                    "LibreOffice Math",
+                    "MathCommands"
+                ),
+                (
+                    "libreoffice-base",
+                    "com.sun.star.sdb.OfficeDatabaseDocument",
+                    "LibreOffice Base",
+                    "DbuCommands"
+                ),
+                (
+                    "libreoffice-startcenter",
+                    "com.sun.star.frame.StartModule",
+                    "LibreOffice Start Center",
+                    "StartModuleCommands"
+                ),
             ]
         );
     }
@@ -1989,6 +2055,87 @@ mod tests {
         // The module's Popups before the generic Commands.
         assert_eq!(l(".uno:P").as_deref(), Some("Writer popup"));
         assert_eq!(l(".uno:G").as_deref(), Some("Generic popup"));
+        // In both of GenericCommands' sets: Commands wins.
+        let text = data(
+            &[
+                comp("GenericCommands", "Popups", ".uno:C", "Generic popup"),
+                comp("GenericCommands", "Commands", ".uno:C", "Generic command"),
+            ]
+            .concat(),
+        );
+        let (reg, _) = load(&[("a.xcd", text.as_bytes())], NODES_LIMIT);
+        assert_eq!(
+            reg.label("WriterCommands", ".uno:C", "en-US").as_deref(),
+            Some("Generic command")
+        );
+        // A module entry with only a `de` label, at en-US: `fillCache` keeps the module's entry (its Label null, as
+        // `Label` is nillable), so the generic en-US label isn't reached and the description is the command.
+        let text = data(
+            &(r#"<oor:component-data oor:name="WriterCommands" oor:package="org.openoffice.Office.UI"><node oor:name="UserInterface"><node oor:name="Commands"><node oor:name=".uno:D" oor:op="replace"><prop oor:name="Label"><value xml:lang="de">Deutsch</value></prop></node></node></node></oor:component-data>"#
+                .to_string()
+                + &comp("GenericCommands", "Commands", ".uno:D", "Generic")
+                + &global(&key("D_MOD1", "replace", &v("en-US", ".uno:D")))),
+        );
+        let (reg, _) = load(&[("a.xcd", text.as_bytes())], NODES_LIMIT);
+        assert_eq!(reg.label("WriterCommands", ".uno:D", "en-US"), None);
+        let mut notes = Vec::new();
+        let s = to_sheet(
+            &reg,
+            module("libreoffice-writer"),
+            "en-US",
+            MAX_ROWS,
+            &mut notes,
+        );
+        assert_eq!(
+            get(&flat(&s), "LibreOffice", "ctrl+d"),
+            Some((".uno:D", ".uno:D"))
+        );
+    }
+
+    #[test]
+    fn registry_dirs_that_dont_load() {
+        let m = module("libreoffice-writer");
+        // A missing main registry, or one with no readable `.xcd`: one note naming it.
+        let d = tmp("noreg");
+        let mut notes = Vec::new();
+        listing(&d.join("registry"), None, m, NODES_LIMIT, &mut notes);
+        assert_eq!(
+            notes,
+            [format!(
+                "{}: no .xcd file loads, so LibreOffice's own keys and labels are missing",
+                d.join("registry").display()
+            )]
+        );
+        write(&d.join("registry/a.xcd"), "<broken");
+        let mut notes = Vec::new();
+        listing(&d.join("registry"), None, m, NODES_LIMIT, &mut notes);
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert!(notes[1]
+            .ends_with("no .xcd file loads, so LibreOffice's own keys and labels are missing"));
+        // A FIFO named `x.xcd`: one note, never a hang, and the other files still read.
+        let d = tmp("fifo");
+        write(
+            &d.join("a.xcd"),
+            data(&global(&key("A_MOD1", "replace", &v("en-US", ".uno:A")))),
+        );
+        let fifo = d.join("x.xcd");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        let mut reg = Registry::new("WriterCommands");
+        let mut notes = Vec::new();
+        assert_eq!(load_layer(&mut reg, &d, NODES_LIMIT, &mut notes), 1);
+        assert_eq!(
+            notes,
+            [format!("{}: not a regular file; skipped", fifo.display())]
+        );
+        let s = to_sheet(&reg, m, "en-US", MAX_ROWS, &mut notes);
+        assert_eq!(
+            get(&flat(&s), "LibreOffice", "ctrl+a"),
+            Some((".uno:A", ".uno:A"))
+        );
     }
 
     #[test]
@@ -2003,7 +2150,8 @@ mod tests {
             &[fake.to_str().unwrap()],
         )
         .unwrap();
-        assert_eq!(notes.len(), 1, "{notes:?}");
+        // The file's note, then the empty registry's.
+        assert_eq!(notes.len(), 2, "{notes:?}");
         assert!(notes[0].contains("b\\u{202e}\\u{1b}.xcd: "), "{}", notes[0]);
         assert!(!notes[0].contains('\u{202e}') && !notes[0].contains('\u{1b}'));
         // desc and action: control and bidi characters as spaces.
@@ -2053,10 +2201,10 @@ mod tests {
             get(&flat(&s), "LibreOffice", "ctrl+shift+a").map(|x| x.1),
             Some(".uno:Short")
         );
-        // 64 elements deep reads; 65 is a note.
+        // 64 elements deep reads, the innermost holding text (a node one level deeper, not an element); 65 is a note.
         let nest = |n: usize| {
             format!(
-                r#"<oor:data xmlns:oor="{OOR}">{}{}</oor:data>"#,
+                r#"<oor:data xmlns:oor="{OOR}">{}text{}</oor:data>"#,
                 "<x>".repeat(n - 1),
                 "</x>".repeat(n - 1)
             )
@@ -2075,10 +2223,14 @@ mod tests {
             get(&m, "Writer", "ctrl+b").map(|x| x.1),
             Some(".uno:JustifyPara")
         );
-        // PATH's empty entries are skipped, not read as the current directory.
+        // PATH's empty and relative entries are skipped, never read against the current directory.
         assert_eq!(
             path_dirs(":/a::/b:").collect::<Vec<_>>(),
             [PathBuf::from("/a"), PathBuf::from("/b")]
+        );
+        assert_eq!(
+            path_dirs(":.:bin:/a").collect::<Vec<_>>(),
+            [PathBuf::from("/a")]
         );
         // The first of two soffice on PATH.
         let d = tmp("two");
