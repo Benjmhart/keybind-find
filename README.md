@@ -250,8 +250,8 @@ command is shown as written, never run.
 Over a GIMP 3 window (X11 class `Gimp`, Wayland app id `gimp`, the Flatpak's `org.gimp.GIMP`), keybind-find lists
 GIMP's keyboard shortcuts by menu group, each named as GIMP's menus and its Keyboard Shortcuts editor name it (`Undo`,
 `Rectangle Select`): GIMP 3.2.6's defaults, built in (from GIMP's source and the file GIMP writes), with your
-`shortcutsrc` laid over them as GIMP lays it, conflicts included (a key you give one action leaves the action that had
-it by default). The file is `$GIMP3_DIRECTORY/shortcutsrc` when that is set, else
+`shortcutsrc` laid over them as GIMP lays it, conflicts included (a key you give one action takes it from an action still on its
+defaults, which loses all its default keys; an action you changed keeps it, and your line loses it). The file is `$GIMP3_DIRECTORY/shortcutsrc` when that is set, else
 `$XDG_CONFIG_HOME/GIMP/<major.minor>/shortcutsrc` (`~/.config/GIMP/3.2/` for GIMP 3.2, the version from `gimp
 --version`; with no `gimp` on `PATH`, the Flatpak's case, the highest `GIMP/3.N` that has one). GIMP writes it only when
 it quits cleanly or on Preferences → Interface → "Save Keyboard Shortcuts Now", so a change made in a running GIMP

@@ -5,7 +5,8 @@
 # harness's $OUT), so the home's own file, which `dump gimp` reads, stays untouched; it quits at once (about 10 s).
 # usage: oracle-gimp.sh DIR
 d=$(mktemp -d "${1:-/tmp}/gimp-oracle.XXXXXX") || exit 1
-cp -r "$HOME/.config/GIMP/3.2/." "$d/"
+trap 'rm -rf "$d" "$d.log"' EXIT
+cp -r "$HOME/.config/GIMP/3.2/." "$d/" || exit 1
 GIMP3_DIRECTORY=$d timeout 50 gimp --no-splash --batch-interpreter=plug-in-script-fu-eval -b '(gimp-quit 0)' \
   >"$d.log" 2>&1 </dev/null || { tail -c 300 "$d.log" >&2; exit 1; }
 cat "$d/shortcutsrc"

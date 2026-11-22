@@ -265,11 +265,12 @@ assert json.load(open(sys.argv[1]))["source"] == {"defaults": "3.2.6", "installe
     else record gimp-source "FAIL	$(grep -o '"source":.*' "$OUT/gimp-oracle.json" | cut -c1-200)"; FAILED=1; fi
   fi
   # GIMP's image window (gimprc: no Welcome dialog); ctrl+u is Undo in the e2e shortcutsrc. No GIMP outlives the case,
-  # and none quits cleanly (it would save over the home's file; SIGTERM doesn't save).
+  # and none quits cleanly (it would save over the home's file; SIGTERM doesn't save). Its comm is the name it was run
+  # by: `gimp` here, `gimp-3.2` from the desktop file.
   x gimp           "i3 gimp"    "gimp|ctrl+u|Undo"                  10 -- gimp --no-splash
   if wanted gimp; then
-    for _ in $(seq 100); do pgrep -x 'gimp-[0-9.]+' >/dev/null || break; sleep 0.1; done
-    ! pkill -9 -x 'gimp-[0-9.]+' || { record gimp-cleanup "FAIL	a gimp outlived SIGTERM for 10 s"; FAILED=1; }
+    for _ in $(seq 100); do pgrep -x 'gimp(-[0-9.]+)?' >/dev/null || break; sleep 0.1; done
+    ! pkill -9 -x 'gimp(-[0-9.]+)?' || { record gimp-cleanup "FAIL	a gimp outlived SIGTERM for 10 s"; FAILED=1; }
   fi
 elif [ "$PHASE" = awesome ]; then
   # awesome on the same display, i3 stopped: its keys from the running awesome over D-Bus

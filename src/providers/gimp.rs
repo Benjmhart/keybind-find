@@ -105,7 +105,7 @@ fn read(env: Env, setup: impl Fn(&mut Command)) -> anyhow::Result<(Sheet, Vec<St
 }
 
 /// `gimp_directory` (`libgimpbase/gimpenv.c:270-410`): `$GIMP3_DIRECTORY` (relative: under `$HOME`), else
-/// `<config home>/GIMP/<major>.<minor>`; with no version, the highest `GIMP/3.N` holding a `shortcutsrc`.
+/// `<config home>/GIMP/3.<minor>`; with no GIMP 3 version, the highest `GIMP/3.N` holding a `shortcutsrc`.
 /// ponytail: Flatpak's `HOST_XDG_CONFIG_HOME` and Snap's `SNAP_REAL_HOME` aren't followed (keybind-find's own env).
 fn gimp_dir(env: Env, version: Option<&str>) -> Option<PathBuf> {
     let home = env("HOME").map(PathBuf::from);
@@ -122,8 +122,9 @@ fn gimp_dir(env: Env, version: Option<&str>) -> Option<PathBuf> {
         .map(PathBuf::from)
         .or_else(|| home.map(|h| h.join(".config")))?
         .join("GIMP");
-    if let Some([major, minor, ..]) = version.and_then(pinned::parse_version).as_deref() {
-        return Some(base.join(format!("{major}.{minor}")));
+    // A version of another major (not GIMP 3's directory scheme) is ignored: the scan below.
+    if let Some([3, minor, ..]) = version.and_then(pinned::parse_version).as_deref() {
+        return Some(base.join(format!("3.{minor}")));
     }
     std::fs::read_dir(&base)
         .ok()?
@@ -180,7 +181,8 @@ enum Tok {
 }
 
 /// The GScanner subset `gimp_scanner_new` sets up (`libgimpconfig/gimpscanner.c:283-288`, GLib's defaults otherwise):
-/// space, tab and newline skipped (not `\r`, as GScanner), `#` to the end of the line a comment.
+/// space, tab, `\r` and newline skipped (GLib's `cset_skip_characters`, `gscanner.c:296`), `#` to the end of the line
+/// and `/* … */` comments, symbols matched ignoring case (`case_sensitive` off).
 struct Lexer<'a> {
     b: &'a [u8],
     i: usize,
@@ -192,7 +194,17 @@ impl Lexer<'_> {
         loop {
             match self.b.get(self.i) {
                 Some(b'\n') => self.line += 1,
-                Some(b' ' | b'\t') => {}
+                Some(b' ' | b'\t' | b'\r') => {}
+                Some(b'/') if self.b.get(self.i + 1) == Some(&b'*') => {
+                    self.i += 2;
+                    // Unclosed: a comment to the end, as GScanner reads it.
+                    while self.i < self.b.len() && !self.b[self.i..].starts_with(b"*/") {
+                        self.line += usize::from(self.b[self.i] == b'\n');
+                        self.i += 1;
+                    }
+                    self.i += 2;
+                    continue;
+                }
                 Some(b'#') => {
                     while self.b.get(self.i).is_some_and(|&c| c != b'\n') {
                         self.i += 1;
@@ -230,8 +242,11 @@ impl Lexer<'_> {
     /// `'` with none.
     fn string(&mut self, quote: u8) -> Result<String, String> {
         let mut out = Vec::new();
+        let opened = self.line;
         loop {
             let Some(&c) = self.b.get(self.i) else {
+                // Named by the line it opened on.
+                self.line = opened;
                 return Err("a string isn't closed".into());
             };
             self.i += 1;
@@ -243,6 +258,7 @@ impl Lexer<'_> {
                 c if c == quote => break,
                 b'\\' if quote == b'"' => {
                     let Some(&e) = self.b.get(self.i) else {
+                        self.line = opened;
                         return Err("a string isn't closed".into());
                     };
                     self.i += 1;
@@ -297,7 +313,7 @@ fn forms_of(
             return Err(unexpected(Some(t)));
         }
         match lx.next()? {
-            Some(Tok::Ident(s)) if s == "file-version" => {
+            Some(Tok::Ident(s)) if s.eq_ignore_ascii_case("file-version") => {
                 let Some(Tok::Int(n)) = lx.next()? else {
                     return Err("file-version isn't followed by a number".into());
                 };
@@ -309,7 +325,7 @@ fn forms_of(
                     t => return Err(unexpected(t)),
                 }
             }
-            Some(Tok::Ident(s)) if s == "action" => {
+            Some(Tok::Ident(s)) if s.eq_ignore_ascii_case("action") => {
                 let Some(Tok::Str(name)) = lx.next()? else {
                     return Err("an action's name isn't a string".into());
                 };
@@ -326,14 +342,14 @@ fn forms_of(
                     return Err(unexpected(end));
                 }
             }
-            // "ignoring unknown symbol": skipped to the next `)`.
-            Some(Tok::Ident(_)) => {
-                while let Some(t) = lx.next()? {
-                    if t == Tok::Close {
-                        break;
-                    }
+            // "ignoring unknown symbol": skipped to the next `)` token, not by depth (`shortcuts-rc.c:116-124`).
+            Some(Tok::Ident(_)) => loop {
+                match lx.next()? {
+                    Some(Tok::Close) => break,
+                    Some(_) => {}
+                    None => return Err(unexpected(None)),
                 }
-            }
+            },
             t => return Err(unexpected(t)),
         }
     }
@@ -477,7 +493,8 @@ fn apply(acts: &mut BTreeMap<String, Act>, name: &str, accels: &[String]) {
                 break;
             }
         }
-        if add {
+        // A key given twice in one line is kept once.
+        if add && !kept.contains(&a) {
             kept.push(a);
         }
     }
@@ -610,7 +627,7 @@ mod tests {
         assert_eq!(forms, [("a".to_string(), vec!["b".to_string()])]);
         assert_eq!(
             notes,
-            ["line 4: a string isn't closed; reading stopped there"]
+            ["line 3: a string isn't closed; reading stopped there"]
         );
         // Another file-version: a note, and reading goes on.
         let (forms, notes) = parse(b"(file-version 2)\n(action \"a\")");
@@ -633,10 +650,26 @@ mod tests {
             parse(b"(action \"a\"").1,
             ["line 1: the file ends inside a form; reading stopped there"]
         );
-        // CRLF: GScanner skips only space, tab and newline, so GIMP stops at the first `\r` outside a comment.
+        // CRLF: GLib skips `\r` too, so GIMP reads the whole file.
         let (forms, notes) = parse(b"# GIMP shortcutsrc\r\n(action \"a\")\r\n(action \"b\")\r\n");
-        assert_eq!(forms, [("a".to_string(), vec![])]);
-        assert_eq!(notes, ["line 2: unexpected '\\r'; reading stopped there"]);
+        assert_eq!((forms.len(), notes.len()), (2, 0));
+        // Symbols ignoring case; `/* */` comments, one over lines.
+        let (forms, notes) =
+            parse(b"(FILE-VERSION 1)\n/* a\n(action \"x\") */ (Action \"a\" /* k */ \"b\")\n");
+        assert_eq!(forms, [("a".to_string(), vec!["b".to_string()])]);
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(
+            parse(b"(action \"a\")\n\n(x\"").1,
+            ["line 3: a string isn't closed; reading stopped there"]
+        );
+        // The file ending inside an unknown form.
+        assert_eq!(
+            parse(b"(action \"a\")\n(frobnicate 1 2").1,
+            ["line 2: the file ends inside a form; reading stopped there"]
+        );
+        // The other escapes; `\` before any other character kept (AC #3).
+        let (forms, _) = parse(b"(action \"\\\\ \\n\\t\\r\\b\\f\\101\")");
+        assert_eq!(forms[0].0, "\\ \n\t\r\u{8}\u{c}\\101");
     }
 
     #[test]
@@ -790,6 +823,62 @@ mod tests {
         assert_eq!(over, sheet);
     }
 
+    #[test]
+    fn conflicts_in_detail() {
+        // A left-out key (hyper) still holds its chord against a later action.
+        let acts =
+            overlay(b"(action \"edit-undo\" \"<Hyper>r\")\n(action \"edit-copy\" \"<Hyper>r\")");
+        assert_eq!(keys(&acts, "edit-undo"), ["!"]);
+        assert!(acts["edit-copy"].current.is_empty());
+        // An action's own keys don't conflict with it; a key given twice in a line is kept once.
+        // (edit-undo is off its defaults, holding `<Primary>u`, when its second line is read.)
+        let acts = overlay(
+            b"(action \"edit-undo\" \"<Primary>u\")\n(action \"edit-undo\" \"<Primary>u\" \"<Primary>y\" \"<Ctrl>u\")",
+        );
+        assert_eq!(keys(&acts, "edit-undo"), ["ctrl+u", "ctrl+y"]);
+        // Defaults compared after parsing: `<Ctrl>Z` is edit-undo's `<Primary>z`, so it is still on its defaults.
+        let acts =
+            overlay(b"(action \"edit-undo\" \"<Ctrl>Z\")\n(action \"edit-copy\" \"<Primary>z\")");
+        assert!(acts["edit-undo"].current.is_empty());
+        let acts = overlay(b"(action \"edit-copy\" \"<Ctrl>z\")");
+        assert!(acts["edit-undo"].current.is_empty());
+        assert_eq!(keys(&acts, "edit-copy"), ["ctrl+z"]);
+        // A name from the file is shown escaped.
+        let acts = overlay("(action \"x\u{202e}y\\n\" \"<Primary>F12\")".as_bytes());
+        let b = binds(&to_sheet(&acts).0);
+        let row = b.iter().find(|r| r.2 == "ctrl+F12").unwrap();
+        assert_eq!(
+            (row.1.as_str(), row.3.as_str()),
+            ("x\\u{202e}y\\n", "x\\u{202e}y\\n")
+        );
+    }
+
+    #[test]
+    fn the_pin_matches_gimps_own_file() {
+        // GIMP 3.2.6's file with no user changes: its commented lines are its defaults, the pin's keys.
+        let text = String::from_utf8(fixture("shortcutsrc-default")).unwrap();
+        let uncommented: String = text
+            .lines()
+            .filter_map(|l| l.strip_prefix("# (action "))
+            .map(|l| format!("(action {l}\n"))
+            .collect();
+        let (forms, notes) = parse(uncommented.as_bytes());
+        assert!(notes.is_empty(), "{notes:?}");
+        let pin = pin();
+        assert_eq!(forms.len(), pin.action.len());
+        for (name, accels) in forms {
+            let a = pin.action.iter().find(|a| a.name == name).unwrap();
+            assert_eq!(accels, a.keys, "{name}");
+        }
+        // The data file: no mnemonic left, sorted by category then name.
+        assert!(pin
+            .action
+            .iter()
+            .all(|a| !a.label.as_deref().unwrap_or("").contains('_')));
+        let order: Vec<_> = pin.action.iter().map(|a| (&a.category, &a.name)).collect();
+        assert!(order.windows(2).all(|w| w[0] < w[1]));
+    }
+
     /// `read` under `vars`, with `gimp` on `PATH` printing `version` (`None`: no gimp).
     fn run(vars: &[(&str, &Path)], version: Option<&str>) -> (Sheet, Vec<String>, Source) {
         let bin = match version {
@@ -917,6 +1006,21 @@ mod tests {
         // Missing: the defaults, no note.
         let (s, notes, _) = run(&[("HOME", &d.join("nobody"))], Some(V326));
         assert_eq!((undo(&s).as_str(), notes.len()), ("ctrl+z", 0));
+        // A version of another major: its directory isn't GIMP 3's, the scan is used. 3.10 is above 3.9.
+        let two = run(
+            &[("HOME", &home)],
+            Some("GNU Image Manipulation Program version 2.10.38"),
+        );
+        assert_eq!(undo(&two.0), "ctrl+u");
+        put(
+            &home.join(".config/GIMP/3.9"),
+            "(action \"edit-undo\" \"<Primary>9\")\n",
+        );
+        put(
+            &home.join(".config/GIMP/3.10"),
+            "(action \"edit-undo\" \"<Primary>t\")\n",
+        );
+        assert_eq!(undo(&run(&[("HOME", &home)], None).0), "ctrl+t");
         let _ = std::fs::remove_dir_all(&d);
     }
 

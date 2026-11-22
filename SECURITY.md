@@ -81,8 +81,8 @@ Please report security problems privately, through GitHub's private vulnerabilit
   of the kak in the focused terminal (its session name and socket directory, and its config and runtime paths), and
   `/proc/<pid>/{comm,fd,net/unix}` of the focused qutebrowser window's process (to find its IPC socket); the first 256
   bytes of the `qutebrowser` on PATH (its `#!` line); qutebrowser's `autoconfig.yml` (read by qutebrowser's own Python; a `config.py` beside it is only checked for, never read); GIMP's
-  `shortcutsrc` (its `GIMP3_DIRECTORY` or `GIMP/3.N` config directory; only its `action` lines are read, at most 4 MiB,
-  a regular file only).
+  `shortcutsrc` (its `GIMP3_DIRECTORY` or `GIMP/3.N` config directory; the file is read whole, at most 4 MiB and a regular
+  file only, and only its `action` forms are used).
 - **It writes:** the usage log, `$XDG_STATE_HOME/keybind-find/usage.tsv` (default `~/.local/state/...`), which holds
   the time, provider and key of each pick (an espanso trigger, never its replacement); and, while the fzf picker is
   open, a `0700` directory under `$XDG_RUNTIME_DIR` (else the temporary directory) with the list, the key-search list,

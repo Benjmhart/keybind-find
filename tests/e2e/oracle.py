@@ -575,8 +575,10 @@ GIMP_XF86 = {"Cut", "Copy", "Paste", "ZoomIn", "ZoomOut", "Back", "Forward"}
 
 
 def gimp_key(accel):
-    """One accelerator in keybind-find's notation; `!ACCEL` for a modifier this table lacks."""
-    m = re.fullmatch(r"((?:<[A-Za-z0-9]+>)*)(.+)", accel)
+    """One accelerator in keybind-find's notation; `!ACCEL` for a modifier this table lacks; None for no key."""
+    m = re.fullmatch(r"((?:<[A-Za-z0-9]+>)*)([^<].*)", accel)
+    if m is None:
+        return None
     mods = [GIMP_MODS.get(x.lower(), "!" + x) for x in re.findall(r"<([^>]+)>", m.group(1))]
     name = m.group(2)
     sym = name.lower() if len(name) == 1 else "XF86" + name if name in GIMP_XF86 else name
@@ -587,10 +589,14 @@ def gimp_key(accel):
 def gimp_report(text):
     """Every action's accelerators, commented or not, as `KEY<TAB>=> NAME` (the action compared too: PAIRS)."""
     keys = set()
+    s = r'"((?:\\.|[^"\\])*)"'
     for line in text.splitlines():
-        m = re.fullmatch(r'(?:# )?\(action "([^"]*)"((?: "[^"]*")*)\)', line)
+        m = re.fullmatch(rf'(?:# )?\(action {s}((?: {s})*)\)', line)
         if m:
-            keys |= {f"{gimp_key(a)}\t=> {m.group(1)}" for a in re.findall(r'"([^"]*)"', m.group(2))}
+            name = re.sub(r"\\(.)", r"\1", m.group(1))
+            for a in re.findall(s, m.group(2)):
+                k = gimp_key(re.sub(r"\\(.)", r"\1", a))
+                keys.add("!line:" + line if k is None else f"{k}\t=> {name}")
     return keys
 
 
@@ -966,6 +972,8 @@ def self_test():
                        '(action "tools-rect-select" "<Super>r" "<Hyper>r")\n') == {
         "ctrl+x\t=> edit-cut", "XF86Cut\t=> edit-cut", "ctrl+KP_Add\t=> view-zoom-in", "XF86ZoomIn\t=> view-zoom-in",
         "ctrl+shift+z\t=> edit-strong-undo", "super+r\t=> tools-rect-select", "hyper+r\t=> tools-rect-select"}
+    assert gimp_report('(action "a\\"b" "<Primary>")\n(action "c" "<Primary>x\\\\")\n') == {
+        '!line:(action "a\\"b" "<Primary>")', "ctrl+x\\\t=> c"}
     assert gimp_key("<Primary>Z") == "ctrl+z" and gimp_key("slash") == "slash" and gimp_key("<Release>q") == "!Release+q"
     assert dump_keys({"binds": {"Edit": [{"key": "ctrl+z", "desc": "Undo", "action": "edit-undo"}]}}, "action") == {
         "ctrl+z\t=> edit-undo"}
