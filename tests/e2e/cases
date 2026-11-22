@@ -273,9 +273,9 @@ assert json.load(open(sys.argv[1]))["source"] == {"defaults": "3.2.6", "installe
     ! pkill -9 -x 'gimp(-[0-9.]+)?' || { record gimp-cleanup "FAIL	a gimp outlived SIGTERM for 10 s"; FAILED=1; }
   fi
   # Inkscape (tests/e2e/home/.config/inkscape): its preferences name the preset xara.xml, which includes inkscape.xml;
-  # the user's keys/default.xml binds ctrl+alt+F12 to Open Export. Inkscape prints no list of its keys: no oracle.
+  # the user's keys/default.xml binds ctrl+alt+e to Open Export. Inkscape prints no list of its keys: no oracle.
   wanted inkscape && printf '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"/>\n' >/tmp/e2e.svg
-  x inkscape       "i3 inkscape" "inkscape|ctrl+alt+F12|Open Export"  5 -- inkscape /tmp/e2e.svg
+  x inkscape       "i3 inkscape" "inkscape|ctrl+alt+e|Open Export"    5 -- inkscape /tmp/e2e.svg
   # The preset's own key (xara.xml's alt+s) with no Inkscape window, and the dump's `source`: the snapshot's Inkscape.
   d inkscape-preset inkscape "inkscape|alt+s|Selector Tool" -- true
   if wanted inkscape-preset; then

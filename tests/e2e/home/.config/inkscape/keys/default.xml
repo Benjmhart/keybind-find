@@ -1,4 +1,4 @@
 <?xml version="1.0"?>
 <keys name="User Shortcuts">
-  <bind gaction="win.dialog-open('Export')" keys="&lt;primary&gt;&lt;alt&gt;F12" />
+  <bind gaction="win.dialog-open('Export')" keys="&lt;primary&gt;&lt;alt&gt;e" />
 </keys>
