@@ -317,6 +317,28 @@ else: print(f"ok\t{len(ours)} ids, {len(undescribed)} without action data, {len(
     for _ in $(seq 100); do pgrep -x inkscape >/dev/null || break; sleep 0.1; done
     ! pkill -9 -x inkscape || { record inkscape-cleanup "FAIL	an inkscape outlived SIGTERM for 10 s"; FAILED=1; }
   fi
+  # LibreOffice (tests/e2e/home/.config/libreoffice/4/user/registrymodifications.xcu, written by LibreOffice itself:
+  # Writer ctrl+alt+shift+q → Exit and ctrl+i → Underline added, ctrl+b removed; Global alt+shift+F12 → About; no tip
+  # of the day, and ooSetupLastVersion 26.8 so no Welcome dialog takes the focus: raise it with the snapshot). Its
+  # own Writer keys and labels over UNO from a headless soffice (tests/e2e/oracle-libreoffice.py) against `dump
+  # libreoffice`, which with no LibreOffice focused lists Writer. First, with no soffice up: a second soffice hands its
+  # request to a running one. No soffice outlives a case.
+  lo_gone() {
+    pkill -x soffice.bin
+    for _ in $(seq 100); do pgrep -x soffice.bin >/dev/null || pgrep -x oosplash >/dev/null || break; sleep 0.1; done
+    ! pkill -9 -x soffice.bin && ! pkill -9 -x oosplash ||
+      { record "$1-cleanup" "FAIL	a soffice outlived SIGTERM for 10 s"; FAILED=1; }
+  }
+  o libreoffice-oracle libreoffice -- python3 -I "$E/oracle-libreoffice.py"
+  if wanted libreoffice-oracle; then
+    lo_gone libreoffice-oracle
+    # LibreOffice's defaults come from its own install: no `source` in the dump (10.1).
+    if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit("source" in d)' \
+      "$OUT/libreoffice-oracle.json" >/dev/null 2>&1; then record libreoffice-source "ok	none: LibreOffice's own registry"
+    else record libreoffice-source "FAIL	$(grep -o '"source":.*' "$OUT/libreoffice-oracle.json" | cut -c1-200)"; FAILED=1; fi
+  fi
+  x libreoffice    "i3 libreoffice" "libreoffice|ctrl+alt+shift+q|Exit" 5 -- soffice --writer --norestore
+  wanted libreoffice && lo_gone libreoffice
 elif [ "$PHASE" = awesome ]; then
   # awesome on the same display, i3 stopped: its keys from the running awesome over D-Bus
   # (tests/e2e/home/.config/awesome/rc.lua: the stock rc.lua plus keys of our own).

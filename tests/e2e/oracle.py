@@ -600,12 +600,49 @@ def gimp_report(text):
     return keys
 
 
+# --- libreoffice ------------------------------------------------------------------------------------------------------
+# oracle-libreoffice.py's report: css.awt.Key codes and css.awt.KeyModifier bits (offapi/com/sun/star/awt/Key.idl and
+# KeyModifier.idl at libreoffice-26.8.1.1), each code as the X keysym LibreOffice's GTK backend turns into it
+# (vcl/unx/gtk3/gtkframe.cxx GetKeyCode). Its own table: the codes no keysym gives keep LibreOffice's `KEY_` name.
+LO_KEYS = {**{256 + i: str(i) for i in range(10)}, **{512 + i: chr(ord("a") + i) for i in range(26)},
+           **{768 + i: f"F{i + 1}" for i in range(26)},
+           1024: "Down", 1025: "Up", 1026: "Left", 1027: "Right", 1028: "Home", 1029: "End", 1030: "Page_Up",
+           1031: "Page_Down", 1280: "Return", 1281: "Escape", 1282: "Tab", 1283: "BackSpace", 1284: "space",
+           1285: "Insert", 1286: "Delete", 1287: "KP_Add", 1288: "minus", 1289: "KP_Multiply", 1290: "slash",
+           1291: "period", 1292: "comma", 1293: "less", 1294: "greater", 1295: "equal", 1296: "KEY_OPEN",
+           1297: "KEY_CUT", 1298: "KEY_COPY", 1299: "KEY_PASTE", 1300: "Undo", 1301: "Redo", 1302: "Find",
+           1303: "KEY_PROPERTIES", 1304: "KEY_FRONT", 1305: "Menu", 1306: "Help", 1307: "KEY_MENU",
+           1308: "KEY_HANGUL_HANJA", 1309: "KP_Decimal", 1310: "asciitilde", 1311: "grave", 1315: "bracketleft",
+           1316: "bracketright", 1317: "semicolon", 1318: "apostrophe", 1319: "braceright", 1320: "colon",
+           191: "numbersign"}
+LO_MODS = [(8, "super"), (2, "ctrl"), (4, "alt"), (1, "shift")]
+
+# Writer's default keys whose commands only UserInterface/Popups labels (KNOWN).
+LO_POPUP_KEYS = [f"alt+{n}" for n in range(1, 10)] + [f"ctrl+{n}" for n in range(6)] + [
+    "alt+c", "alt+shift+space", "ctrl+F11", "ctrl+minus", "ctrl+shift+0", "ctrl+shift+minus", "ctrl+shift+space",
+    "ctrl+slash"]
+
+def libreoffice_report(text):
+    """oracle-libreoffice.py's lines as `KEY<TAB>=> LABEL` (the label compared: PAIRS)."""
+    keys = set()
+    for line in filter(None, text.splitlines()):
+        parts = line.split("\t")
+        if len(parts) != 4 or not parts[0].isdigit() or not parts[1].isdigit():
+            keys.add("!line:" + line)
+            continue
+        code, mods, label = int(parts[0]), int(parts[1]), parts[3]
+        sym = LO_KEYS.get(code, f"!code{code}")
+        names = [n for b, n in LO_MODS if mods & b]
+        keys.add("+".join(names + [sym]) + f"\t=> {label}")
+    return keys
+
+
 # Providers whose report gives each key's command: their dump keys carry that field of the bind too (`=> VALUE`).
-PAIRS = {"qutebrowser": "desc", "gimp": "action"}
+PAIRS = {"qutebrowser": "desc", "gimp": "action", "libreoffice": "desc"}
 
 REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report, "zellij": zellij_report, "awesome": awesome_report,
            "lf": lf_report, "nnn": nnn_report, "kakoune": kakoune_report, "qutebrowser": qutebrowser_report,
-           "gimp": gimp_report}
+           "gimp": gimp_report, "libreoffice": libreoffice_report}
 
 KNOWN = {
     "kitty": [
@@ -671,6 +708,13 @@ KNOWN = {
     ],
     # The report is GIMP's own shortcutsrc after the same user file the dump reads (tests/e2e/home/.config/GIMP/3.2).
     "gimp": [("hyper+r\t=> tools-rect-select", "gimp.rs leaves out a hyper modifier (FR-019)")],
+    "libreoffice": [(f"*{k}\t=> *", "no X keysym GTK turns into them: libreoffice.rs leaves them out")
+                    for k in ("KEY_OPEN", "KEY_CUT", "KEY_COPY", "KEY_PASTE")]
+    # Story 10.4's AC #3 reads labels from UserInterface/Commands only; LibreOffice's UICommandDescription also reads
+    # UserInterface/Popups (uicommanddescription.cxx fillCache), where these keys' commands are labelled: keybind-find
+    # describes them by the command (a story correction).
+    + [p for k in LO_POPUP_KEYS for p in ((f"{k}\t=> *", "labelled under UserInterface/Popups (AC #3: Commands only)"),
+                                         (f"{k}\t=> .uno:*", "described by the command (AC #3)", "dump"))],
 }
 
 # Keys the e2e config unbinds in every mode: none may stay in the dump. A KNOWN pattern alone can't tell: a key keybind-
@@ -980,6 +1024,17 @@ def self_test():
     for p, *_ in KNOWN["gimp"]:
         assert fnmatch.fnmatchcase(gimp_key("<Hyper>r") + "\t=> tools-rect-select", p), p
     assert not fnmatch.fnmatchcase("super+r\t=> tools-rect-select", KNOWN["gimp"][0][0])
+    # oracle-libreoffice.py's lines: a letter, a digit with Shift, a named key, a code with no keysym, stray output.
+    assert libreoffice_report("514\t2\t.uno:Copy\tCopy\n257\t3\t.uno:X\tX\n1287\t2\t.uno:CalculateSel\tCalculate\n"
+                              "1298\t0\t.uno:Copy\tCopy\n1030\t9\t.uno:Y\tY\nnoise\n") == {
+        "ctrl+c\t=> Copy", "ctrl+shift+1\t=> X", "ctrl+KP_Add\t=> Calculate", "KEY_COPY\t=> Copy",
+        "super+shift+Page_Up\t=> Y", "!line:noise"}
+    lk = KNOWN["libreoffice"]
+    for k in ("KEY_OPEN", "KEY_CUT", "KEY_COPY", "KEY_PASTE"):
+        assert [p for p, *_ in lk if fnmatch.fnmatchcase(f"shift+{k}\t=> x", p)], k
+    for k in ("ctrl+c\t=> Copy", "Find\t=> Find", "!code5\t=> x", "KEY_MENU\t=> x", "ctrl+shift+1\t=> x",
+              "alt+shift+c\t=> x", "ctrl+10\t=> x"):
+        assert not [p for p, *_ in lk if fnmatch.fnmatchcase(k, p)], k
     print("oracle.py: self-test ok")
     return 0
 

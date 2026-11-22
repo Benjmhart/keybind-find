@@ -61,6 +61,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | qutebrowser | its bindings by mode, asked of the running browser (defaults, `config.py`, `autoconfig.yml`, `:bind`s, as `qute://bindings` lists them) with the mode it is in; else 3.7.0's defaults with your `autoconfig.yml` on top | none ([below](#qutebrowser)) |
 | GIMP | its keyboard shortcuts by menu group, named as its menus name them: GIMP 3.2.6's defaults (built in) with your `shortcutsrc` applied as GIMP applies it | none ([below](#gimp)) |
 | Inkscape | its keyboard shortcuts by section, named as its Keyboard preferences name them: the preset it loads (its own, Xara, Corel, …) with your `keys/default.xml` on top, as Inkscape reads them | none ([below](#inkscape)) |
+| LibreOffice | the shortcuts of the module in front (Writer, Calc, Impress, Draw, Math, Base, Start Center) and the global ones, named as its menus name them: its installed defaults with your Tools › Customize › Keyboard changes, as LibreOffice reads them | none ([below](#libreoffice)) |
 | Obsidian | its default hotkeys (1.14.5's built in) with your vault's `.obsidian/hotkeys.json` on top, the vault picked by window title | none ([below](#obsidian)) |
 | st, surf, tabbed, dwm | their stock keys from `config.def.h` at st 0.9.3, surf 2.1, tabbed 0.9 and dwm 6.8 (dwm's in a dwm session, whatever window has focus); a patched `config.h` isn't read: replace the sheet with your own of the same name | none ([below](#suckless-st-surf-tabbed-dwm)) |
 | browsers | built-in sheets for Gmail, YouTube and GitHub; any web app you write a sheet for | none; GitHub's needs a URL-in-title extension ([docs/sheets.md](docs/sheets.md)) |
@@ -301,6 +302,43 @@ under `Extensions` by its id. Left out with a count on one line: keys keybind-fi
 `<Mod2>`, `<Mod3>`, `<Mod5>`, `<Release>`), keys GTK can't parse, binds to actions Inkscape doesn't have, Inkscape 0.92's
 `verb=` binds, and includes it doesn't follow (no `href`, `parse="text"`, `xpointer`, a URL, or past 64 includes in
 all, which also gives a note; one whose file fails to load is a note).
+
+### LibreOffice
+
+Over a LibreOffice window, keybind-find lists the shortcuts of the module in front, by its window class (X11's
+`WM_CLASS` class, Wayland's app id, any case): `libreoffice-writer`, `-calc`, `-impress`, `-draw`, `-math`, `-base` and
+`-startcenter`. The module's own keys come first (category `Writer`, `Calc`, …), then each global key on a key the
+module doesn't bind (category `LibreOffice`), as LibreOffice looks a key up. Each is named as Tools › Customize ›
+Keyboard names it (`Bold`, `Find and Replace`: the module's labels, else the generic ones, without `~` and `...`).
+`keybind-find dump libreoffice` from a terminal lists Writer's, with a note.
+
+Nothing is built in: the keys are read from your installation, as LibreOffice's configuration reads them at start:
+
+- the **install**: the `soffice` on your `PATH` whose real path (symlinks followed) is `<install>/program/soffice`,
+  else `/usr/lib/libreoffice` or `/usr/lib64/libreoffice`; nothing is run. None found: no list, with a note;
+- its **defaults**: every `*.xcd` in `<install>/share/registry` (each after the files it depends on, else by name),
+  then those in `share/registry/res` (the language packs), layered as LibreOffice layers them;
+- then **your changes**: `registrymodifications.xcu` in your profile (`$XDG_CONFIG_HOME/libreoffice/4/user/`, else
+  `~/.config/libreoffice/4/user/`), where Tools › Customize › Keyboard saves them: added keys, changed commands and
+  removed defaults, in its order.
+
+The UI locale is your profile's (LibreOffice saves it at every start), else `en-US`. A key's command is the one for that
+locale exactly, else the `en-US` one (a few languages bind some keys differently); labels fall back from the locale to
+its language, then `en-US`. Left out with a count on one line: keys on OPEN, CUT, COPY, PASTE, PROPERTIES, FRONT, MENU
+or HANGUL_HANJA (no X keysym LibreOffice's GTK backend turns into them; the defaults bind the first four), key names
+LibreOffice doesn't know, and invalid names. The e2e test checks the list, labels included, against what LibreOffice
+itself reports over UNO for the same profile (a headless soffice; Writer).
+
+Limits: keybind-find's own environment is used (a `-env:UserInstallation=` or an edited `bootstraprc` isn't followed),
+and Flatpak and Snap installs are neither detected nor found. Extensions' keys, a document's own keys and a change made
+a moment ago (LibreOffice writes the file a little later) aren't listed. Labels come from each component's
+`UserInterface/Commands`; a command labelled only under `UserInterface/Popups` (Writer's sidebar decks, its paragraph
+styles, `alt+c` → Character) is described by its command. The language fallback for labels is the language part only,
+and the product name is always `LibreOffice`. Writer/Web, master documents and XForms share Writer's class and are
+listed as Writer; Base's designers list Base's (global) keys; the Basic IDE and the Bibliography share the Start
+Center's class. `+` and `*` are listed as `KP_Add` and `KP_Multiply` (with Shift on most layouts they would arrive as
+another key); other symbols (`less`, `asciitilde`, `colon`, `numbersign`) are listed as their keysyms and may need Shift
+on your layout. An unknown key name leaves out that one key, where LibreOffice drops its whole key set.
 
 ### Obsidian
 
@@ -1157,6 +1195,7 @@ defaults has no line: lf and qutebrowser when they answer (their own complete li
 neither it nor its backup file is found, or when your `keyMappings` run `unmapAll`. Other pickers have no header: there a mismatch is the same line on stderr as before.
 Inkscape's keys are your installed files, not built-in defaults, but its labels are Inkscape 1.4.4's built-in action
 table: its line (`inkscape: 1.4.4 defaults built in (installed …)`) names that table's version.
+LibreOffice's keys and labels all come from its own installation, so it has no line.
 `keybind-find dump` carries it as data, a `source` object on each such sheet: `defaults` (the built-in version),
 `installed` (the installed version, `null` when unknown or not checked), `checked` (whether the installed version was
 looked up) and `mismatch` (true when the line is red).

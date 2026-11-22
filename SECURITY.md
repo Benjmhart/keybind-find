@@ -86,7 +86,12 @@ Please report security problems privately, through GitHub's private vulnerabilit
   `share/inkscape/keys/`, the shared and your profile's `keys/default.xml`, and the files they `xi:include`: any local
   path, absolute too, but no URL; at most 8 deep, never one already being read, and at most 64 includes in all per
   run; each file read whole, at most 4 MiB and a regular file only; only `bind` elements are used, their actions
-  shown as text, never run).
+  shown as text, never run); LibreOffice's registry, the `*.xcd` files in `share/registry` and `share/registry/res`
+  under its install (the `soffice` on PATH is only resolved, through its symlinks, to find the install, never run;
+  else `/usr/lib/libreoffice` or `/usr/lib64/libreoffice`), and your profile's `registrymodifications.xcu` (each file
+  read whole, at most 16 MiB and a regular file only, parsed with no DTD and at most 1,000,000 nodes; only the
+  `Accelerators`, `GenericCommands` and the module's `*Commands` components and your `Accelerators` items and UI
+  locale are used, their commands shown as text, never run).
 - **It writes:** the usage log, `$XDG_STATE_HOME/keybind-find/usage.tsv` (default `~/.local/state/...`), which holds
   the time, provider and key of each pick (an espanso trigger, never its replacement); and, while the fzf picker is
   open, a `0700` directory under `$XDG_RUNTIME_DIR` (else the temporary directory) with the list, the key-search list,
