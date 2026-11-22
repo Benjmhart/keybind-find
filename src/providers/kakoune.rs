@@ -7,7 +7,7 @@
 use super::nvim::single;
 use super::pinned::{self, parse_version};
 use crate::context::{run_for, run_for_input};
-use crate::sheet::{chord, Bind, Name, Sheet, Values};
+use crate::sheet::{chord, Bind, Name, Sheet, Source, Values};
 use anyhow::{bail, ensure, Context as _};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -67,8 +67,8 @@ struct Mapping {
     doc: String,
 }
 
-pub fn sheet() -> anyhow::Result<Sheet> {
-    let (sheet, notes) = sheet_with(
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
+    let (sheet, notes, source) = sheet_with(
         REGISTRY,
         crate::context::editor_pid(),
         Path::new("/proc"),
@@ -79,7 +79,7 @@ pub fn sheet() -> anyhow::Result<Sheet> {
     for note in notes {
         eprintln!("keybind-find: kakoune: {note}");
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
 }
 
 /// The sheet for the kak at `pid` (none: `dump kakoune` from a shell), its process read under `proc`, asking its
@@ -92,7 +92,7 @@ fn sheet_with(
     kak: &str,
     env: Env,
     wait: Duration,
-) -> anyhow::Result<(Sheet, Vec<String>)> {
+) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
     let is_kak = |d: &Path| {
         std::fs::read_to_string(d.join("comm")).is_ok_and(|c| c.trim_end_matches('\n') == "kak")
     };
@@ -156,7 +156,7 @@ fn sheet_with(
     let version = version
         .map(|v| release(&v).to_string())
         .filter(|v| parse_version(v).is_some());
-    let (v, text, note) = pinned::select("kakoune", registry, version.as_deref())
+    let (v, text, note, source) = pinned::select("kakoune", registry, version.as_deref())
         .context("no pinned Kakoune keys")?;
     let pin: Pinned =
         toml::from_str(text).with_context(|| format!("reading data/kakoune/{v}.toml"))?;
@@ -187,7 +187,7 @@ fn sheet_with(
              whose lead key is mapped away)"
         ));
     }
-    Ok((sheet, notes))
+    Ok((sheet, notes, source))
 }
 
 /// A process's environment (`/proc/<pid>/environ`), the first of a name given twice (glibc's `getenv`); `None` when
@@ -2274,7 +2274,15 @@ mod tests {
             )
         };
         let kak = fake_kak(&d, &answer("2026.05.21"));
-        let (s, notes) = run(&kak);
+        let (s, notes, source) = run(&kak);
+        assert_eq!(
+            (
+                source.defaults.as_str(),
+                source.installed.as_deref(),
+                source.mismatch
+            ),
+            ("2026.05.21", Some("2026.05.21"), false)
+        );
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(find(&s, "space w")[0].2, "e2e window");
         // The session's list is all there is: no kakrc, no default map it doesn't list.
@@ -2311,12 +2319,12 @@ mod tests {
         assert_ne!(last_ask(&d.join("log"))[3], ask[3]);
         // A git build's version: its release's keys, no note.
         let kak = fake_kak(&d, &answer("2026.05.21-12-gabc"));
-        let (s, notes) = run(&kak);
+        let (s, notes, _) = run(&kak);
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(s.title, "Kakoune 2026.05.21");
         // A runtime directory others can enter isn't used, nor is any other place: the kakrc, with a note.
         std::fs::set_permissions(&run_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let (s, notes) = run(&kak);
+        let (s, notes, _) = run(&kak);
         assert_eq!(notes, ["no private runtime dir: reading kakrc instead"]);
         assert_eq!(find(&s, "space r")[0].2, "from kakrc");
         std::fs::set_permissions(&run_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -2356,7 +2364,7 @@ mod tests {
             ),
         ] {
             let kak = fake_kak(&d, body);
-            let (s, notes) = run(&kak);
+            let (s, notes, _) = run(&kak);
             assert_eq!(notes.len(), says.len(), "{name}: {notes:?}");
             assert!(notes[0].ends_with("; reading kakrc instead"), "{name}: {notes:?}");
             for (n, want) in notes.iter().zip(&says) {
@@ -2365,7 +2373,7 @@ mod tests {
             assert_eq!(find(&s, "space r")[0].2, "from kakrc", "{name}");
             assert_eq!(normal(&s, "Left"), Some("h"), "{name}");
         }
-        let (_, notes) = run(&d.join("no-such-kak"));
+        let (_, notes, _) = run(&d.join("no-such-kak"));
         assert!(notes[0].contains("asking kak's session"), "{notes:?}");
         assert!(notes[1].contains("version is unknown"), "{notes:?}");
         // A `-p` kak is no UI, and a pid that isn't kak's is never asked: the kakrc, silently.
@@ -2376,7 +2384,7 @@ mod tests {
         std::fs::write(proc.join("4242/comm"), "zsh\n").unwrap();
         // keybind-find's own environment, its runtime holding only an empty kakrc.
         let own = |k: &str| (k == "KAKOUNE_RUNTIME").then(|| rt.display().to_string());
-        let (s, notes) = run_env(&kak, &own);
+        let (s, notes, _) = run_env(&kak, &own);
         assert!(notes.is_empty(), "{notes:?}");
         assert!(
             find(&s, "space r").is_empty(),
@@ -2404,7 +2412,7 @@ mod tests {
         let proc = fake_proc(&d, &["kak"], &environ);
         std::os::unix::fs::symlink(&bin, proc.join("4242/exe")).unwrap();
         let none = |_: &str| None;
-        let (s, notes) =
+        let (s, notes, _) =
             sheet_with(REGISTRY, Some(4242), &proc, "no-such-kak", &none, TIMEOUT).unwrap();
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert!(
@@ -2420,7 +2428,7 @@ mod tests {
         assert_eq!(find(&s, "space y")[0].2, "from the runtime");
         // No kakrc in the runtime: Kakoune reads no config at all.
         std::fs::remove_file(d.join("share/kak/kakrc")).unwrap();
-        let (s, notes) =
+        let (s, notes, _) =
             sheet_with(REGISTRY, Some(4242), &proc, "no-such-kak", &none, TIMEOUT).unwrap();
         assert!(
             notes[2].starts_with("no kakrc in Kakoune's runtime "),
@@ -2459,7 +2467,7 @@ mod tests {
         let proc = fake_proc(&d, &["kak"], &environ);
         let none = |_: &str| None;
         let started = Instant::now();
-        let (_, notes) = sheet_with(
+        let (_, notes, _) = sheet_with(
             REGISTRY,
             Some(4242),
             &proc,
@@ -2590,7 +2598,7 @@ mod tests {
         });
         assert!(joined, "the client never joined");
         let none = |_: &str| None;
-        let (sheet, notes) = sheet_with(
+        let (sheet, notes, _) = sheet_with(
             REGISTRY,
             Some(client),
             Path::new("/proc"),
@@ -2609,7 +2617,7 @@ mod tests {
             format!("XDG_RUNTIME_DIR={}", run_dir.display()),
         ];
         let proc = fake_proc(&d, &["kak", "-c", &name], &environ);
-        let (_, notes) = sheet_with(REGISTRY, Some(4242), &proc, "kak", &none, TIMEOUT).unwrap();
+        let (_, notes, _) = sheet_with(REGISTRY, Some(4242), &proc, "kak", &none, TIMEOUT).unwrap();
         assert!(
             notes[0].contains("no answer from kak's session"),
             "{notes:?}"

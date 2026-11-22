@@ -7,7 +7,7 @@
 //! version, so the newest registry is used. Vimium C and Surfingkeys are different extensions, not covered.
 
 use crate::context::Context;
-use crate::sheet::{chord, Bind, Sheet};
+use crate::sheet::{chord, Bind, Sheet, Source};
 use anyhow::Context as _;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap};
@@ -50,15 +50,15 @@ struct Command {
     group: String,
 }
 
-pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
+pub fn sheet(_ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty());
     let home = env("HOME").map(PathBuf::from);
     let backup = backup_path(env("XDG_CONFIG_HOME"), home.clone());
-    let (sheet, notes) = build(home.as_deref(), backup.as_deref())?;
+    let (sheet, notes, source) = build(home.as_deref(), backup.as_deref())?;
     for note in notes {
         eprintln!("keybind-find: vimium: {note}");
     }
-    Ok(sheet)
+    Ok((sheet, source))
 }
 
 /// `$XDG_CONFIG_HOME/keybind-find/vimium-options.json` (absolute only, as the XDG spec says), else under
@@ -74,8 +74,12 @@ fn backup_path(xdg_config_home: Option<OsString>, home: Option<PathBuf>) -> Opti
     Some(base.join("keybind-find").join("vimium-options.json"))
 }
 
-/// The sheet, plus a note per thing skipped. Empty, with no note, unless Vimium is installed or the backup exists.
-fn build(home: Option<&Path>, backup: Option<&Path>) -> anyhow::Result<(Sheet, Vec<String>)> {
+/// The sheet, plus a note per thing skipped, and the defaults' `Source`. Empty, with no note and no source, unless
+/// Vimium is installed or the backup exists.
+fn build(
+    home: Option<&Path>,
+    backup: Option<&Path>,
+) -> anyhow::Result<(Sheet, Vec<String>, Option<Source>)> {
     let mut sheet = Sheet {
         title: "vimium".into(),
         provider: "vimium".into(),
@@ -89,9 +93,9 @@ fn build(home: Option<&Path>, backup: Option<&Path>) -> anyhow::Result<(Sheet, V
     let installed = home.and_then(installed);
     let backup_exists = backup.is_some_and(Path::exists);
     if installed.is_none() && !backup_exists {
-        return Ok((sheet, notes));
+        return Ok((sheet, notes, None));
     }
-    let (version, text, warning) =
+    let (version, text, warning, source) =
         select(REGISTRY, installed.flatten().as_deref()).context("no Vimium registry built in")?;
     notes.extend(warning);
     let registry: Registry =
@@ -149,7 +153,7 @@ fn build(home: Option<&Path>, backup: Option<&Path>) -> anyhow::Result<(Sheet, V
             "skipped {skipped_keys} key(s) keybind-find can't send (<m-…>, unknown key names)"
         ));
     }
-    Ok((sheet, notes))
+    Ok((sheet, notes, Some(source)))
 }
 
 /// The backup's `keyMappings` text: `None` if the file or the field is missing (Vimium leaves it out until it's
@@ -212,12 +216,13 @@ fn parse_version(v: &str) -> Option<Vec<u64>> {
 }
 
 /// The registry entry for `installed`: an exact match silently; otherwise the newest, with a warning naming both.
+/// Also the pick's `Source`.
 fn select(
     registry: &[(&'static str, &'static str)],
     installed: Option<&str>,
-) -> Option<(&'static str, &'static str, Option<String>)> {
+) -> Option<(&'static str, &'static str, Option<String>, Source)> {
     if let Some(&(v, text)) = registry.iter().find(|(v, _)| Some(*v) == installed) {
-        return Some((v, text, None));
+        return Some((v, text, None, super::pinned::source(v, installed, false)));
     }
     let &(v, text) = registry
         .iter()
@@ -228,7 +233,12 @@ fn select(
         Some(i) => format!("Vimium {i}: using key registry {v}; add data/vimium/{i}.toml"),
         None => format!("Vimium version unknown: using key registry {v}"),
     };
-    Some((v, text, Some(warning)))
+    Some((
+        v,
+        text,
+        Some(warning),
+        super::pinned::source(v, installed, true),
+    ))
 }
 
 /// Applies a `keyMappings` text the way Vimium does, returning (key, command) in the order mapped (the defaults first, sorted; none shadows another) and the number of
@@ -425,7 +435,7 @@ mod tests {
     #[test]
     fn defaults() {
         let home = vivaldi_home("defaults");
-        let (sheet, notes) = build(Some(&home), None).unwrap();
+        let (sheet, notes, _) = build(Some(&home), None).unwrap();
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(sheet.provider, "vimium");
         assert_eq!(sheet.title, "vimium");
@@ -439,7 +449,7 @@ mod tests {
         assert_eq!(find(&sheet, "R")[0].1.action, "reload");
         assert!(sheet.binds.contains_key("tabs") && sheet.binds.contains_key("find"));
         // A backup without keyMappings gives the defaults.
-        let (same, notes) = build(Some(&home), Some(&fixture("no-mappings.json"))).unwrap();
+        let (same, notes, _) = build(Some(&home), Some(&fixture("no-mappings.json"))).unwrap();
         assert!(notes.is_empty(), "{notes:?}");
         assert_eq!(same, sheet);
         std::fs::remove_dir_all(&home).unwrap();
@@ -448,7 +458,7 @@ mod tests {
     #[test]
     fn the_backup_applies_over_the_defaults() {
         let home = vivaldi_home("backup");
-        let (sheet, notes) = build(Some(&home), Some(&fixture("mappings.json"))).unwrap();
+        let (sheet, notes, _) = build(Some(&home), Some(&fixture("mappings.json"))).unwrap();
         // unmap x, map X removeTab (over restoreTab), a continued line, a comment.
         assert!(find(&sheet, "x").is_empty());
         let x = find(&sheet, "X");
@@ -501,7 +511,7 @@ mod tests {
     fn shadowed_keys_are_left_out() {
         let home = vivaldi_home("shadow");
         // No default shadows another: all of them are listed.
-        let (sheet, _) = build(Some(&home), None).unwrap();
+        let (sheet, _, _) = build(Some(&home), None).unwrap();
         assert_eq!(
             sheet.binds.values().flatten().count(),
             registry().keys.len()
@@ -625,7 +635,7 @@ mod tests {
             r#"{"keyMappings": "map <m-x> removeTab\nmap <f25> reload"}"#,
         )
         .unwrap();
-        let (_, notes) = build(Some(&home), Some(&path)).unwrap();
+        let (_, notes, _) = build(Some(&home), Some(&path)).unwrap();
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(notes[0].contains("skipped 2 key(s)"), "{}", notes[0]);
         std::fs::remove_dir_all(&home).unwrap();
@@ -651,7 +661,8 @@ mod tests {
         assert_eq!(installed(&odd), Some(None));
         std::fs::remove_dir_all(&odd).unwrap();
         assert_eq!(installed(&home), Some(Some("2.10.0".to_string())));
-        let (sheet, notes) = build(Some(&home), None).unwrap();
+        let (sheet, notes, source) = build(Some(&home), None).unwrap();
+        assert!(source.is_some_and(|s| s.mismatch && s.installed.as_deref() == Some("2.10.0")));
         assert!(!sheet.binds.is_empty());
         assert!(
             notes.len() == 1 && notes[0].contains("Vimium 2.10.0") && notes[0].contains("2.4.2"),
@@ -663,7 +674,7 @@ mod tests {
         std::fs::create_dir_all(&ext).unwrap();
         std::fs::write(ext.join(FIREFOX_XPI), "").unwrap();
         assert_eq!(installed(&ff), Some(None));
-        let (sheet, notes) = build(Some(&ff), None).unwrap();
+        let (sheet, notes, _) = build(Some(&ff), None).unwrap();
         assert!(!sheet.binds.is_empty());
         assert!(
             notes.len() == 1 && notes[0].contains("version unknown"),
@@ -674,12 +685,13 @@ mod tests {
         assert_eq!(installed(&none), None);
         let missing = none.join("vimium-options.json");
         for backup in [None, Some(missing.as_path())] {
-            let (sheet, notes) = build(Some(&none), backup).unwrap();
+            let (sheet, notes, source) = build(Some(&none), backup).unwrap();
             assert!(sheet.binds.is_empty() && notes.is_empty(), "{notes:?}");
+            assert_eq!(source, None);
         }
         assert!(build(None, None).unwrap().0.binds.is_empty());
         // Only the backup: it applies, with the newest registry and a note.
-        let (sheet, notes) = build(Some(&none), Some(&fixture("mappings.json"))).unwrap();
+        let (sheet, notes, _) = build(Some(&none), Some(&fixture("mappings.json"))).unwrap();
         assert_eq!(find(&sheet, "X")[0].1.action, "removeTab");
         assert!(
             notes.iter().any(|n| n.contains("version unknown")),
@@ -693,11 +705,22 @@ mod tests {
     #[test]
     fn version_selection() {
         let reg: &[(&str, &str)] = &[("2.4.2", "a"), ("2.10.0", "b"), ("2.3.0", "c")];
-        assert_eq!(select(reg, Some("2.4.2")), Some(("2.4.2", "a", None)));
-        let (v, _, w) = select(reg, Some("2.5.0")).unwrap();
+        let src = |d: &str, i: Option<&str>, mismatch| Source {
+            defaults: d.into(),
+            installed: i.map(Into::into),
+            checked: true,
+            mismatch,
+        };
+        assert_eq!(
+            select(reg, Some("2.4.2")),
+            Some(("2.4.2", "a", None, src("2.4.2", Some("2.4.2"), false)))
+        );
+        let (v, _, w, s) = select(reg, Some("2.5.0")).unwrap();
+        assert_eq!(s, src("2.10.0", Some("2.5.0"), true));
         assert_eq!(v, "2.10.0");
         assert!(w.unwrap().contains("Vimium 2.5.0"));
-        let (v, _, w) = select(reg, None).unwrap();
+        let (v, _, w, s) = select(reg, None).unwrap();
+        assert_eq!(s, src("2.10.0", None, true));
         assert_eq!(v, "2.10.0");
         assert!(w.unwrap().contains("unknown"));
         assert_eq!(select(&[], None), None);

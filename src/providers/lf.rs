@@ -1,19 +1,22 @@
 //! lf: its keys in normal, visual and command-line mode. Asked of the running lf (`lf -remote "query <pid> maps"`)
 //! when it can say; else lf r42's defaults (`data/lf/r42.lfrc`), then the lfrc files and `-command`s lf loaded, read as
 //! lf reads them (a port of its scanner and parser at r42). Shown when lf is the program in the focused terminal. lf
-//! is never sent a command, and no shell command in an lfrc is run.
+//! is never sent a command, and no shell command in an lfrc is run; with the defaults, `lf -version` is run for the
+//! installed version.
 
+use super::pinned;
 use crate::context::run_for;
-use crate::sheet::{chord, Bind, Sheet, Values};
+use crate::sheet::{chord, Bind, Sheet, Source, Values};
 use anyhow::{bail, Context as _};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-/// ponytail: one version, no probe; a second goes through `pinned::select` by `lf -version` (`42` on Arch, `r42`
-/// upstream).
+/// ponytail: one version; a second goes into a registry for `pinned::select`.
 const DEFAULTS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/data/lf/r42.lfrc"));
+/// `DEFAULTS`' version as `pinned::parse_version` reads it (`r42` isn't one).
+const VERSION: &str = "42";
 
 const SYSTEM: &str = "/etc/lf/lfrc";
 
@@ -26,29 +29,54 @@ const LOADS: usize = 64;
 
 type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 
-pub fn sheet() -> anyhow::Result<Sheet> {
-    let (sheet, notes) = sheet_with(
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
+    let (sheet, mut notes, defaults) = sheet_with(
         crate::context::editor_pid(),
         Path::new("/proc"),
         "lf",
         Path::new(SYSTEM),
         &|k| std::env::var(k).ok(),
     );
+    // The live answer is lf's own complete table: no defaults in it.
+    let source = match defaults {
+        true => {
+            let (note, source) = pick(|_| {})?;
+            notes.splice(0..0, note);
+            Some(source)
+        }
+        false => None,
+    };
     for note in notes {
         eprintln!("keybind-find: lf: {note}");
     }
-    Ok(sheet)
+    Ok((sheet, source))
+}
+
+/// The installed lf against the pin: `lf -version`, with `setup` (a test seam: `PATH`). The note names an `r<v>.lfrc`.
+fn pick(setup: impl Fn(&mut Command)) -> anyhow::Result<(Option<String>, Source)> {
+    let mut cmd = Command::new("lf");
+    cmd.arg("-version");
+    let (note, source) = pinned::probe("lf", VERSION, cmd, setup, version_of)?;
+    let note = note.map(|n| n.replace("data/lf/", "data/lf/r").replace(".toml", ".lfrc"));
+    Ok((note, source))
+}
+
+/// lf's one line, `42` (Arch) or `r42` (upstream's release builds) → `42`.
+fn version_of(text: &str) -> Option<String> {
+    let line = text.lines().next()?;
+    pinned::version_after(Some(line.strip_prefix('r').unwrap_or(line)), "")
 }
 
 /// The sheet for the lf at `pid` (none: `dump lf` from a shell), its process read under `proc`, asking it with the
-/// program `lf`; `system` is `/etc/lf/lfrc` and `env` keybind-find's own environment (test seams). Also the notes.
+/// program `lf`; `system` is `/etc/lf/lfrc` and `env` keybind-find's own environment (test seams). Also the notes, and
+/// whether the pinned defaults were read (not a live answer).
 fn sheet_with(
     pid: Option<u32>,
     proc: &Path,
     lf: &str,
     system: &Path,
     env: Env,
-) -> (Sheet, Vec<String>) {
+) -> (Sheet, Vec<String>, bool) {
     // The editor pid context found is lf's only when lf leads the terminal; check its comm.
     let pid = pid.filter(|p| {
         std::fs::read_to_string(proc.join(format!("{p}/comm")))
@@ -59,14 +87,18 @@ fn sheet_with(
     let environ = dir.as_deref().and_then(environ);
     if let Some(pid) = pid {
         match live(pid, lf, environ.as_ref()) {
-            Ok(Some(table)) => return finish(&table, notes),
+            Ok(Some(table)) => {
+                let (sheet, notes) = finish(&table, notes);
+                return (sheet, notes, false);
+            }
             // lf has its maps only once it has run a shell command: nothing to say.
             Ok(None) => {}
             Err(e) => notes.push(format!("{e:#}; reading lfrc instead")),
         }
     }
     let table = fallback(dir, environ.as_ref(), system, env, &mut notes);
-    finish(&table, notes)
+    let (sheet, notes) = finish(&table, notes);
+    (sheet, notes, true)
 }
 
 type Environ = BTreeMap<String, String>;
@@ -1132,6 +1164,39 @@ fn finish(t: &Table, mut notes: Vec<String>) -> (Sheet, Vec<String>) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_version() {
+        for out in ["42\n", "r42\n"] {
+            assert_eq!(version_of(out).as_deref(), Some("42"), "{out:?}");
+        }
+        for junk in ["", "garbage", "r42-5-gabc\n", "42\x1b\n"] {
+            assert_eq!(version_of(junk), None, "{junk:?}");
+        }
+        let bin = pinned::fake_bin(
+            "lf",
+            "[ \"$*|$LC_ALL\" = '-version|C' ] || exit 9; echo r41",
+        );
+        let (note, source) = pick(pinned::path_of(&bin)).unwrap();
+        assert_eq!(
+            note.as_deref(),
+            Some("lf 41: using the defaults of 42; add data/lf/r41.lfrc")
+        );
+        assert!(source.mismatch && source.installed.as_deref() == Some("41"));
+        let bin = pinned::fake_bin("lf", "echo 42");
+        assert_eq!(
+            pick(pinned::path_of(&bin)).unwrap(),
+            (
+                None,
+                Source {
+                    defaults: "42".into(),
+                    installed: Some("42".into()),
+                    checked: true,
+                    mismatch: false
+                }
+            )
+        );
+    }
+
     fn fixture(name: &str) -> String {
         std::fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1502,7 +1567,10 @@ mod tests {
         // Through `sheet_with`: the answer is the sheet, and the home's lfrc (`map a home`) isn't read.
         let home = format!("HOME={}/home", root.display());
         let proc = fake_proc("live", &["lf"], Some(&[home.as_str()]), &root.join("cwd"));
-        let (s, notes) = sheet_with(Some(4242), &proc, &lf, &root.join("etc/lfrc"), &|_| None);
+        let (s, notes, defaults) =
+            sheet_with(Some(4242), &proc, &lf, &root.join("etc/lfrc"), &|_| None);
+        // The live table: no defaults, so `sheet` reports no source.
+        assert!(!defaults);
         assert!(find(&s, "a", "normal,visual").is_empty());
         assert_eq!(left_out(&notes), 7, "{notes:?}");
         assert_eq!(notes.len(), 1, "{notes:?}");
@@ -1518,7 +1586,7 @@ mod tests {
                 fixture_path("maps.txt").display()
             ),
         );
-        let (s, notes) = sheet_with(
+        let (s, notes, _) = sheet_with(
             Some(4242),
             &proc,
             &half.display().to_string(),
@@ -1629,7 +1697,7 @@ mod tests {
             let lf = fake_lf(name, body);
             let proc = fake_proc(name, &["lf"], Some(&home), &empty);
             let started = std::time::Instant::now();
-            let (s, notes) = sheet_with(
+            let (s, notes, _) = sheet_with(
                 Some(4242),
                 &proc,
                 &lf.display().to_string(),
@@ -1647,7 +1715,7 @@ mod tests {
         // An empty answer (lf hasn't run a shell command yet) falls back without a word; lf not on PATH says so.
         let lf = fake_lf("empty", "exit 0");
         let proc = fake_proc("empty", &["lf"], Some(&home), &empty);
-        let (_, notes) = sheet_with(
+        let (_, notes, _) = sheet_with(
             Some(4242),
             &proc,
             &lf.display().to_string(),
@@ -1655,7 +1723,7 @@ mod tests {
             &none,
         );
         assert_eq!(notes.len(), 1, "{notes:?}");
-        let (_, notes) = sheet_with(
+        let (_, notes, _) = sheet_with(
             Some(4242),
             &proc,
             "/nonexistent/lf",
@@ -1665,7 +1733,7 @@ mod tests {
         assert!(notes[0].contains("asking lf"), "{notes:?}");
         // A pid that isn't lf's is never asked.
         std::fs::write(proc.join("4242/comm"), "zsh\n").unwrap();
-        let (_, notes) = sheet_with(
+        let (_, notes, _) = sheet_with(
             Some(4242),
             &proc,
             "/nonexistent/lf",
@@ -1892,12 +1960,14 @@ mod tests {
         let root = homes("dump");
         let home = format!("{}/home", root.display());
         let env = move |k: &str| (k == "HOME").then(|| home.clone());
-        let (s, notes) = sheet_with(None, &root, "/nonexistent/lf", &root.join("etc/lfrc"), &env);
+        let (s, notes, defaults) =
+            sheet_with(None, &root, "/nonexistent/lf", &root.join("etc/lfrc"), &env);
+        assert!(defaults);
         assert_eq!(desc(&s, "a", "normal,visual"), "home");
         assert_eq!(left_out(&notes), 5, "{notes:?}");
         assert_eq!(notes.len(), 1, "{notes:?}");
         // No home at all: the system file only, and a line saying so.
-        let (_, notes) = sheet_with(
+        let (_, notes, _) = sheet_with(
             None,
             &root,
             "/nonexistent/lf",
@@ -1915,7 +1985,8 @@ mod tests {
             "LF_CONFIG_HOME" => Some("rel".into()),
             _ => None,
         };
-        let (s, notes) = sheet_with(None, &root, "/nonexistent/lf", &root.join("etc/lfrc"), &env);
+        let (s, notes, _) =
+            sheet_with(None, &root, "/nonexistent/lf", &root.join("etc/lfrc"), &env);
         assert_eq!(desc(&s, "a", "normal,visual"), "etc");
         assert!(
             notes

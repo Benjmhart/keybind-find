@@ -1,13 +1,15 @@
 //! Konsole: its own shortcuts, Konsole 26.08.2's defaults pinned (`data/konsole/`) with what KXMLGUI applies on top:
 //! the user's `konsoleui.rc` and `sessionui.rc`, the shortcut scheme and the profile shortcuts of `konsolerc`. Shown
-//! when a Konsole window has focus. Files only: nothing is run.
+//! when a Konsole window has focus. The one program run is `konsole --version` (with Qt's offscreen platform, so it
+//! needs no display), for the installed version; the rest is files.
 
-use super::kde;
-use crate::sheet::{Bind, Sheet};
+use super::{kde, pinned};
+use crate::sheet::{Bind, Sheet, Source};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 
@@ -15,6 +17,8 @@ const PINNED: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/data/konsole/26.08.2.toml"
 ));
+/// `PINNED`'s version.
+const VERSION: &str = "26.08.2";
 
 /// The KXMLGUI files Konsole's two clients read: `MainWindow` (gui `konsole`) and `SessionController` (gui `session`),
 /// both under component `konsole` (Konsole `src/MainWindow.cpp:154`, `src/session/SessionController.cpp:147`).
@@ -51,13 +55,26 @@ struct Files<'a> {
     scheme: Option<(String, Option<&'a str>)>,
 }
 
-pub fn sheet() -> anyhow::Result<Sheet> {
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
+    let (note, source) = pick(|_| {})?;
     let (sheet, notes) = sheet_with(&env)?;
-    for note in notes {
+    for note in note.into_iter().chain(notes) {
         eprintln!("keybind-find: konsole: {note}");
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
+}
+
+/// The installed Konsole against the pin: `konsole --version`, with `setup` (a test seam: `PATH`).
+fn pick(setup: impl Fn(&mut Command)) -> anyhow::Result<(Option<String>, Source)> {
+    let mut cmd = Command::new("konsole");
+    cmd.arg("--version").env("QT_QPA_PLATFORM", "offscreen");
+    pinned::probe("konsole", VERSION, cmd, setup, version_of)
+}
+
+/// `konsole 26.08.2` (Qt's `showVersion`: the application's name and version) → `26.08.2`.
+fn version_of(text: &str) -> Option<String> {
+    pinned::version_after(text.lines().next(), "konsole ")
 }
 
 /// The files, found through `env`, then `parse`. A missing file is silent; an unreadable one is a note.
@@ -534,6 +551,59 @@ fn entities(s: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_version() {
+        assert_eq!(version_of("konsole 26.08.2\n").as_deref(), Some("26.08.2"));
+        for junk in [
+            "",
+            "garbage",
+            "konsole",
+            "konsole 26.08.2\x1b[0m",
+            "Konsole 26.08.2",
+        ] {
+            assert_eq!(version_of(junk), None, "{junk:?}");
+        }
+        assert!(PINNED.contains(VERSION));
+        let src = |i: Option<&str>, mismatch| Source {
+            defaults: VERSION.into(),
+            installed: i.map(Into::into),
+            checked: true,
+            mismatch,
+        };
+        // The offscreen platform reaches it.
+        let bin = pinned::fake_bin(
+            "konsole",
+            "[ \"$*|$LC_ALL|$QT_QPA_PLATFORM\" = '--version|C|offscreen' ] || exit 9; echo 'konsole 26.08.2'",
+        );
+        assert_eq!(
+            pick(pinned::path_of(&bin)).unwrap(),
+            (None, src(Some("26.08.2"), false))
+        );
+        let bin = pinned::fake_bin("konsole", "echo 'konsole 25.04.3'");
+        assert_eq!(
+            pick(pinned::path_of(&bin)).unwrap(),
+            (
+                Some(
+                    "konsole 25.04.3: using the defaults of 26.08.2; add data/konsole/25.04.3.toml"
+                        .into()
+                ),
+                src(Some("25.04.3"), true)
+            )
+        );
+        // No konsole, or one that fails: unknown.
+        let none = crate::test_tmp().join("kbf-konsole-none");
+        let fails = pinned::fake_bin("konsole", "echo 'konsole 26.08.2'; exit 1");
+        for dir in [none, fails] {
+            assert_eq!(
+                pick(pinned::path_of(&dir)).unwrap(),
+                (
+                    Some("konsole's version is unknown: using the defaults of 26.08.2".into()),
+                    src(None, true)
+                )
+            );
+        }
+    }
 
     fn fixture(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))

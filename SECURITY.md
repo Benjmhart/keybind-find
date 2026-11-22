@@ -46,7 +46,11 @@ Please report security problems privately, through GitHub's private vulnerabilit
     runs no shell; nothing else in the session is changed), qutebrowser's Python (the interpreter on the `#!` line of
     the `qutebrowser` on PATH, run only when that line is a Python one: an absolute `…/python*`, or `…/env python*`
     or `…/env -S python*` (then with PATH's absolute entries only), with flags only; `-I -c` with a fixed script that prints qutebrowser's version and your `autoconfig.yml`
-    as PyYAML loads it);
+    as PyYAML loads it), and the version checks of programs whose defaults are built in, each from PATH with a 2-second
+    limit and only a version read from what it prints: `konsole --version` (with Qt's offscreen platform, so it needs
+    no display; it prints its version and exits before any window or D-Bus, though, as on every Konsole start, it may
+    first rename old keys in `konsolerc`), `mc --version`, `ranger --version` (before any config is read), `ncmpcpp
+    --version` (before connecting to MPD) and `lf -version`;
   - the picker: `alacritty` with `fzf`, `fuzzel` or `dmenu`, or whatever program `KEYBIND_FIND_PICKER` names;
   - `notify-send` for errors under a hotkey.
 - **It has your qutebrowser run a script of its own.** Over a qutebrowser window, keybind-find writes a fixed Python

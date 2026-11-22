@@ -1,20 +1,24 @@
 //! Obsidian: its default hotkeys pinned for one release (`data/obsidian/`, read from the release's app bundle), with
 //! the focused vault's `.obsidian/hotkeys.json` laid over them. Shown when an Obsidian window has focus. Obsidian is
-//! a GUI app and is never run: only `obsidian.json` (the vault list) and the vault's `hotkeys.json` are read.
+//! a GUI app and is never run: only `obsidian.json` (the vault list) and the vault's `hotkeys.json` are read, and the
+//! installed version is the one in the window title.
 
 use super::nvim::single;
+use super::pinned;
 use crate::context::Context;
-use crate::sheet::{chord, Bind, Sheet};
+use crate::sheet::{chord, Bind, Sheet, Source};
 use anyhow::Context as _;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// The newest release at the time; there is no version probe, so every Obsidian gets these defaults.
+/// The newest release at the time; every Obsidian gets these defaults, with a note when the title names another version.
 const PINNED: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/data/obsidian/1.14.5.toml"
 ));
+/// `PINNED`'s version.
+const VERSION: &str = "1.14.5";
 
 /// The Flatpak's app id.
 const FLATPAK: &str = "md.obsidian.Obsidian";
@@ -52,13 +56,25 @@ struct Vault {
     path: PathBuf,
 }
 
-pub fn sheet(ctx: &Context) -> anyhow::Result<Sheet> {
+pub fn sheet(ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
+    let (note, source) = pick(ctx.title.as_deref())?;
     let (sheet, notes) = sheet_with(PINNED, ctx.title.as_deref(), &env)?;
-    for note in notes {
+    for note in note.into_iter().chain(notes) {
         eprintln!("keybind-find: obsidian: {note}");
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
+}
+
+/// The installed Obsidian against the pin, by the version its window title ends with (`<vault> - Obsidian 1.14.5`);
+/// any other title (a pop-out's `Obsidian`, none) is an unknown version.
+fn pick(title: Option<&str>) -> anyhow::Result<(Option<String>, Source)> {
+    let installed = title
+        .and_then(|t| t.rsplit_once(" - Obsidian "))
+        .and_then(|(_, v)| pinned::version_after(Some(v), ""));
+    let (_, _, note, source) = pinned::select("obsidian", &[(VERSION, "")], installed.as_deref())
+        .context("the pinned Obsidian version")?;
+    Ok((note, source))
 }
 
 /// The sheet for the window titled `title`, with `env` for the config dirs. Also the lines for stderr.
@@ -646,5 +662,40 @@ mod tests {
         assert!(notes[0].starts_with("no single vault in "), "{notes:?}");
         assert!(sheet_with("command = 1", None, &env).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_version_in_the_title() {
+        assert!(PINNED.contains(VERSION));
+        let src = |i: Option<&str>, mismatch| Source {
+            defaults: "1.14.5".into(),
+            installed: i.map(Into::into),
+            checked: true,
+            mismatch,
+        };
+        assert_eq!(
+            pick(Some("Work - Obsidian 1.14.5")).unwrap(),
+            (None, src(Some("1.14.5"), false))
+        );
+        assert_eq!(
+            pick(Some("n - Work - Obsidian 1.15.0")).unwrap(),
+            (
+                Some(
+                    "obsidian 1.15.0: using the defaults of 1.14.5; add data/obsidian/1.15.0.toml"
+                        .into()
+                ),
+                src(Some("1.15.0"), true)
+            )
+        );
+        for title in [Some("Obsidian"), None, Some("Work - Obsidian v1.14.5")] {
+            assert_eq!(
+                pick(title).unwrap(),
+                (
+                    Some("obsidian's version is unknown: using the defaults of 1.14.5".into()),
+                    src(None, true)
+                ),
+                "{title:?}"
+            );
+        }
     }
 }

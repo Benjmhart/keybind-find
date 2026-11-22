@@ -3,7 +3,7 @@
 //! or rnano is the program in the focused terminal.
 
 use crate::context::run_for;
-use crate::sheet::{chord, Bind, Sheet};
+use crate::sheet::{chord, Bind, Sheet, Source};
 use anyhow::{bail, Context as _};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -54,13 +54,13 @@ struct PinnedBind {
     desc: String,
 }
 
-pub fn sheet() -> anyhow::Result<Sheet> {
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
-    let (sheet, notes) = sheet_with(REGISTRY, |_| {}, Path::new("/etc/nanorc"), &env)?;
+    let (sheet, notes, source) = sheet_with(REGISTRY, |_| {}, Path::new("/etc/nanorc"), &env)?;
     for note in notes {
         eprintln!("keybind-find: nano: {note}");
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
 }
 
 /// `sheet` over `registry`, with `setup` applied to `nano --version` (a test seam: `PATH`).
@@ -69,7 +69,7 @@ fn sheet_with(
     setup: impl Fn(&mut Command),
     system: &Path,
     env: Env,
-) -> anyhow::Result<(Sheet, Vec<String>)> {
+) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
     let mut cmd = Command::new("nano");
     cmd.arg("--version")
         // The version line is translated.
@@ -96,39 +96,12 @@ fn parse_version(v: &str) -> Option<Vec<u64>> {
 
 /// The pinned file for `installed`: its own silently; else, with a note, the nearest of the same major version
 /// (older first: nano 8 moved `^F`/`^B`), else the newest older one, else the oldest; the newest when the version is
-/// unknown.
+/// unknown. `pinned::select`'s rules, which are nano's.
 fn select(
     registry: &[(&'static str, &'static str)],
     installed: Option<&str>,
-) -> Option<(&'static str, &'static str, Option<String>)> {
-    let mut entries: Vec<(Vec<u64>, &'static str, &'static str)> = registry
-        .iter()
-        .filter_map(|&(v, t)| Some((parse_version(v)?, v, t)))
-        .collect();
-    entries.sort();
-    let &(_, newest, newest_text) = entries.last()?;
-    let Some(wanted) = installed.and_then(parse_version) else {
-        let note = format!("nano's version is unknown: using the defaults of {newest}");
-        return Some((newest, newest_text, Some(note)));
-    };
-    if let Some(&(_, v, t)) = entries.iter().find(|(p, _, _)| *p == wanted) {
-        return Some((v, t, None));
-    }
-    let same = |p: &Vec<u64>| p.first() == wanted.first();
-    let older = entries.iter().rev().find(|(p, _, _)| *p < wanted);
-    let &(_, v, t) = older
-        .filter(|(p, _, _)| same(p))
-        .or_else(|| entries.iter().find(|(p, _, _)| same(p) && *p > wanted))
-        .or(older)
-        .or(entries.first())?;
-    let i = installed.unwrap_or_default();
-    Some((
-        v,
-        t,
-        Some(format!(
-            "nano {i}: using the defaults of {v}; add data/nano/{i}.toml"
-        )),
-    ))
+) -> Option<(&'static str, &'static str, Option<String>, Source)> {
+    super::pinned::select("nano", registry, installed)
 }
 
 /// The sheet for nano `installed`: the pinned defaults, then `/etc/nanorc` (`system`) and the user's nanorc found
@@ -138,8 +111,8 @@ fn read(
     installed: Option<&str>,
     system: &Path,
     env: Env,
-) -> anyhow::Result<(Sheet, Vec<String>)> {
-    let (version, text, note) =
+) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
+    let (version, text, note, source) =
         select(registry, installed).context("no nano defaults are built in")?;
     let pinned: Pinned =
         toml::from_str(text).with_context(|| format!("data/nano/{version}.toml"))?;
@@ -199,7 +172,7 @@ fn read(
             unknown.join(" ")
         ));
     }
-    Ok((sheet, notes))
+    Ok((sheet, notes, source))
 }
 
 /// The user's nanorc, as nano picks it: the first readable of `~/.nanorc`, `$XDG_CONFIG_HOME/nano/nanorc` and
@@ -547,18 +520,20 @@ mod tests {
     #[test]
     fn version_pick() {
         let pick = |v: Option<&str>| select(REGISTRY, v).unwrap();
-        assert_eq!(pick(Some("8.4")), ("8.4", REGISTRY[1].1, None));
-        let (v, _, note) = pick(Some("8.6"));
+        let (v, text, note, source) = pick(Some("8.4"));
+        assert_eq!((v, text, note), ("8.4", REGISTRY[1].1, None));
+        assert!(!source.mismatch && source.installed.as_deref() == Some("8.4"));
+        let (v, _, note, _) = pick(Some("8.6"));
         assert_eq!(v, "8.4");
         assert!(note.unwrap().contains("add data/nano/8.6.toml"));
         // 8.0-8.3 keep nano 8's keys: 8.4, not 7.2.
         assert_eq!(pick(Some("8.1")).0, "8.4");
-        let (v, _, note) = pick(Some("10.0"));
+        let (v, _, note, _) = pick(Some("10.0"));
         assert_eq!(v, "9.2");
         assert!(note.unwrap().contains("add data/nano/10.0.toml"));
         assert_eq!(pick(Some("7.0")).0, "7.2");
         assert_eq!(pick(Some("5.4")).0, "7.2");
-        let (v, _, note) = pick(None);
+        let (v, _, note, _) = pick(None);
         assert_eq!(v, "9.2");
         assert!(note.unwrap().contains("unknown"));
         assert!(select(&[], Some("8.4")).is_none());
@@ -673,7 +648,7 @@ mod tests {
     }
 
     /// The sheet for nano `version` with the fixture system nanorc and `home` as HOME (and `xdg` if any).
-    fn run(version: &str, home: &Path, xdg: Option<&Path>) -> (Sheet, Vec<String>) {
+    fn run(version: &str, home: &Path, xdg: Option<&Path>) -> (Sheet, Vec<String>, Source) {
         let (h, x) = (
             home.display().to_string(),
             xdg.map(|x| x.display().to_string()),
@@ -697,7 +672,7 @@ mod tests {
 
     #[test]
     fn nanorc_over_defaults() {
-        let (s, notes) = run("9.2", &fixtures().join("home"), None);
+        let (s, notes, _) = run("9.2", &fixtures().join("home"), None);
         let action = |k: &str| get(&s, k).map(|b| b.action.clone());
         // /etc's own bind; a user bind replacing a default; `all` (in lower case) for main; the user's ^K over /etc's;
         // words after the menu ignored.
@@ -748,11 +723,11 @@ mod tests {
         let empty = crate::test_tmp().join(format!("kbf-nano-empty-{}", std::process::id()));
         std::fs::create_dir_all(&empty).unwrap();
         // No ~/.nanorc: the XDG one.
-        let (s, _) = run("9.2", &empty, Some(&fixtures().join("xdg")));
+        let (s, _, _) = run("9.2", &empty, Some(&fixtures().join("xdg")));
         assert_eq!(get(&s, "alt+3").unwrap().action, "writeout");
         // Neither, and no /etc file: the defaults alone, no notes.
         let e = empty.display().to_string();
-        let (s, notes) = read(REGISTRY, Some("9.2"), &empty.join("nanorc"), &|k| {
+        let (s, notes, _) = read(REGISTRY, Some("9.2"), &empty.join("nanorc"), &|k| {
             (k == "HOME").then(|| e.clone())
         })
         .unwrap();
@@ -783,7 +758,7 @@ mod tests {
             home.display().to_string(),
             fixtures().join("xdg").display().to_string(),
         );
-        let (s, notes) = read(REGISTRY, Some("9.2"), &etc, &|k| match k {
+        let (s, notes, _) = read(REGISTRY, Some("9.2"), &etc, &|k| match k {
             "HOME" => Some(h.clone()),
             "XDG_CONFIG_HOME" => Some(x.clone()),
             _ => None,

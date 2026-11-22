@@ -10,7 +10,7 @@ mod sheet;
 mod usage;
 
 use context::Context;
-use sheet::Sheet;
+use sheet::{Dumped, Sheet, Source};
 use std::io::{IsTerminal, Write};
 use std::process::{Command, ExitCode, Stdio};
 
@@ -81,14 +81,23 @@ fn check_plugin(args: &[&str]) -> anyhow::Result<()> {
 /// Detect the context, show every binding that applies, and send the one picked (or print it with `dry_run`).
 fn pick_and_run(dry_run: bool) -> anyhow::Result<()> {
     let ctx = context::detect();
-    let sheets = collect(&ctx)?;
+    let (sheets, sources): (Vec<Sheet>, Vec<Option<Source>>) = collect(&ctx)?.into_iter().unzip();
+    // fzf's header says where each program's built-in defaults came from; a mismatch in red.
+    let header: Vec<(String, bool)> = sheets
+        .iter()
+        .zip(&sources)
+        .filter_map(|(s, src)| {
+            src.as_ref()
+                .map(|src| (src.line(&s.provider), src.mismatch))
+        })
+        .collect();
     // What the running nvim reported (its mode and filetype) hides what can't apply; other scopes show as tags.
     let mut entries = scope::shown(&sheets, &context::facts())?;
     usage::rank(&mut entries, &usage::load());
     // A JSON frontend is told the window, with what the running nvim reported.
     let mut window = context::window();
     window.facts = context::facts();
-    let Some((i, print)) = picker::pick(&entries, &window)? else {
+    let Some((i, print)) = picker::pick(&entries, &window, &header)? else {
         return Ok(());
     };
     // A frontend's `print` is `--print` for this pick: keys printed, nothing sent or logged.
@@ -122,16 +131,26 @@ fn keys() -> anyhow::Result<()> {
 
 fn dump(name: &str) -> anyhow::Result<()> {
     let ctx = context::detect();
-    let sheet = providers::sheet(name, &ctx)?;
-    print_out(&serde_json::to_string_pretty(&sheet)?)
+    let (sheet, source) = providers::sheet(name, &ctx)?;
+    print_out(&serde_json::to_string_pretty(&dumped(&(sheet, source)))?)
 }
 
 fn dump_all() -> anyhow::Result<()> {
     let ctx = context::detect();
-    print_out(&serde_json::to_string_pretty(&collect(&ctx)?)?)
+    let all = collect(&ctx)?;
+    let all: Vec<Dumped> = all.iter().map(dumped).collect();
+    print_out(&serde_json::to_string_pretty(&all)?)
 }
 
-fn collect(ctx: &Context) -> anyhow::Result<Vec<Sheet>> {
+/// A sheet as `dump` prints it, with its `source` when it has one.
+fn dumped((sheet, source): &(Sheet, Option<Source>)) -> Dumped<'_> {
+    Dumped {
+        sheet,
+        source: source.as_ref(),
+    }
+}
+
+fn collect(ctx: &Context) -> anyhow::Result<Vec<(Sheet, Option<Source>)>> {
     collect_with(&ctx.providers, ctx.class.is_none(), |name| {
         providers::sheet(name, ctx)
     })
@@ -143,8 +162,8 @@ fn collect(ctx: &Context) -> anyhow::Result<Vec<Sheet>> {
 fn collect_with(
     names: &[&str],
     no_class: bool,
-    sheet: impl Fn(&str) -> anyhow::Result<Sheet> + Sync,
-) -> anyhow::Result<Vec<Sheet>> {
+    sheet: impl Fn(&str) -> anyhow::Result<(Sheet, Option<Source>)> + Sync,
+) -> anyhow::Result<Vec<(Sheet, Option<Source>)>> {
     let results: Vec<_> = std::thread::scope(|s| {
         let sheet = &sheet;
         let handles: Vec<_> = names
@@ -163,7 +182,7 @@ fn collect_with(
     let mut tried = Vec::new();
     for (name, r) in results {
         match r {
-            Ok(s) if no_class && name == "sheets" && s.binds.is_empty() => continue,
+            Ok((s, _)) if no_class && name == "sheets" && s.binds.is_empty() => continue,
             Ok(s) => sheets.push(s),
             Err(e) => eprintln!("keybind-find: {}", provider_error(name, &e)),
         }
@@ -277,12 +296,15 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    fn ok(provider: &str) -> anyhow::Result<Sheet> {
-        Ok(Sheet {
-            title: provider.into(),
-            provider: provider.into(),
-            binds: BTreeMap::new(),
-        })
+    fn ok(provider: &str) -> anyhow::Result<(Sheet, Option<Source>)> {
+        Ok((
+            Sheet {
+                title: provider.into(),
+                provider: provider.into(),
+                binds: BTreeMap::new(),
+            },
+            None,
+        ))
     }
 
     #[test]
@@ -292,8 +314,19 @@ mod tests {
             _ => ok(n),
         })
         .unwrap();
-        let names: Vec<_> = got.iter().map(|s| s.provider.as_str()).collect();
+        let names: Vec<_> = got.iter().map(|(s, _)| s.provider.as_str()).collect();
         assert_eq!(names, ["a", "c"]);
+        // A source stays with its sheet.
+        let got = collect_with(&["a", "b"], false, |n| {
+            let (s, _) = ok(n)?;
+            Ok((s, (n == "b").then(|| Source::unchecked("1.0"))))
+        })
+        .unwrap();
+        assert_eq!(got[0].1, None);
+        assert_eq!(
+            (got[1].0.provider.as_str(), got[1].1.clone()),
+            ("b", Some(Source::unchecked("1.0")))
+        );
     }
 
     #[test]
@@ -313,11 +346,14 @@ mod tests {
                     serde_json::from_str(r#"{"key": "shift+k b f", "desc": "vm-check"}"#).unwrap(),
                 ],
             );
-            Ok(Sheet {
-                title: "global".into(),
-                provider: "sheets".into(),
-                binds,
-            })
+            Ok((
+                Sheet {
+                    title: "global".into(),
+                    provider: "sheets".into(),
+                    binds,
+                },
+                None,
+            ))
         };
         let got = collect_with(&["xmonad", "espanso", "sheets"], true, |n| match n {
             "sheets" => global(),
@@ -325,7 +361,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(got.len(), 1);
-        assert_eq!(got[0].binds["vm"][0].desc, "vm-check");
+        assert_eq!(got[0].0.binds["vm"][0].desc, "vm-check");
     }
 
     #[test]

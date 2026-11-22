@@ -9,7 +9,7 @@ use super::nvim::single;
 use super::pinned;
 use crate::context::{run_for, Context};
 use crate::scope::Facts;
-use crate::sheet::{chord, Bind, Name, Sheet, Values};
+use crate::sheet::{chord, Bind, Name, Sheet, Source, Values};
 use anyhow::{bail, ensure, Context as _};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -153,14 +153,17 @@ struct Fallback {
 /// A live answer: the version, the mode and the bindings (mode, key, command).
 type Live = (String, String, Vec<(String, String, String)>);
 
+/// What `read` found: the sheet, the facts, the notes and the defaults' `Source`.
+type Found = (Sheet, Option<Facts>, Vec<String>, Option<Source>);
+
 /// A binding with its key in keybind-find's notation (`None`: left out, see `notation`).
 type Row = (String, Option<String>, String);
 
-pub fn sheet(ctx: &Context) -> anyhow::Result<Sheet> {
+pub fn sheet(ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>)> {
     // The pid context found is the window's own only when the focused window is qutebrowser's.
     let pid =
         crate::context::editor_pid().filter(|_| ctx.class.as_deref().is_some_and(is_qutebrowser));
-    let (sheet, facts, notes) = read(
+    let (sheet, facts, notes, source) = read(
         REGISTRY,
         pid,
         Path::new("/proc"),
@@ -174,7 +177,7 @@ pub fn sheet(ctx: &Context) -> anyhow::Result<Sheet> {
     for note in notes {
         eprintln!("keybind-find: qutebrowser: {note}");
     }
-    Ok(sheet)
+    Ok((sheet, source))
 }
 
 /// A qutebrowser window, by class or app id, any case.
@@ -184,7 +187,8 @@ pub(crate) fn is_qutebrowser(class: &str) -> bool {
 
 /// The sheet, the facts (from a live answer) and the stderr notes (printable): the qutebrowser at `pid` asked over its
 /// IPC socket (found under `proc`), else the fallback (`env`: keybind-find's environment). `wait` bounds the answer,
-/// `fallback_wait` the fallback's run (test seams).
+/// `fallback_wait` the fallback's run (test seams). The fallback's defaults also give their `Source`; a live answer
+/// is qutebrowser's own complete table, so none.
 fn read(
     registry: &[(&'static str, &'static str)],
     pid: Option<u32>,
@@ -192,7 +196,7 @@ fn read(
     env: Env,
     wait: Duration,
     fallback_wait: Duration,
-) -> anyhow::Result<(Sheet, Option<Facts>, Vec<String>)> {
+) -> anyhow::Result<Found> {
     let mut notes = Vec::new();
     let pid = pid.filter(|&p| runs_qutebrowser(proc, p));
     let live = match pid.and_then(|p| ipc_socket(proc, p)) {
@@ -207,15 +211,16 @@ fn read(
             }
         },
     };
-    let (version, rows, facts) = match live {
+    let (version, rows, facts, source) = match live {
         Some((version, mode, bindings)) => {
             // Only the key table is used: its note about the defaults' version doesn't apply.
-            let (pin, _) = pin_for(registry, Some(&version))?;
-            (version, translate(bindings, &pin.keys), mode_fact(&mode))
+            let (pin, _, _) = pin_for(registry, Some(&version))?;
+            let rows = translate(bindings, &pin.keys);
+            (version, rows, mode_fact(&mode), None)
         }
         None => {
-            let (version, rows) = fallback(registry, env, fallback_wait, &mut notes)?;
-            (version, rows, None)
+            let (version, rows, source) = fallback(registry, env, fallback_wait, &mut notes)?;
+            (version, rows, None, Some(source))
         }
     };
     let (sheet, left_out, unnamed) = to_sheet(&version, rows);
@@ -231,15 +236,16 @@ fn read(
              `=`, `[` or `]`)"
         ));
     }
-    Ok((sheet, facts, notes.iter().map(|n| printable(n)).collect()))
+    let notes = notes.iter().map(|n| printable(n)).collect();
+    Ok((sheet, facts, notes, source))
 }
 
-/// The pinned file for `version`, checked, and `pinned::select`'s note.
+/// The pinned file for `version`, checked, and `pinned::select`'s note and `Source`.
 fn pin_for(
     registry: &[(&'static str, &'static str)],
     version: Option<&str>,
-) -> anyhow::Result<(Pinned, Option<String>)> {
-    let (v, text, note) = pinned::select("qutebrowser", registry, version)
+) -> anyhow::Result<(Pinned, Option<String>, Source)> {
+    let (v, text, note, source) = pinned::select("qutebrowser", registry, version)
         .context("no pinned qutebrowser defaults")?;
     let pin: Pinned =
         toml::from_str(text).with_context(|| format!("reading data/qutebrowser/{v}.toml"))?;
@@ -248,7 +254,7 @@ fn pin_for(
         "data/qutebrowser/{v}.toml names qutebrowser {}",
         pin.qutebrowser_version
     );
-    Ok((pin, note))
+    Ok((pin, note, source))
 }
 
 /// The answer's mode as the fact `mode`; the mark and macro modes use the `register` bindings.
@@ -459,7 +465,7 @@ fn fallback(
     env: Env,
     wait: Duration,
     notes: &mut Vec<String>,
-) -> anyhow::Result<(String, Vec<Row>)> {
+) -> anyhow::Result<(String, Vec<Row>, Source)> {
     let dir = config_dir(env).context("no HOME to find qutebrowser's config in")?;
     let out = run_fallback(env, &dir.join("autoconfig.yml"), wait)?;
     // The script ran but couldn't import qutebrowser: the subprocess failed (AC #3).
@@ -469,7 +475,7 @@ fn fallback(
             printable(out.error.as_deref().unwrap_or("no version"))
         );
     };
-    let (pin, note) = pin_for(registry, Some(&version))?;
+    let (pin, note, source) = pin_for(registry, Some(&version))?;
     notes.extend(note);
     let mut rows = translate(
         pin.bind
@@ -501,7 +507,7 @@ fn fallback(
             )),
         }
     }
-    Ok((version, rows))
+    Ok((version, rows, source))
 }
 
 /// qutebrowser's config directory: Qt's `ConfigLocation` (`$XDG_CONFIG_HOME` when it starts with `/`, else
@@ -1184,6 +1190,7 @@ mod tests {
         wait: Duration,
     ) -> anyhow::Result<(Sheet, Option<Facts>, Vec<String>)> {
         read(REGISTRY, pid, proc, &|k| env.get(k).cloned(), wait, LONG)
+            .map(|(s, f, n, _)| (s, f, n))
     }
 
     /// AC #3: the fallback over the pinned defaults.
@@ -1191,8 +1198,18 @@ mod tests {
     fn the_fallback() {
         let d = fresh("fallback");
         let env = fake_qutebrowser(&d, &fixture("fallback.json"));
-        let (s, facts, notes) = run(None, &d, &env, TIMEOUT).unwrap();
+        let (s, facts, notes, source) =
+            read(REGISTRY, None, &d, &|k| env.get(k).cloned(), TIMEOUT, LONG).unwrap();
         assert!(facts.is_none() && notes.is_empty(), "{notes:?}");
+        assert_eq!(
+            source,
+            Some(Source {
+                defaults: "3.7.0".into(),
+                installed: Some("3.7.0".into()),
+                checked: true,
+                mismatch: false
+            })
+        );
         let args = std::fs::read_to_string(d.join("args")).unwrap();
         assert!(
             args.starts_with("-I\n-c\nimport json, os, stat, sys\n"),
@@ -1464,8 +1481,18 @@ mod tests {
         let socket = run_dir.join("ipc-0123");
         let proc = fake_proc(&d, &["socket:[111]"], &[("111", &socket)]);
         let browser = fake_browser(&socket, Some(fixture("answer.json")));
-        let (s, facts, notes) = run(Some(4242), &proc, &env, LONG).unwrap();
+        let (s, facts, notes, source) = read(
+            REGISTRY,
+            Some(4242),
+            &proc,
+            &|k| env.get(k).cloned(),
+            LONG,
+            LONG,
+        )
+        .unwrap();
         let dir = browser.join().unwrap();
+        // The live table is qutebrowser's own: no defaults source.
+        assert_eq!(source, None);
         assert_eq!(notes.len(), 1);
         assert!(notes[0].starts_with("leaving out 2 key(s)"), "{notes:?}");
         assert_eq!(facts.unwrap()["mode"].to_string(), "insert");

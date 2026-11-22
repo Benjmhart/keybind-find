@@ -3,7 +3,7 @@
 
 use super::pinned;
 use crate::context::run_for;
-use crate::sheet::{chord, Bind, Sheet};
+use crate::sheet::{chord, Bind, Sheet, Source};
 use anyhow::Context as _;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -86,13 +86,13 @@ struct Binding {
     text: bool,
 }
 
-pub fn sheet() -> anyhow::Result<Sheet> {
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
-    let (sheet, notes) = sheet_with(REGISTRY, |_| {}, &env)?;
+    let (sheet, notes, source) = sheet_with(REGISTRY, |_| {}, &env)?;
     if !notes.is_empty() {
         eprintln!("keybind-find: foot: {}", notes.join("; "));
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
 }
 
 /// `sheet` over `registry`, with `setup` applied to `foot --version` (a test seam: `PATH`) and `foot.ini` found
@@ -101,7 +101,7 @@ fn sheet_with(
     registry: &[(&'static str, &'static str)],
     setup: impl Fn(&mut Command),
     env: Env,
-) -> anyhow::Result<(Sheet, Vec<String>)> {
+) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
     let mut cmd = Command::new("foot");
     cmd.arg("--version")
         .env("LC_ALL", "C")
@@ -110,14 +110,14 @@ fn sheet_with(
     let installed = run_for(cmd, VERSION_TIMEOUT)
         .ok()
         .and_then(|t| version_of(&t));
-    let (v, text, note) = pinned::select("foot", registry, installed.as_deref())
+    let (v, text, note, source) = pinned::select("foot", registry, installed.as_deref())
         .context("no pinned foot bindings")?;
     let pinned: Pinned =
         toml::from_str(text).with_context(|| format!("reading data/foot/{v}.toml"))?;
     let home = env("HOME").filter(|h| !h.is_empty()).map(PathBuf::from);
     let (sheet, mut notes) = parse(&pinned, config_file(env).as_deref(), home.as_deref());
     notes.splice(0..0, note);
-    Ok((sheet, notes))
+    Ok((sheet, notes, source))
 }
 
 /// The version in `foot --version`'s `foot version: 1.28.0 +pgo +ime …`; a git build's `1.28.0-12-gabc1234` is
@@ -960,12 +960,21 @@ mod tests {
         // No foot.ini anywhere, the machine's /etc/xdg included.
         let none = |k: &str| (k == "XDG_CONFIG_DIRS").then(|| "/nonexistent".to_string());
         let bin = fake("exact", "foot version: 1.28.0 +pgo +ime");
-        let (s, notes) = sheet_with(REGISTRY, path(&bin), &none).unwrap();
+        let (s, notes, source) = sheet_with(REGISTRY, path(&bin), &none).unwrap();
         let _ = std::fs::remove_dir_all(&bin);
         assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(
+            source,
+            Source {
+                defaults: "1.28.0".into(),
+                installed: Some("1.28.0".into()),
+                checked: true,
+                mismatch: false
+            }
+        );
         assert_eq!(s.title, "foot");
         let bin = fake("newer", "foot version: 1.29.1 +pgo");
-        let (_, notes) = sheet_with(REGISTRY, path(&bin), &none).unwrap();
+        let (_, notes, _) = sheet_with(REGISTRY, path(&bin), &none).unwrap();
         let _ = std::fs::remove_dir_all(&bin);
         assert_eq!(
             notes,
@@ -980,7 +989,7 @@ mod tests {
             "XDG_CONFIG_DIRS" => Some("/nonexistent".into()),
             _ => None,
         };
-        let (s, notes) = sheet_with(REGISTRY, path(&missing), &env).unwrap();
+        let (s, notes, _) = sheet_with(REGISTRY, path(&missing), &env).unwrap();
         assert_eq!(keys(&s, "search", "cancel"), ["Escape"]);
         assert_eq!(
             notes[0],
@@ -1004,7 +1013,7 @@ mod tests {
         // The provider's own run of it, with no foot.ini.
         // No foot.ini anywhere, the machine's /etc/xdg included.
         let none = |k: &str| (k == "XDG_CONFIG_DIRS").then(|| "/nonexistent".to_string());
-        let (s, _) = sheet_with(REGISTRY, |_| {}, &none).unwrap();
+        let (s, _, _) = sheet_with(REGISTRY, |_| {}, &none).unwrap();
         assert!(!s.binds["foot"].is_empty());
     }
 }

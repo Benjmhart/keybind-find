@@ -1,7 +1,7 @@
 //! Provider registry: one module per program, picked by name.
 
 use crate::context::Context;
-use crate::sheet::Sheet;
+use crate::sheet::{Sheet, Source};
 
 mod alacritty;
 mod alacritty_defaults;
@@ -118,7 +118,37 @@ pub const KNOWN: &[&str] = &[
     "qutebrowser",
 ];
 
-pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
+/// The sheet of provider `name`, and where its keys came from when they include built-in defaults.
+pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>)> {
+    match name {
+        "foot" => foot::sheet(),
+        "helix" => helix::sheet(),
+        "herdr" => herdr::sheet(ctx),
+        "kakoune" => kakoune::sheet(),
+        "kitty" => kitty::sheet(),
+        "konsole" => konsole::sheet(),
+        "lazygit" => lazygit::sheet(),
+        "lf" => lf::sheet(),
+        "mc" => mc::sheet(),
+        "micro" => micro::sheet(),
+        "nano" => nano::sheet(),
+        "ncmpcpp" => ncmpcpp::sheet(),
+        "nnn" => nnn::sheet(),
+        "obsidian" => obsidian::sheet(ctx),
+        "qutebrowser" => qutebrowser::sheet(ctx),
+        "ranger" => ranger::sheet(),
+        "screen" => screen::sheet(),
+        "vimium" => vimium::sheet(ctx),
+        "vscode" => vscode::sheet(ctx),
+        "xfce4_terminal" => xfce4_terminal::sheet(),
+        "yazi" => yazi::sheet(),
+        "zathura" => zathura::sheet(ctx),
+        _ => other(name, ctx).map(|s| (s, None)),
+    }
+}
+
+/// The providers whose keys never come from built-in defaults, and plugins.
+fn other(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
     match name {
         "xmonad" => xmonad::sheet(ctx),
         "sway" => sway::sheet(ctx),
@@ -130,44 +160,22 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "i3" => i3::sheet(ctx),
         "espanso" => espanso::sheet(ctx),
         "nvim" => nvim::sheet(ctx),
-        "herdr" => herdr::sheet(ctx),
         "alacritty" => alacritty::sheet(ctx),
-        "foot" => foot::sheet(),
         "ghostty" => ghostty::sheet(ctx),
         "sheets" => sheets::sheet(ctx),
         "tmux" => tmux::sheet(ctx),
-        "vimium" => vimium::sheet(ctx),
         "bash" | "zsh" | "fish" => shells::sheet(name),
         "less" => less::sheet(),
         "mpv" => mpv::sheet(),
         "vim" => vim::sheet(ctx),
-        "nano" => nano::sheet(),
-        "screen" => screen::sheet(),
-        "kitty" => kitty::sheet(),
-        "yazi" => yazi::sheet(),
-        "zathura" => zathura::sheet(ctx),
-        "micro" => micro::sheet(),
-        "mc" => mc::sheet(),
-        "vscode" => vscode::sheet(ctx),
-        "obsidian" => obsidian::sheet(ctx),
         "emacs" => emacs::sheet(ctx),
         "zed" => zed::sheet(ctx),
-        "ncmpcpp" => ncmpcpp::sheet(),
-        "ranger" => ranger::sheet(),
-        "xfce4_terminal" => xfce4_terminal::sheet(),
-        "helix" => helix::sheet(),
         "wezterm" => wezterm::sheet(ctx),
         "zellij" => zellij::sheet(),
         "sxhkd" => sxhkd::sheet(ctx),
-        "konsole" => konsole::sheet(),
         "awesome" => awesome::sheet(ctx),
         "niri" => niri::sheet(ctx),
-        "lf" => lf::sheet(),
-        "lazygit" => lazygit::sheet(),
-        "nnn" => nnn::sheet(),
-        "kakoune" => kakoune::sheet(),
         "openbox" => openbox::sheet(ctx),
-        "qutebrowser" => qutebrowser::sheet(ctx),
         _ if let Some(sheet) = plugins::sheet(name, ctx) => sheet,
         _ => anyhow::bail!(
             "unknown provider {name:?}; known providers: {}",
@@ -206,10 +214,10 @@ mod tests {
         };
         assert!(KNOWN.contains(&"alacritty") && KNOWN.contains(&"sway"));
         // The arm reaches the alacritty provider (it falls back to defaults, so this holds on any host).
-        assert_eq!(sheet("alacritty", &ctx).unwrap().provider, "alacritty");
-        assert_eq!(sheet("sheets", &ctx).unwrap().provider, "sheets");
+        assert_eq!(sheet("alacritty", &ctx).unwrap().0.provider, "alacritty");
+        assert_eq!(sheet("sheets", &ctx).unwrap().0.provider, "sheets");
         // kitty falls back to its pinned defaults with no kitty installed.
-        assert_eq!(sheet("kitty", &ctx).unwrap().provider, "kitty");
+        assert_eq!(sheet("kitty", &ctx).unwrap().0.provider, "kitty");
         for p in KNOWN {
             if let Err(e) = sheet(p, &ctx) {
                 assert!(!e.to_string().contains("unknown provider"), "{p}: {e}");

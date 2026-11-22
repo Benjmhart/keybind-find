@@ -5,7 +5,7 @@
 use super::nvim::single;
 use super::pinned;
 use crate::context::{run_for, Context};
-use crate::sheet::{chord, Bind, Sheet};
+use crate::sheet::{chord, Bind, Sheet, Source};
 use anyhow::{bail, Context as _};
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashSet};
@@ -68,9 +68,9 @@ struct Shortcut {
     detail: String,
 }
 
-pub fn sheet(ctx: &Context) -> anyhow::Result<Sheet> {
+pub fn sheet(ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
-    let (sheet, notes) = sheet_with(
+    let (sheet, notes, source) = sheet_with(
         REGISTRY,
         |_| {},
         &env,
@@ -80,7 +80,7 @@ pub fn sheet(ctx: &Context) -> anyhow::Result<Sheet> {
     if !notes.is_empty() {
         eprintln!("keybind-find: zathura: {}", notes.join("; "));
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
 }
 
 /// Whether a window of `class` is the Flatpak's zathura (its app id), any case.
@@ -96,15 +96,16 @@ fn sheet_with(
     env: Env,
     flatpak: bool,
     sysconf: &Path,
-) -> anyhow::Result<(Sheet, Vec<String>)> {
+) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
     let mut cmd = Command::new("zathura");
     cmd.arg("--version")
         .env("LC_ALL", "C")
         .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
     setup(&mut cmd);
     let version = run_for(cmd, VERSION_TIMEOUT).context("running zathura --version")?;
-    let (v, text, note) = pinned::select("zathura", registry, version_of(&version).as_deref())
-        .context("no pinned zathura defaults")?;
+    let (v, text, note, source) =
+        pinned::select("zathura", registry, version_of(&version).as_deref())
+            .context("no pinned zathura defaults")?;
     let pinned: Pinned =
         toml::from_str(text).with_context(|| format!("reading data/zathura/{v}.toml"))?;
     if pinned.zathura_version != v {
@@ -143,7 +144,7 @@ fn sheet_with(
             "leaving out {left_out} {maps}: mouse binds, and keys girara or keybind-find can't read"
         ));
     }
-    Ok((to_sheet(binds), notes))
+    Ok((to_sheet(binds), notes, source))
 }
 
 /// The version on `zathura --version`'s first line (`zathura 0.5.11`, `zathura 2026.10.23`).
@@ -611,7 +612,7 @@ mod tests {
     #[test]
     fn version_pick() {
         let pick = |out: &str| {
-            let (v, _, note) =
+            let (v, _, note, _) =
                 pinned::select("zathura", REGISTRY, version_of(out).as_deref()).unwrap();
             (v, note)
         };
@@ -891,7 +892,7 @@ mod tests {
         };
         let none = |k: &str| (k == "XDG_CONFIG_DIRS").then(|| "/nonexistent".to_string());
         let bin = fake_zathura("ok", "zathura 0.5.11\\ngirara 0.4.5\\n");
-        let (s, notes) = sheet_with(
+        let (s, notes, source) = sheet_with(
             REGISTRY,
             path(&bin),
             &none,
@@ -900,12 +901,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.title, "zathura");
+        assert_eq!(
+            (source.installed.as_deref(), source.mismatch),
+            (Some("0.5.11"), false)
+        );
         assert_eq!(find(&s, "normal", "ctrl+q"), ["quit"]);
         assert!(notes.is_empty(), "{notes:?}");
         let _ = std::fs::remove_dir_all(&bin);
         // A zathura printing nothing: the newest, with a note.
         let bin = fake_zathura("silent", "");
-        let (_, notes) = sheet_with(
+        let (_, notes, _) = sheet_with(
             REGISTRY,
             path(&bin),
             &none,

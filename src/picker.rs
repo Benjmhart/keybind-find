@@ -18,10 +18,12 @@ const KEY_CAP: usize = 28;
 const DESC_CAP: usize = 60;
 
 /// Shows `entries` in the picker; the index of the chosen one and whether to print its keys rather than send them
-/// (a JSON frontend's `print`), or `None` if the user cancelled. `window` is what a JSON frontend is told.
+/// (a JSON frontend's `print`), or `None` if the user cancelled. `window` is what a JSON frontend is told. `header`:
+/// lines for fzf's header, each red when its flag is set; other pickers have no header to show them in.
 pub fn pick(
     entries: &[Entry],
     window: &keybind_find_sheet::Context,
+    header: &[(String, bool)],
 ) -> anyhow::Result<Option<(usize, bool)>> {
     if entries.is_empty() {
         return Ok(None);
@@ -47,7 +49,7 @@ pub fn pick(
     }
     let plain = |i: Option<usize>| i.map(|i| (i, false));
     match choice {
-        Choice::Fzf(terminal) => pick_fzf(entries, &terminal).map(plain),
+        Choice::Fzf(terminal) => pick_fzf(entries, &terminal, header).map(plain),
         Choice::Dmenu(cmd) => pick_with(&cmd, entries).map(plain),
         Choice::Json(cmd) => pick_json(&cmd, entries, window),
     }
@@ -186,10 +188,19 @@ fn columns(entries: &[Entry]) -> Vec<[String; 3]> {
 /// a file and the pick written to another, both in a fresh `0700` directory removed afterwards. keybind-find's own
 /// keys are listed after `entries`, so their indices are `entries.len()` and up and picking one is no pick. They are
 /// added here rather than in `__fzf` so `columns` lines them up with the rest; `__fzf` reads the config again, for
-/// its keys and to show a refused config in the header, where it is seen (Super+/'s stderr is not).
-fn pick_fzf(entries: &[Entry], terminal: &[String]) -> anyhow::Result<Option<usize>> {
+/// its keys and to show a refused config in the header, where it is seen (Super+/'s stderr is not). The `header`
+/// lines go to `__fzf` as the file `header` beside `list`.
+fn pick_fzf(
+    entries: &[Entry],
+    terminal: &[String],
+    header: &[(String, bool)],
+) -> anyhow::Result<Option<usize>> {
     let dir = RunDir::new()?;
     let (list, out) = (dir.0.join("list"), dir.0.join("out"));
+    if !header.is_empty() {
+        std::fs::write(dir.0.join("header"), header_text(header))
+            .context("writing the fzf header")?;
+    }
     let all: Vec<Entry> = entries
         .iter()
         .cloned()
@@ -221,6 +232,17 @@ fn pick_fzf(entries: &[Entry], terminal: &[String]) -> anyhow::Result<Option<usi
         anyhow::bail!("{}", msg.trim_end());
     }
     Ok(pick_index(&text, entries.len()))
+}
+
+/// The header lines as fzf shows them, each ending in a newline; a flagged one red (`Ui::new`'s colour).
+fn header_text(lines: &[(String, bool)]) -> String {
+    lines
+        .iter()
+        .map(|(l, red)| match red {
+            true => format!("\x1b[31m{l}\x1b[0m\n"),
+            false => format!("{l}\n"),
+        })
+        .collect()
 }
 
 /// The picked index, if it is one of the `n` real entries: one of keybind-find's own keys (`n` and up) is no pick.
@@ -290,8 +312,8 @@ fn own_entries(keys: &Keys) -> Vec<Entry> {
     out
 }
 
-/// What the headers say: the keys in force, and a refused config's reason in front of every header, so it stays
-/// in view while key search rewrites the rest.
+/// What the headers say: the keys in force, and the `header` lines (`header_text`) then a refused config's reason in
+/// front of every header, so they stay in view while key search rewrites the rest.
 #[derive(Clone)]
 struct Ui {
     keys: Keys,
@@ -299,12 +321,15 @@ struct Ui {
 }
 
 impl Ui {
-    fn new((keys, err): (Keys, Option<String>)) -> Self {
+    fn new((keys, err): (Keys, Option<String>), header: &str) -> Self {
         // Red: fzf draws a header's ANSI colours even without `--ansi`.
-        let note = err
+        let err = err
             .map(|e| format!("\x1b[31m{e}\x1b[0m | "))
             .unwrap_or_default();
-        Ui { keys, note }
+        Ui {
+            keys,
+            note: format!("{header}{err}"),
+        }
     }
 
     /// Key search's keys as X chords (`Return/KP_Enter`).
@@ -392,7 +417,7 @@ pub fn run_fzf(list: &Path, out: &Path) -> anyhow::Result<()> {
 
 fn fzf(list: &Path) -> anyhow::Result<Option<String>> {
     let input = std::fs::File::open(list).with_context(|| format!("opening {}", list.display()))?;
-    let ui = Ui::new(load_keys());
+    let ui = Ui::new(load_keys(), &header_of(list));
     let mut args = fzf_args(&ui);
     // Without key search the picker opens in text search, and the header and `ctrl-k` say why.
     match x11_only(std::env::var_os("WAYLAND_DISPLAY").as_deref())
@@ -426,6 +451,12 @@ fn fzf(list: &Path) -> anyhow::Result<Option<String>> {
             anyhow::bail!("fzf failed ({}): {stderr}", out.status)
         }
     }
+}
+
+/// `pick_fzf`'s header lines, from the file `header` beside `list`; none when there is no such file (or it can't be
+/// read).
+fn header_of(list: &Path) -> String {
+    std::fs::read_to_string(list.with_file_name("header")).unwrap_or_default()
 }
 
 /// Key search only outside Wayland: a native Wayland terminal's keys never reach an X grab, even with XWayland's
@@ -1069,7 +1100,7 @@ mod tests {
     }
 
     fn ui() -> Ui {
-        Ui::new((Keys::default(), None))
+        Ui::new((Keys::default(), None), "")
     }
 
     fn three() -> Vec<Entry> {
@@ -1742,7 +1773,7 @@ mod tests {
         };
         assert!(moved.undo.contains(&chord_for(4, "u").unwrap()));
         assert!(!moved.undo.contains(&chord_for(0, "BackSpace").unwrap()));
-        let ui = Ui::new((moved, None));
+        let ui = Ui::new((moved, None), "");
         assert!(
             ui.key_search("x").ends_with("| ctrl+u: undo"),
             "{}",
@@ -1803,14 +1834,17 @@ mod tests {
 
     #[test]
     fn text_search_keys_come_from_the_config() {
-        let ui = Ui::new((
-            Keys {
-                key_search: vec!["F2".into(), "alt+k".into()],
-                scope: vec!["ctrl+o".into()],
-                ..Keys::default()
-            },
-            None,
-        ));
+        let ui = Ui::new(
+            (
+                Keys {
+                    key_search: vec!["F2".into(), "alt+k".into()],
+                    scope: vec!["ctrl+o".into()],
+                    ..Keys::default()
+                },
+                None,
+            ),
+            "",
+        );
         let args = fzf_args(&ui);
         assert!(
             args.iter()
@@ -1855,10 +1889,13 @@ mod tests {
 
     #[test]
     fn a_refused_config_heads_every_header() {
-        let ui = Ui::new((
-            Keys::default(),
-            Some("/c/config.toml: conflict: run and text_search both use Escape (x)".into()),
-        ));
+        let ui = Ui::new(
+            (
+                Keys::default(),
+                Some("/c/config.toml: conflict: run and text_search both use Escape (x)".into()),
+            ),
+            "",
+        );
         let note =
             "\x1b[31m/c/config.toml: conflict: run and text_search both use Escape (x)\x1b[0m | ";
         assert!(fzf_args(&ui)
@@ -1890,6 +1927,71 @@ mod tests {
         assert!(off
             .iter()
             .any(|a| *a == format!("--bind=ctrl-k:change-header:{note}no X")));
+    }
+
+    #[test]
+    fn source_lines_head_every_header() {
+        let lines = [
+            (
+                "lazygit: 0.66.2 defaults built in (installed 0.66.2)".to_string(),
+                false,
+            ),
+            (
+                "konsole: 26.08.2 defaults built in (installed 25.04.3)".to_string(),
+                true,
+            ),
+        ];
+        let head = "lazygit: 0.66.2 defaults built in (installed 0.66.2)\n\x1b[31mkonsole: 26.08.2 defaults built in (installed 25.04.3)\x1b[0m\n";
+        assert_eq!(header_text(&lines), head);
+        // Through the run directory's `header` file, as `__fzf` reads it; none without the file.
+        let dir = RunDir::new().unwrap();
+        let list = dir.0.join("list");
+        assert_eq!(header_of(&list), "");
+        std::fs::write(dir.0.join("header"), header_text(&lines)).unwrap();
+        assert_eq!(header_of(&list), head);
+        let refused = "\x1b[31m/c/config.toml: bad\x1b[0m | ";
+        let note = format!("{head}{refused}");
+        let ui = Ui::new(
+            (Keys::default(), Some("/c/config.toml: bad".into())),
+            &header_of(&list),
+        );
+        assert!(fzf_args(&ui)
+            .iter()
+            .any(|a| a.starts_with(&format!("--header={note}"))));
+        assert!(ui.key_search("x").starts_with(&note));
+        assert!(ui.text_search("x").starts_with(&note));
+        assert!(end_header(&[], &ui).starts_with(&note));
+        assert!(fail_header(&anyhow::anyhow!("idle"), &ui).starts_with(&note));
+        let off = no_key_search_args(&anyhow::anyhow!("no X"), &ui);
+        assert!(
+            off[0].starts_with(&format!("--header={note}no X")),
+            "{off:?}"
+        );
+        assert!(off
+            .iter()
+            .any(|a| *a == format!("--bind=ctrl-k:change-header:{note}no X")));
+        // The key search start header and its `change-header` posts too.
+        let start =
+            key_search_args(Path::new("/x/kbf"), Path::new("/s"), Path::new("/f"), &ui).unwrap();
+        assert!(
+            start[1].starts_with(&format!("--header={note}")),
+            "{start:?}"
+        );
+        let (_, actions) = step(
+            &mut Vec::new(),
+            &mut String::new(),
+            Key::Grabbed,
+            Path::new("/k"),
+            &ui,
+        );
+        assert!(
+            actions.contains(&format!("[{note}key search:")),
+            "{actions}"
+        );
+        // No lines: the headers as before.
+        assert_eq!(header_text(&[]), "");
+        let plain = Ui::new((Keys::default(), None), "");
+        assert!(plain.key_search("x").starts_with("key search: x"));
     }
 
     /// A stand-in for fzf's server: answers each connection with the next of `replies`, and returns the requests.

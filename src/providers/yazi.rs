@@ -4,7 +4,7 @@
 use super::nvim::single;
 use super::pinned::{self, parse_version};
 use crate::context::run_for;
-use crate::sheet::{chord, Bind, Sheet};
+use crate::sheet::{chord, Bind, Sheet, Source};
 use anyhow::Context as _;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -79,13 +79,13 @@ impl OneOrMany {
     }
 }
 
-pub fn sheet() -> anyhow::Result<Sheet> {
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
-    let (sheet, notes) = sheet_with(REGISTRY, |_| {}, &env)?;
+    let (sheet, notes, source) = sheet_with(REGISTRY, |_| {}, &env)?;
     if !notes.is_empty() {
         eprintln!("keybind-find: yazi: {}", notes.join("; "));
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
 }
 
 /// `sheet` over `registry`, with `setup` applied to `yazi --version` (a test seam: `PATH`) and the config dir found
@@ -94,14 +94,14 @@ fn sheet_with(
     registry: &[(&'static str, &'static str)],
     setup: impl Fn(&mut Command),
     env: Env,
-) -> anyhow::Result<(Sheet, Vec<String>)> {
+) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
     let mut cmd = Command::new("yazi");
     cmd.arg("--version")
         .env("LC_ALL", "C")
         .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
     setup(&mut cmd);
     let version = run_for(cmd, VERSION_TIMEOUT).context("running yazi --version")?;
-    let (v, text, note) = pinned::select("yazi", registry, version_of(&version).as_deref())
+    let (v, text, note, source) = pinned::select("yazi", registry, version_of(&version).as_deref())
         .context("no pinned yazi keymap")?;
     let mut notes: Vec<String> = note.into_iter().collect();
     let defaults = keymap(text).with_context(|| format!("reading data/yazi/{v}.toml"))?;
@@ -132,7 +132,7 @@ fn sheet_with(
             "leaving out {left_out} {keys} with no keysym we know"
         ));
     }
-    Ok((sheet, notes))
+    Ok((sheet, notes, source))
 }
 
 /// The first dotted number in `yazi --version` (`    Version: 26.9.1 (Arch Linux …)` on its second line from 25.x;
@@ -487,7 +487,8 @@ mod tests {
     #[test]
     fn version_pick() {
         let pick = |v: &str| {
-            let (p, _, note) = pinned::select("yazi", REGISTRY, version_of(v).as_deref()).unwrap();
+            let (p, _, note, _) =
+                pinned::select("yazi", REGISTRY, version_of(v).as_deref()).unwrap();
             (p, note)
         };
         assert_eq!(
@@ -790,12 +791,16 @@ mod tests {
             "YAZI_CONFIG_HOME",
             fixtures().join("dir").to_string_lossy().into_owned(),
         )]);
-        let (s, notes) = sheet_with(REGISTRY, path(&bin), &env).unwrap();
+        let (s, notes, source) = sheet_with(REGISTRY, path(&bin), &env).unwrap();
+        assert_eq!(
+            (source.installed.as_deref(), source.mismatch),
+            (Some("26.9.1"), false)
+        );
         assert_eq!(find(&s, "mgr", "ctrl+alt+z")[0].action, "shell from-dir");
         assert!(notes.is_empty(), "{notes:?}");
         // No user file: the defaults, no line.
         let none = env_of(vec![("HOME", "/nonexistent-kbf".into())]);
-        let (s, notes) = sheet_with(REGISTRY, path(&bin), &none).unwrap();
+        let (s, notes, _) = sheet_with(REGISTRY, path(&bin), &none).unwrap();
         assert_eq!(s.binds.len(), 8);
         assert!(notes.is_empty(), "{notes:?}");
         // Invalid TOML, or an entry yazi refuses: the defaults and one line.
@@ -804,7 +809,7 @@ mod tests {
                 "YAZI_CONFIG_HOME",
                 fixtures().join(bad).to_string_lossy().into_owned(),
             )]);
-            let (s, notes) = sheet_with(REGISTRY, path(&bin), &env).unwrap();
+            let (s, notes, _) = sheet_with(REGISTRY, path(&bin), &env).unwrap();
             assert_eq!(notes.len(), 1, "{notes:?}");
             assert!(notes[0].ends_with("; showing yazi's defaults"), "{notes:?}");
             assert!(!notes[0].contains('\n'), "{notes:?}");
@@ -815,7 +820,7 @@ mod tests {
             "YAZI_CONFIG_HOME",
             fixtures().join("odd").to_string_lossy().into_owned(),
         )]);
-        let (_, notes) = sheet_with(REGISTRY, path(&bin), &env).unwrap();
+        let (_, notes, _) = sheet_with(REGISTRY, path(&bin), &env).unwrap();
         assert_eq!(
             notes,
             [
@@ -826,7 +831,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&bin);
         // A yazi printing nothing: the newest, with a note.
         let bin = fake_yazi("silent", "");
-        let (_, notes) = sheet_with(REGISTRY, path(&bin), &none).unwrap();
+        let (_, notes, _) = sheet_with(REGISTRY, path(&bin), &none).unwrap();
         assert_eq!(
             notes,
             ["yazi's version is unknown: using the defaults of 26.9.1"]
