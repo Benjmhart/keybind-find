@@ -906,6 +906,10 @@ fn providers_for(
     if class.is_some_and(is_emacs_window) {
         providers.push("emacs");
     }
+    // LibreOffice is the window itself: each module's class (`libreoffice-writer`, …), any case.
+    if class.is_some_and(crate::providers::is_libreoffice) {
+        providers.push("libreoffice");
+    }
     // Vimium acts on the page, so a web app's sheet stays innermost (last).
     if class.is_some_and(crate::providers::is_browser) {
         providers.push("vimium");
@@ -2301,6 +2305,41 @@ mod tests {
         assert!(
             !providers_for(Some("xmonad"), Some("org.inkscape.InkscapeX"), None, &[])
                 .contains(&"inkscape")
+        );
+    }
+
+    #[test]
+    fn libreoffice_by_window_class() {
+        for class in [
+            "libreoffice-writer",
+            "LibreOffice-Calc",
+            "libreoffice-IMPRESS",
+            "libreoffice-draw",
+            "libreoffice-math",
+            "libreoffice-base",
+            "LIBREOFFICE-STARTCENTER",
+        ] {
+            assert_eq!(
+                providers_for(Some("i3"), Some(class), None, &[]),
+                ["i3", "espanso", "libreoffice", "sheets"],
+                "{class}"
+            );
+            let got = providers_for(Some("sway"), Some(class), None, &[]);
+            assert!(
+                got.ends_with(&["libreoffice", "sheets"]),
+                "{class}: {got:?}"
+            );
+        }
+        for class in ["libreoffice-x", "LibreOffice", "soffice"] {
+            assert!(
+                !providers_for(Some("i3"), Some(class), None, &[]).contains(&"libreoffice"),
+                "{class}"
+            );
+        }
+        // soffice as a terminal's child isn't LibreOffice's window.
+        assert!(
+            !providers_for(Some("i3"), Some("Alacritty"), Some("soffice"), &[])
+                .contains(&"libreoffice")
         );
     }
 

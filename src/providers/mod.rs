@@ -26,6 +26,7 @@ mod konsole;
 mod lazygit;
 mod less;
 mod lf;
+mod libreoffice;
 mod mc;
 mod micro;
 mod mpv;
@@ -63,6 +64,7 @@ mod zellij;
 
 pub(crate) use gimp::is_gimp;
 pub(crate) use inkscape::is_inkscape;
+pub(crate) use libreoffice::is_libreoffice;
 pub(crate) use qutebrowser::is_qutebrowser;
 pub(crate) use sheets::is_browser;
 pub(crate) use sxhkd::running as sxhkd_running;
@@ -122,6 +124,7 @@ pub const KNOWN: &[&str] = &[
     "qutebrowser",
     "gimp",
     "inkscape",
+    "libreoffice",
 ];
 
 /// The versions of the built-in defaults of zed (`data/zed/<v>/`) and alacritty (`alacritty_defaults.rs`), which have
@@ -142,6 +145,8 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>
         "konsole" => konsole::sheet(),
         "lazygit" => lazygit::sheet(),
         "lf" => lf::sheet(),
+        // LibreOffice's defaults come from its own install, not from keybind-find: no `Source` (10.1).
+        "libreoffice" => libreoffice::sheet(ctx).map(|s| (s, None)),
         "mc" => mc::sheet(),
         "micro" => micro::sheet(),
         "nano" => nano::sheet(),

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<item oor:path="/org.openoffice.Office.Accelerators/PrimaryKeys/Global"><node oor:name="F12_SHIFT_MOD2" oor:op="replace"><prop oor:name="Command" oor:op="fuse"><value xml:lang="en-US">.uno:About</value></prop></node></item>
+<item oor:path="/org.openoffice.Office.Accelerators/PrimaryKeys/Modules/org.openoffice.Office.Accelerators:Module['com.sun.star.text.TextDocument']"><node oor:name="B_MOD1" oor:op="remove"/></item>
+<item oor:path="/org.openoffice.Office.Accelerators/PrimaryKeys/Modules/org.openoffice.Office.Accelerators:Module['com.sun.star.text.TextDocument']/org.openoffice.Office.Accelerators:Key['I_MOD1']/Command"><value xml:lang="en-US">.uno:Underline</value></item>
+<item oor:path="/org.openoffice.Office.Accelerators/PrimaryKeys/Modules/org.openoffice.Office.Accelerators:Module['com.sun.star.text.TextDocument']"><node oor:name="Q_SHIFT_MOD1_MOD2" oor:op="replace"><prop oor:name="Command" oor:op="fuse"><value xml:lang="en-US">.uno:Quit</value></prop></node></item>
+<item oor:path="/org.openoffice.Office.Accelerators/PrimaryKeys/Modules/org.openoffice.Office.Accelerators:Module['com.sun.star.text.TextDocument']"><node oor:name="U_MOD1" oor:op="remove"/></item>
+<item oor:path="/org.openoffice.Office.Accelerators/SecondaryKeys/Modules/org.openoffice.Office.Accelerators:Module['com.sun.star.text.TextDocument']"><node oor:name="U_MOD1" oor:op="replace"><prop oor:name="Command" oor:op="fuse"><value xml:lang="en-US">.uno:Underline</value></prop></node></item>
+<item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="FirstRun" oor:op="fuse"><value>false</value></prop></item>
+<item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="ShowTipOfTheDay" oor:op="fuse"><value>false</value></prop></item>
+<item oor:path="/org.openoffice.Setup/L10N"><prop oor:name="ooLocale" oor:op="fuse"><value>en-US</value></prop></item>
+</oor:items>
