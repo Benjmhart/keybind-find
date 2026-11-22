@@ -5,7 +5,7 @@
 use super::nvim::single;
 use super::pinned;
 use crate::context::run_for;
-use crate::sheet::{chord, Bind, Name, Sheet, Values};
+use crate::sheet::{chord, Bind, Name, Sheet, Source, Values};
 use anyhow::{bail, Context as _};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -41,7 +41,7 @@ struct PinnedMap {
     map: String,
 }
 
-pub fn sheet() -> anyhow::Result<Sheet> {
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
     let version = match program("kitty", &env) {
         Some(kitty) => {
@@ -55,7 +55,7 @@ pub fn sheet() -> anyhow::Result<Sheet> {
             "kitty isn't on PATH or in ~/.local/kitty.app/bin"
         )),
     };
-    let (sheet, notes) = sheet_with(
+    let (sheet, notes, source) = sheet_with(
         REGISTRY,
         version,
         Path::new("/etc/xdg/kitty/kitty.conf"),
@@ -64,7 +64,7 @@ pub fn sheet() -> anyhow::Result<Sheet> {
     if !notes.is_empty() {
         eprintln!("keybind-find: kitty: {}", notes.join("; "));
     }
-    Ok(sheet)
+    Ok((sheet, source))
 }
 
 /// `name` (`kitty`, `kitten`) on `PATH`, else in `~/.local/kitty.app/bin`, where kitty's installer puts it.
@@ -89,7 +89,7 @@ fn sheet_with(
     version: anyhow::Result<String>,
     system: &Path,
     env: Env,
-) -> anyhow::Result<(Sheet, Vec<String>)> {
+) -> anyhow::Result<(Sheet, Vec<String>, Option<Source>)> {
     let mut notes = Vec::new();
     let installed = match &version {
         Ok(text) => version_of(text),
@@ -98,7 +98,7 @@ fn sheet_with(
             None
         }
     };
-    let (v, text, note) = pinned::select("kitty", registry, installed.as_deref())
+    let (v, text, note, source) = pinned::select("kitty", registry, installed.as_deref())
         .context("no pinned kitty defaults")?;
     notes.extend(note);
     let pinned: Pinned =
@@ -128,13 +128,14 @@ fn sheet_with(
             true
         }
     });
-    let (sheet, left_out) = parse(&pinned.map, &lines);
+    let (sheet, left_out, defaults) = parse(&pinned.map, &lines);
     if left_out > 0 {
         notes.push(format!(
             "leaving out {left_out} maps (a hyper, caps_lock or num_lock modifier, a key with no X keysym, a mode no --new-mode defined or whose name can't be a scope, or --when-focus-on)"
         ));
     }
-    Ok((sheet, notes))
+    // `clear_all_shortcuts yes` dropped the defaults: none of the list comes from them.
+    Ok((sheet, notes, defaults.then_some(source)))
 }
 
 /// The version in `kitty 0.49.2 created by Kovid Goyal` (`kitty 0.49.2 (abc) created by …` for a build from git).
@@ -430,8 +431,9 @@ struct Out {
 
 /// The sheet from the pinned `defaults` and the config's logical `lines`, and how many maps were left out. Like kitty
 /// (`finalize_keys`): `clear_all_shortcuts yes` drops every map before it, `kitty_mod`'s last value applies to every
-/// map, and a later map of the same keys in the same mode replaces the earlier one (with no action, removes it).
-fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize) {
+/// map, and a later map of the same keys in the same mode replaces the earlier one (with no action, removes it). Also
+/// whether any default is still there after the config (not cleared).
+fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize, bool) {
     let mut maps: Vec<(Option<&str>, Map)> = defaults
         .iter()
         .filter_map(|d| Some((Some(d.title.as_str()), split_map(&d.map)?)))
@@ -451,6 +453,7 @@ fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize) {
             _ => {}
         }
     }
+    let defaults_kept = maps.iter().any(|(title, _)| title.is_some());
     let mut left_out = 0;
     let mut out: Vec<Out> = Vec::new();
     // Modes defined so far by `--new-mode`, in order.
@@ -543,7 +546,7 @@ fn parse(defaults: &[PinnedMap], lines: &[String]) -> (Sheet, usize) {
             run: Vec::new(),
         });
     }
-    (sheet, left_out)
+    (sheet, left_out, defaults_kept)
 }
 
 /// A shortcut (`kitty_mod+c`, `ctrl+a>n`) in keybind-find's notation, `kitty_mod` standing for its value; `None` for
@@ -791,7 +794,7 @@ mod tests {
         // kitty 0.49.2's definition.py: 134 `map(` entries, 54 of them macOS-only and one a documentation example
         // (`add_to_default=False`): the 79 of types.py's default keymap.
         assert_eq!(pinned.map.len(), 134 - 54 - 1);
-        let (sheet, left_out) = parse(&pinned.map, &[]);
+        let (sheet, left_out, _) = parse(&pinned.map, &[]);
         assert_eq!(left_out, 0);
         let binds: Vec<&Bind> = sheet.binds.values().flatten().collect();
         assert_eq!(binds.len(), pinned.map.len());
@@ -836,13 +839,14 @@ mod tests {
             "KITTY_TEST_DIR" => Some(d.clone()),
             _ => None,
         };
-        let (s, notes) = sheet_with(
+        let (s, notes, source) = sheet_with(
             REGISTRY,
             Ok("kitty 0.49.2 created by Kovid Goyal\n".into()),
             &no_system(),
             &env,
         )
         .unwrap();
+        assert_eq!(source.unwrap().installed.as_deref(), Some("0.49.2"));
         let one = |key: &str| {
             let got = find(&s, key);
             assert_eq!(got.len(), 1, "{key}: {got:?}");
@@ -922,13 +926,15 @@ mod tests {
                     .into_owned()
             })
         };
-        let (s, notes) = sheet_with(
+        let (s, notes, source) = sheet_with(
             REGISTRY,
             Ok("kitty 0.49.2 created by Kovid Goyal".into()),
             &no_system(),
             &env,
         )
         .unwrap();
+        // No default is left: no source.
+        assert_eq!(source, None);
         let keys: Vec<&str> = s.binds.values().flatten().map(|b| b.key.as_str()).collect();
         assert_eq!(keys, ["ctrl+y"]);
         assert!(notes.is_empty(), "{notes:?}");
@@ -938,7 +944,7 @@ mod tests {
     fn modes_clear_and_kitty_mod_as_kitty_does() {
         let lines = |text: &str| logical_lines(text);
         let keys = |text: &str| {
-            let (s, left_out) = parse(&[], &lines(text));
+            let (s, left_out, _) = parse(&[], &lines(text));
             let mut k: Vec<String> = s
                 .binds
                 .values()
@@ -1046,7 +1052,7 @@ mod tests {
         // KITTY_CONFIG_DIRECTORY with no kitty.conf in it yet: kitty's defaults, no note.
         let empty = tmp.join("empty").to_string_lossy().into_owned();
         let env = |k: &str| (k == "KITTY_CONFIG_DIRECTORY").then(|| empty.clone());
-        let (s, notes) = sheet_with(
+        let (s, notes, _) = sheet_with(
             REGISTRY,
             Ok("kitty 0.49.2 created by Kovid Goyal".into()),
             &no_system(),
@@ -1058,7 +1064,7 @@ mod tests {
         // None anywhere: no file, and the defaults alone with no note.
         assert_eq!(pick(&[("HOME", t("nowhere"))]), None);
         let env = |k: &str| (k == "HOME").then(|| t("nowhere"));
-        let (s, notes) = sheet_with(
+        let (s, notes, _) = sheet_with(
             REGISTRY,
             Ok("kitty 0.49.2 created by Kovid Goyal".into()),
             &no_system(),
@@ -1122,7 +1128,7 @@ mod tests {
             format!("map kitty_mod+f1 next_layout\ninclude {shared}\ninclude mine.conf\nenvinclude KITTY_CONF_X\n"),
         )
         .unwrap();
-        let (s, notes) = sheet(&home);
+        let (s, notes, _) = sheet(&home);
         assert_eq!(one(&s, "ctrl+alt+F1"), "next_layout");
         assert_eq!(one(&s, "ctrl+alt+F2"), "next_tab");
         assert_eq!(one(&s, "ctrl+alt+v"), "paste_from_clipboard");
@@ -1134,13 +1140,13 @@ mod tests {
 
         // The user's kitty_mod wins over the system's.
         std::fs::write(&user, "kitty_mod ctrl+shift\n").unwrap();
-        let (s, _) = sheet(&home);
+        let (s, _, _) = sheet(&home);
         assert_eq!(one(&s, "ctrl+shift+F2"), "next_tab");
         assert!(find(&s, "ctrl+alt+F2").is_empty());
 
         // The user's clear_all_shortcuts drops the system file's maps too.
         std::fs::write(&user, "clear_all_shortcuts yes\nmap f12 quit\n").unwrap();
-        let (s, notes) = sheet(&home);
+        let (s, notes, _) = sheet(&home);
         let keys: Vec<&str> = s.binds.values().flatten().map(|b| b.key.as_str()).collect();
         assert_eq!(keys, ["F12"]);
         assert_eq!(notes, [ENVINCLUDE_NOTE], "{notes:?}");
@@ -1151,17 +1157,17 @@ mod tests {
             "map kitty_mod+f2 next_tab\nmap --when-focus-on title:x f3 quit\n",
         )
         .unwrap();
-        let (s, notes) = sheet(&[("HOME", t("nowhere")), ("XDG_CONFIG_DIRS", t("etc"))]);
+        let (s, notes, _) = sheet(&[("HOME", t("nowhere")), ("XDG_CONFIG_DIRS", t("etc"))]);
         assert_eq!(one(&s, "ctrl+shift+F2"), "next_tab");
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(notes[0].starts_with("leaving out 1 maps ("), "{notes:?}");
         // Through a symlink to it, too.
         std::os::unix::fs::symlink(&system, tmp.join("link/.config/kitty/kitty.conf")).unwrap();
-        let (_, notes) = sheet(&[("HOME", t("link"))]);
+        let (_, notes, _) = sheet(&[("HOME", t("link"))]);
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(notes[0].starts_with("leaving out 1 maps ("), "{notes:?}");
         // The system file alone (the user's search finds nothing): its maps, no other note.
-        let (s, notes) = sheet(&[("HOME", t("nowhere"))]);
+        let (s, notes, _) = sheet(&[("HOME", t("nowhere"))]);
         assert_eq!(one(&s, "ctrl+shift+F2"), "next_tab");
         assert_eq!(s.binds["kitty"].len(), 79);
         assert_eq!(notes.len(), 1, "{notes:?}");
@@ -1182,7 +1188,7 @@ mod tests {
         assert_eq!(version_of("something else"), None);
         let env = |_: &str| None;
         // No kitty: the newest defaults, the reason and the version note.
-        let (s, notes) = sheet_with(
+        let (s, notes, _) = sheet_with(
             REGISTRY,
             Err(anyhow::anyhow!("kitty isn't on PATH")),
             &no_system(),
@@ -1197,7 +1203,7 @@ mod tests {
                 "kitty's version is unknown: using the defaults of 0.49.2"
             ]
         );
-        let (_, notes) = sheet_with(
+        let (_, notes, _) = sheet_with(
             REGISTRY,
             Ok("kitty 0.50.1 created by Kovid Goyal".into()),
             &no_system(),

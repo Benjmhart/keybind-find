@@ -1,12 +1,15 @@
 //! Midnight Commander: its keymap built as mc builds it (`src/keymap.c`), from its compiled-in defaults pinned
 //! (`data/mc/`), then `/usr/share/mc/mc.keymap`, the system `mc.keymap` and one user keymap laid over them. Shown when
-//! mc, mcedit, mcview or mcdiff is the program in the focused terminal. Files are only read.
+//! mc, mcedit, mcview or mcdiff is the program in the focused terminal. Files are only read; the one program run is
+//! `mc --version`, for the installed version.
 
 use super::nvim::single;
-use crate::sheet::{chord, Bind, Sheet};
+use super::pinned;
+use crate::sheet::{chord, Bind, Sheet, Source};
 use anyhow::anyhow;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 /// mc 4.8.33's compiled-in defaults. The installed system keymap (distros ship the full default keymap as
 /// `/etc/mc/mc.keymap`) is laid over them, so another mc version's keys win for every action that file names; actions
@@ -16,6 +19,8 @@ const PINNED: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/data/mc/4.8.33.keymap"
 ));
+/// `PINNED`'s version.
+const VERSION: &str = "4.8.33";
 
 /// mc's `DATADIR` and `SYSCONFDIR` as distros build it.
 const SHARE: &str = "/usr/share/mc";
@@ -26,13 +31,27 @@ type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 /// A keyfile's sections in order, each with its actions in order and their raw values.
 type Keymap = Vec<(String, Vec<(String, String)>)>;
 
-pub fn sheet() -> anyhow::Result<Sheet> {
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
+    let (note, source) = pick(|_| {})?;
     let (sheet, notes) = sheet_with(PINNED, Path::new(SHARE), Path::new(SYSCONF), &env)?;
-    for note in notes {
+    for note in note.into_iter().chain(notes) {
         eprintln!("keybind-find: mc: {note}");
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
+}
+
+/// The installed mc against the pin: `mc --version`, with `setup` (a test seam: `PATH`). The note names a `.keymap`.
+fn pick(setup: impl Fn(&mut Command)) -> anyhow::Result<(Option<String>, Source)> {
+    let mut cmd = Command::new("mc");
+    cmd.arg("--version");
+    let (note, source) = pinned::probe("mc", VERSION, cmd, setup, version_of)?;
+    Ok((note.map(|n| n.replace(".toml", ".keymap")), source))
+}
+
+/// `GNU Midnight Commander 4.8.33` on the first line (then build lines) → `4.8.33`.
+fn version_of(text: &str) -> Option<String> {
+    pinned::version_after(text.lines().next(), "GNU Midnight Commander ")
 }
 
 /// The sheet from `pinned` and the keymap files under `share` and `sysconf` (test seams) and the user's, found
@@ -396,6 +415,47 @@ fn key(part: &str) -> Option<(String, Option<&'static str>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_version() {
+        pinned::assert_data("mc", &format!("{VERSION}.keymap"));
+        let out =
+            "GNU Midnight Commander 4.8.33\nBuilt with GLib 2.86.0\nUsing the S-Lang library\n";
+        assert_eq!(version_of(out).as_deref(), Some("4.8.33"));
+        for junk in [
+            "",
+            "garbage",
+            "Built with GLib 2.86.0\nGNU Midnight Commander 4.8.33",
+            "GNU Midnight Commander 4.8.33\x07",
+        ] {
+            assert_eq!(version_of(junk), None, "{junk:?}");
+        }
+        let bin = pinned::fake_bin(
+            "mc",
+            "[ \"$*|$LC_ALL\" = '--version|C' ] || exit 9; echo 'GNU Midnight Commander 4.8.30'",
+        );
+        let (note, source) = pick(pinned::path_of(&bin)).unwrap();
+        assert_eq!(
+            note.as_deref(),
+            Some("mc 4.8.30: using the defaults of 4.8.33; add data/mc/4.8.30.keymap")
+        );
+        assert_eq!(
+            source,
+            Source {
+                defaults: "4.8.33".into(),
+                installed: Some("4.8.30".into()),
+                checked: true,
+                mismatch: true
+            }
+        );
+        let fails = pinned::fake_bin("mc", "exit 1");
+        let (note, source) = pick(pinned::path_of(&fails)).unwrap();
+        assert_eq!(
+            note.as_deref(),
+            Some("mc's version is unknown: using the defaults of 4.8.33")
+        );
+        assert!(source.checked && source.mismatch && source.installed.is_none());
+    }
 
     fn fixture(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))

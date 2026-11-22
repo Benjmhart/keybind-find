@@ -4,7 +4,7 @@
 //! follow herdr 0.9.3's `src/config/keybinds.rs` (`build_keybinds`, `reject_binding`, `parse_binding_string`).
 
 use crate::context::Context;
-use crate::sheet::{chord, Bind, Sheet};
+use crate::sheet::{chord, Bind, Sheet, Source};
 use anyhow::Context as _;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
@@ -24,9 +24,9 @@ const REGISTRY: &[(&str, &str)] = &[(
 /// The only actions that take a `1..9` range, and that take nothing else.
 const INDEXED: &[&str] = &["switch_tab", "switch_workspace", "focus_agent"];
 
-pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
+pub fn sheet(_ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>)> {
     let installed = installed_version();
-    let (_, registry, warning) =
+    let (_, registry, warning, source) =
         select(installed.as_deref()).context("no herdr defaults registry is built in")?;
     if let Some(w) = warning {
         eprintln!("keybind-find: {w}");
@@ -44,7 +44,7 @@ pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
     let config = read_or_empty(config_path)?;
     // Plugin titles are only a fallback description; an unreadable plugins.json just means no titles.
     let plugins = read_or_empty(dir.join("plugins.json")).unwrap_or_default();
-    parse(&config, registry, &plugins)
+    Ok((parse(&config, registry, &plugins)?, Some(source)))
 }
 
 // ponytail: no timeout; `--version` doesn't touch the server. Add one if it ever hangs.
@@ -75,8 +75,11 @@ fn parse_version(v: &str) -> Option<Vec<u64>> {
     Some(parts)
 }
 
-fn select(installed: Option<&str>) -> Option<(&'static str, &'static str, Option<String>)> {
-    select_from(REGISTRY, installed)
+/// `select_from` over the built-in registry, with the `Source` of its pick.
+fn select(installed: Option<&str>) -> Option<(&'static str, &'static str, Option<String>, Source)> {
+    let (v, toml, warning) = select_from(REGISTRY, installed)?;
+    let source = super::pinned::source(v, installed, warning.is_some());
+    Some((v, toml, warning, source))
 }
 
 /// The registry entry for `installed`: an exact match silently; otherwise the newest version below it, or the oldest
@@ -856,7 +859,26 @@ command = ""
 
     #[test]
     fn registry_selection() {
-        assert_eq!(select(Some("0.9.3")), Some(("0.9.3", REG, None)));
+        let src = |i: &str, mismatch| Source {
+            defaults: "0.9.3".into(),
+            installed: Some(i.into()),
+            checked: true,
+            mismatch,
+        };
+        assert_eq!(
+            select(Some("0.9.3")),
+            Some(("0.9.3", REG, None, src("0.9.3", false)))
+        );
+        assert_eq!(select(Some("0.9.5")).unwrap().3, src("0.9.5", true));
+        assert_eq!(
+            select(None).unwrap().3,
+            Source {
+                defaults: "0.9.3".into(),
+                installed: None,
+                checked: true,
+                mismatch: true
+            }
+        );
         let fake: &[(&str, &str)] = &[("0.10.0", "c"), ("0.9.1", "a"), ("0.9.3", "b")];
         let pick = |i: Option<&str>| select_from(fake, i).unwrap();
         assert_eq!(pick(Some("0.9.3")), ("0.9.3", "b", None));

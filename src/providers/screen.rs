@@ -9,7 +9,7 @@
 
 use super::nvim::single;
 use crate::context::run_for;
-use crate::sheet::{chord, Bind, Sheet};
+use crate::sheet::{chord, Bind, Sheet, Source};
 use anyhow::{bail, Context as _};
 use serde::Deserialize;
 use std::collections::BTreeSet;
@@ -52,18 +52,18 @@ struct PinnedBind {
     desc: String,
 }
 
-pub fn sheet() -> anyhow::Result<Sheet> {
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
     let mut cmd = Command::new("screen");
     cmd.arg("--version")
         .env("LC_ALL", "C")
         .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
     let version = run_for(cmd, VERSION_TIMEOUT).context("running screen --version");
-    let (sheet, notes) = sheet_with(REGISTRY, version, Path::new("/etc/screenrc"), &env)?;
+    let (sheet, notes, source) = sheet_with(REGISTRY, version, Path::new("/etc/screenrc"), &env)?;
     if !notes.is_empty() {
         eprintln!("keybind-find: screen: {}", notes.join("; "));
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
 }
 
 /// The sheet and its notes: the pinned defaults picked by `version` (`screen --version`'s output, or why it failed),
@@ -73,7 +73,7 @@ fn sheet_with(
     version: anyhow::Result<String>,
     system: &Path,
     env: Env,
-) -> anyhow::Result<(Sheet, Vec<String>)> {
+) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
     let mut notes = Vec::new();
     let installed = match &version {
         Ok(text) => version_of(text),
@@ -82,7 +82,7 @@ fn sheet_with(
             None
         }
     };
-    let (v, text, note) =
+    let (v, text, note, source) =
         select(registry, installed.as_deref()).context("no pinned screen defaults")?;
     notes.extend(note);
     let pinned: Pinned =
@@ -105,7 +105,7 @@ fn sheet_with(
             "leaving out {left_out} bindings (bindkey and bind -k lines, keys with no key notation, or a class no key enters)"
         ));
     }
-    Ok((sheet, notes))
+    Ok((sheet, notes, source))
 }
 
 /// The version in `Screen version 4.09.01 (GNU) 20-Aug-23` or `Screen version 5.0.2 (build on …)`, zeros dropped
@@ -134,11 +134,11 @@ fn parse_version(v: &str) -> Option<Vec<u64>> {
 }
 
 /// The pinned file for `installed`: the newest of the same major version, else the newest; with a note naming the
-/// file to add when it isn't the same major.minor, or the version is unknown.
+/// file to add when it isn't the same major.minor, or the version is unknown. Also the pick's `Source`.
 fn select(
     registry: &[(&'static str, &'static str)],
     installed: Option<&str>,
-) -> Option<(&'static str, &'static str, Option<String>)> {
+) -> Option<(&'static str, &'static str, Option<String>, Source)> {
     let mut entries: Vec<(Vec<u64>, &'static str, &'static str)> = registry
         .iter()
         .filter_map(|&(v, t)| Some((parse_version(v)?, v, t)))
@@ -147,7 +147,8 @@ fn select(
     let &(_, newest, newest_text) = entries.last()?;
     let Some(wanted) = installed.and_then(parse_version) else {
         let note = format!("screen's version is unknown: using the defaults of {newest}");
-        return Some((newest, newest_text, Some(note)));
+        let source = super::pinned::source(newest, None, true);
+        return Some((newest, newest_text, Some(note), source));
     };
     let (pinned, v, t) = match entries
         .iter()
@@ -163,7 +164,8 @@ fn select(
             "screen {installed}: using the defaults of {v}; add data/screen/{installed}.toml for its own"
         )
     });
-    Some((v, t, note))
+    let source = super::pinned::source(v, installed, note.is_some());
+    Some((v, t, note, source))
 }
 
 /// A key after the escape: a byte, or the termcap back-tab key.
@@ -704,7 +706,12 @@ mod tests {
     #[test]
     fn version_pick() {
         let pick = |text: &str| {
-            let (v, _, note) = select(REGISTRY, version_of(text).as_deref()).unwrap();
+            let (v, _, note, source) = select(REGISTRY, version_of(text).as_deref()).unwrap();
+            assert_eq!(
+                (source.defaults.as_str(), source.mismatch),
+                (v, note.is_some())
+            );
+            assert_eq!(source.installed, version_of(text));
             (v, note.is_some())
         };
         assert_eq!(
@@ -742,7 +749,7 @@ mod tests {
             pick("Screen version 5.0.2-dirty (build on x)"),
             ("5.0.2", false)
         );
-        let (_, _, note) = select(REGISTRY, Some("4.6.2")).unwrap();
+        let (_, _, note, _) = select(REGISTRY, Some("4.6.2")).unwrap();
         assert!(note.unwrap().contains("data/screen/4.6.2.toml"));
         assert_eq!(
             version_of("Screen version 4.09.01 (GNU) 20-Aug-23").as_deref(),
@@ -769,7 +776,7 @@ mod tests {
                 fixture("screenrc").to_string_lossy().into_owned(),
             ),
         ];
-        let (sheet, notes) =
+        let (sheet, notes, _) =
             sheet_with(REGISTRY, v5(), &fixture("etcscreenrc-5.0.2"), &env(&vars)).unwrap();
         let main = rows(&sheet, "screen");
         // `escape ^Bb`: every key behind ctrl+b; `b` and `^B` become meta and other.
@@ -837,11 +844,11 @@ mod tests {
         let home = fixture("home").to_string_lossy().into_owned();
         let vars = [("HOME", home.clone())];
         let none = Path::new("/nonexistent/screenrc");
-        let (sheet, notes) = sheet_with(REGISTRY, v5(), none, &env(&vars)).unwrap();
+        let (sheet, notes, _) = sheet_with(REGISTRY, v5(), none, &env(&vars)).unwrap();
         assert!(has(&rows(&sheet, "screen"), "ctrl+a shift+y = stuff yank"));
         assert!(notes.is_empty(), "{notes:?}");
         let vars = [("HOME", home.clone()), ("SCREENRC", String::new())];
-        let (sheet, _) = sheet_with(REGISTRY, v5(), none, &env(&vars)).unwrap();
+        let (sheet, _, _) = sheet_with(REGISTRY, v5(), none, &env(&vars)).unwrap();
         assert!(has(&rows(&sheet, "screen"), "ctrl+a shift+y = stuff yank"));
         let vars = [
             ("HOME", home),
@@ -850,10 +857,10 @@ mod tests {
                 fixture("home/home.screenrc").to_string_lossy().into_owned(),
             ),
         ];
-        let (sheet, _) = sheet_with(REGISTRY, v5(), none, &env(&vars)).unwrap();
+        let (sheet, _, _) = sheet_with(REGISTRY, v5(), none, &env(&vars)).unwrap();
         assert!(!has(&rows(&sheet, "screen"), "ctrl+a shift+y = stuff yank"));
         // No screen: the newest defaults, with the reason as a note; an unreadable file is a note.
-        let (sheet, notes) = sheet_with(
+        let (sheet, notes, _) = sheet_with(
             REGISTRY,
             Err(anyhow::anyhow!("running screen --version: not found")),
             fixture("home").as_path(),
@@ -886,7 +893,7 @@ mod tests {
         let vars = [("SCREENRC", path)];
         let result = sheet_with(REGISTRY, v5(), Path::new("/nonexistent"), &env(&vars));
         let _ = std::fs::remove_dir_all(&dir);
-        let (sheet, _) = result.unwrap();
+        let (sheet, _, _) = result.unwrap();
         let main = rows(&sheet, "screen");
         assert!(
             has(
@@ -906,7 +913,7 @@ mod tests {
     }
 
     /// The sheet from the defaults and `rc` (one user file).
-    fn with_rc(rc: &str) -> (Sheet, Vec<String>) {
+    fn with_rc(rc: &str) -> (Sheet, Vec<String>, Source) {
         static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = crate::test_tmp().join(format!("kbf-screen-rc-{}-{n}", std::process::id()));
@@ -921,7 +928,7 @@ mod tests {
     #[test]
     fn binds_after_escape_win() {
         // `escape` acts where it stands (screen's `SetEscape`): a later `bind` replaces its keys, it replaces an earlier one's.
-        let (sheet, _) = with_rc("escape ^Bb\nbind ^B windows\n");
+        let (sheet, _, _) = with_rc("escape ^Bb\nbind ^B windows\n");
         let main = rows(&sheet, "screen");
         assert!(
             has(&main, "ctrl+b ctrl+b = Show a list of window"),
@@ -931,23 +938,23 @@ mod tests {
             &main,
             "ctrl+b b = Send the command character to the window"
         ));
-        let (sheet, _) = with_rc("bind ^A\n");
+        let (sheet, _, _) = with_rc("bind ^A\n");
         assert!(!rows(&sheet, "screen")
             .iter()
             .any(|r| r.starts_with("ctrl+a ctrl+a ")));
-        let (sheet, _) = with_rc("bind b windows\nescape ^Bb\n");
+        let (sheet, _, _) = with_rc("bind b windows\nescape ^Bb\n");
         assert!(has(
             &rows(&sheet, "screen"),
             "ctrl+b b = Send the command character to the window"
         ));
         // A user's own `other`/`meta` bind gets the description too.
-        let (sheet, _) = with_rc("bind o other\n");
+        let (sheet, _, _) = with_rc("bind o other\n");
         assert!(has(
             &rows(&sheet, "screen"),
             "ctrl+a o = Toggle to the window displayed previously"
         ));
         // A second escape clears the first one's keys (`^B` and `b` lose their actions, defaults included).
-        let (sheet, _) = with_rc("escape ^Bb\nescape ^Tt\n");
+        let (sheet, _, _) = with_rc("escape ^Bb\nescape ^Tt\n");
         let main = rows(&sheet, "screen");
         assert!(
             !main
@@ -960,19 +967,19 @@ mod tests {
             "ctrl+t ctrl+t = Toggle to the window displayed previously"
         ));
         // `escape ""`: no command key, so nothing is listed; a malformed escape changes nothing.
-        let (sheet, notes) = with_rc("escape \"\"\n");
+        let (sheet, notes, _) = with_rc("escape \"\"\n");
         assert!(sheet.binds.is_empty());
         assert!(
             notes.iter().any(|n| n.contains("no command key")),
             "{notes:?}"
         );
-        let (sheet, _) = with_rc("escape ^B\nescape abc\n");
+        let (sheet, _, _) = with_rc("escape ^B\nescape abc\n");
         assert!(has(
             &rows(&sheet, "screen"),
             "ctrl+a c = Create a new window with a shell and switch to that window"
         ));
         // An escape key with no notation: every key left out.
-        let (sheet, notes) = with_rc("escape \\351x\n");
+        let (sheet, notes, _) = with_rc("escape \\351x\n");
         assert!(sheet.binds.is_empty());
         assert!(
             notes
@@ -984,7 +991,7 @@ mod tests {
 
     #[test]
     fn classes_reached_through_classes_and_dropped_lines() {
-        let (sheet, notes) = with_rc(
+        let (sheet, notes, _) = with_rc(
             "bind r command -c a\nbind -c a x command -c b\nbind -c b 1 resize +1\nbind q stuff \"open\n",
         );
         assert_eq!(rows(&sheet, "class b"), ["ctrl+a r x 1 = resize +1"]);
@@ -999,7 +1006,7 @@ mod tests {
     #[test]
     fn raw_bytes_and_termcap_backtab() {
         // A `\r` stays in the last word (screen refuses the 3-byte escape); a Latin-1 byte is one key.
-        let (sheet, _) = with_rc("escape ^Bb\r\nbind \u{e0} windows\n");
+        let (sheet, _, _) = with_rc("escape ^Bb\r\nbind \u{e0} windows\n");
         let main = rows(&sheet, "screen");
         assert!(main.iter().all(|r| r.starts_with("ctrl+a ")), "{main:#?}");
         let pinned: Pinned = toml::from_str(REGISTRY[1].1).unwrap();

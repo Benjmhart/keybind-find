@@ -6,7 +6,7 @@ use super::nvim::single;
 use super::pinned::{self, parse_version};
 use super::yaml_subset::{self, Node};
 use crate::context::run_for;
-use crate::sheet::{chord, Bind, Sheet};
+use crate::sheet::{chord, Bind, Sheet, Source};
 use anyhow::{bail, Context as _};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -72,8 +72,8 @@ struct Row {
     keys: Option<Vec<String>>,
 }
 
-pub fn sheet() -> anyhow::Result<Sheet> {
-    let (sheet, notes) = sheet_with(
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
+    let (sheet, notes, source) = sheet_with(
         REGISTRY,
         |_| {},
         crate::context::editor_pid(),
@@ -84,7 +84,7 @@ pub fn sheet() -> anyhow::Result<Sheet> {
     for note in notes {
         eprintln!("keybind-find: lazygit: {note}");
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
 }
 
 /// The sheet for the lazygit at `pid` (none: `dump lazygit` from a shell), its process read under `proc`; `setup` is
@@ -97,7 +97,7 @@ fn sheet_with(
     proc: &Path,
     here: Option<&Path>,
     env: Env,
-) -> anyhow::Result<(Sheet, Vec<String>)> {
+) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
     // The editor pid context found is lazygit's only when lazygit leads the terminal; check its comm.
     let dir = pid
         .filter(|p| {
@@ -119,8 +119,9 @@ fn sheet_with(
         Some(Ok(v)) => v,
         _ => ask(Path::new("lazygit")).context("running lazygit --version")?,
     };
-    let (v, text, note) = pinned::select("lazygit", registry, version_of(&version).as_deref())
-        .context("no pinned lazygit keybindings")?;
+    let (v, text, note, source) =
+        pinned::select("lazygit", registry, version_of(&version).as_deref())
+            .context("no pinned lazygit keybindings")?;
     let pin: Pinned =
         toml::from_str(text).with_context(|| format!("reading data/lazygit/{v}.toml"))?;
     let mut notes: Vec<String> = note.into_iter().collect();
@@ -166,7 +167,7 @@ fn sheet_with(
             "leaving out {left_out} {keys} that can't be typed here (meta, the mouse, or no keysym we know)"
         ));
     }
-    Ok((sheet, notes))
+    Ok((sheet, notes, source))
 }
 
 /// The `version=` field of `lazygit --version` (`commit=…, …, version=0.66.2, os=linux, …, git version=…`).
@@ -1358,7 +1359,7 @@ mod tests {
             &home,
         );
         let nothing = |_: &str| None;
-        let (s, notes) = sheet_with(
+        let (s, notes, source) = sheet_with(
             REGISTRY,
             path(&bin),
             Some(4242),
@@ -1367,6 +1368,15 @@ mod tests {
             &nothing,
         )
         .unwrap();
+        assert_eq!(
+            source,
+            Source {
+                defaults: "0.66.2".into(),
+                installed: Some("0.66.2".into()),
+                checked: true,
+                mismatch: false
+            }
+        );
         assert_eq!(
             keys(&s, "Global keybindings", "Quit"),
             ["shift+y", "ctrl+c"]
@@ -1378,7 +1388,7 @@ mod tests {
         );
         // Its environment's HOME: the global file; `return`'s meta key is left out in each of its 8 rows.
         let proc = fake_proc("home", "lazygit", &["lazygit"], &[&env_home], &home);
-        let (s, notes) = sheet_with(
+        let (s, notes, _) = sheet_with(
             REGISTRY,
             path(&bin),
             Some(4242),
@@ -1398,7 +1408,7 @@ mod tests {
         // A pid that isn't lazygit's: keybind-find's own environment.
         let proc = fake_proc("other", "zsh", &["zsh"], &[&env_home], &home);
         let own = |k: &str| (k == "HOME").then(|| "/nonexistent-kbf".to_string());
-        let (s, _) = sheet_with(
+        let (s, _, _) = sheet_with(
             REGISTRY,
             path(&bin),
             Some(4242),
@@ -1410,7 +1420,7 @@ mod tests {
         assert_eq!(keys(&s, "Global keybindings", "Quit"), ["q", "ctrl+c"]);
         // An unknown version: the newest pin, with its note.
         let bin = fake_lazygit("unversioned", "commit=, version=unversioned, os=linux\\n");
-        let (_, notes) = sheet_with(
+        let (_, notes, _) = sheet_with(
             REGISTRY,
             path(&bin),
             None,
@@ -1458,7 +1468,7 @@ mod tests {
         let path = move |c: &mut Command| {
             c.env("PATH", &bin);
         };
-        let (_, notes) = sheet_with(
+        let (_, notes, _) = sheet_with(
             &[("0.66.2", ONE)],
             path,
             None,
@@ -1489,7 +1499,7 @@ mod tests {
         // `/proc/<pid>/exe` is what runs; a broken one falls back to PATH's.
         let proc = fake_proc("exe", "lazygit", &["lazygit"], &[&env_home], &home);
         std::os::unix::fs::symlink(own.join("lazygit"), proc.join("4242/exe")).unwrap();
-        let (_, notes) = sheet_with(
+        let (_, notes, _) = sheet_with(
             REGISTRY,
             path(&on_path),
             Some(4242),
@@ -1504,7 +1514,7 @@ mod tests {
         );
         let proc = fake_proc("exe-gone", "lazygit", &["lazygit"], &[&env_home], &home);
         std::os::unix::fs::symlink(home.join("gone"), proc.join("4242/exe")).unwrap();
-        let (_, notes) = sheet_with(
+        let (_, notes, _) = sheet_with(
             REGISTRY,
             path(&on_path),
             Some(4242),
@@ -1525,7 +1535,7 @@ mod tests {
         std::fs::remove_file(proc.join("4242/environ")).unwrap();
         let own_home = home.display().to_string();
         let own_env = move |k: &str| (k == "HOME").then(|| own_home.clone());
-        let (s, notes) = sheet_with(
+        let (s, notes, _) = sheet_with(
             REGISTRY,
             path(&on_path),
             Some(4242),
@@ -1559,7 +1569,7 @@ mod tests {
         let hanging = fake_lazygit("hangs", "x\\n'; PATH=/usr/bin:/bin exec sleep 5; '");
         let proc = fake_proc("exe-fails", "lazygit", &["lazygit"], &[&env_home], &home);
         std::os::unix::fs::symlink(failing.join("lazygit"), proc.join("4242/exe")).unwrap();
-        let (_, notes) = sheet_with(
+        let (_, notes, _) = sheet_with(
             REGISTRY,
             path(&own),
             Some(4242),
@@ -1594,7 +1604,7 @@ mod tests {
             &home,
         );
         std::fs::remove_file(proc.join("4242/cwd")).unwrap();
-        let (s, notes) = sheet_with(
+        let (s, notes, _) = sheet_with(
             REGISTRY,
             path(&on_path),
             Some(4242),
@@ -1628,7 +1638,7 @@ mod tests {
             &[&env_home],
             &repo.join("sub"),
         );
-        let (s, _) = sheet_with(
+        let (s, _, _) = sheet_with(
             REGISTRY,
             path(&on_path),
             Some(4242),

@@ -1,13 +1,22 @@
 //! Defaults pinned per program version (`data/<program>/<version>.toml`): which file to use for the version installed.
 
+use crate::context::run_for;
+use crate::sheet::Source;
+use anyhow::Context as _;
+use std::process::Command;
+use std::time::Duration;
+
+/// How long a version probe may run.
+const VERSION_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// The pinned file for `installed`: its own silently; else, with a note naming the file to add, the nearest of the
 /// same major version (older first), else the newest older one, else the oldest; the newest when the version is
-/// unknown. `program` names the data directory in the note.
+/// unknown. `program` names the data directory in the note. The `Source` says which version's file and why.
 pub(crate) fn select(
     program: &str,
     registry: &[(&'static str, &'static str)],
     installed: Option<&str>,
-) -> Option<(&'static str, &'static str, Option<String>)> {
+) -> Option<(&'static str, &'static str, Option<String>, Source)> {
     let mut entries: Vec<(Vec<u64>, &'static str, &'static str)> = registry
         .iter()
         .filter_map(|&(v, t)| Some((parse_version(v)?, v, t)))
@@ -16,10 +25,11 @@ pub(crate) fn select(
     let &(_, newest, newest_text) = entries.last()?;
     let Some(wanted) = installed.and_then(parse_version) else {
         let note = format!("{program}'s version is unknown: using the defaults of {newest}");
-        return Some((newest, newest_text, Some(note)));
+        return Some((newest, newest_text, Some(note), source(newest, None, true)));
     };
+    let i = installed.unwrap_or_default();
     if let Some(&(_, v, t)) = entries.iter().find(|(p, _, _)| *p == wanted) {
-        return Some((v, t, None));
+        return Some((v, t, None, source(v, Some(i), false)));
     }
     let same = |p: &Vec<u64>| p.first() == wanted.first();
     let older = entries.iter().rev().find(|(p, _, _)| *p < wanted);
@@ -28,19 +38,136 @@ pub(crate) fn select(
         .or_else(|| entries.iter().find(|(p, _, _)| same(p) && *p > wanted))
         .or(older)
         .or(entries.first())?;
-    let i = installed.unwrap_or_default();
     Some((
         v,
         t,
         Some(format!(
             "{program} {i}: using the defaults of {v}; add data/{program}/{i}.toml"
         )),
+        source(v, Some(i), true),
     ))
+}
+
+/// A checked `Source`: `installed` kept only when `parse_version` accepts it, so nothing else a program printed
+/// reaches the picker's header. `mismatch`: the pick wrote its note; always, when no installed version is kept (a
+/// provider's own parser may accept what `parse_version` doesn't).
+pub(crate) fn source(defaults: &str, installed: Option<&str>, mismatch: bool) -> Source {
+    let installed: Option<String> = installed
+        .filter(|v| parse_version(v).is_some())
+        .map(Into::into);
+    Source {
+        defaults: defaults.into(),
+        mismatch: mismatch || installed.is_none(),
+        installed,
+        checked: true,
+    }
+}
+
+/// `select` for a provider with one pin, `pin`, by a version probe: `cmd` (the program from `PATH` and its version
+/// flag) run with `LC_ALL=C`, no mise auto-install, then `setup` (a test seam), for `VERSION_TIMEOUT`; its stdout read
+/// by `version_of`. A probe that fails in any way is an unknown version. The note and the `Source`.
+pub(crate) fn probe(
+    program: &str,
+    pin: &'static str,
+    mut cmd: Command,
+    setup: impl Fn(&mut Command),
+    version_of: impl Fn(&str) -> Option<String>,
+) -> anyhow::Result<(Option<String>, Source)> {
+    cmd.env("LC_ALL", "C")
+        .env("MISE_NOT_FOUND_AUTO_INSTALL", "0");
+    setup(&mut cmd);
+    let installed = run_for(cmd, VERSION_TIMEOUT)
+        .ok()
+        .and_then(|t| version_of(&t));
+    let (_, _, note, source) = select(program, &[(pin, "")], installed.as_deref())
+        .with_context(|| format!("{program}'s pin {pin} is not a version"))?;
+    Ok((note, source))
+}
+
+/// The `Source` of a provider whose list may leave its defaults out: `pick`'s (its note put first in `notes`) when
+/// `defaults` were listed, else none and `pick` isn't run.
+pub(crate) fn when_listed(
+    defaults: bool,
+    notes: &mut Vec<String>,
+    pick: impl FnOnce() -> anyhow::Result<(Option<String>, Source)>,
+) -> anyhow::Result<Option<Source>> {
+    if !defaults {
+        return Ok(None);
+    }
+    let (note, source) = pick()?;
+    notes.splice(0..0, note);
+    Ok(Some(source))
+}
+
+/// The version after `prefix` on `line` (`konsole 26.08.2`, `konsole ` → `26.08.2`), when `parse_version` accepts it.
+pub(crate) fn version_after(line: Option<&str>, prefix: &str) -> Option<String> {
+    let v = line?.trim().strip_prefix(prefix)?;
+    parse_version(v).map(|_| v.to_string())
 }
 
 /// `0.49.2` → [0, 49, 2]; `None` unless every part is a number.
 pub(crate) fn parse_version(v: &str) -> Option<Vec<u64>> {
     v.split('.').map(|p| p.parse().ok()).collect()
+}
+
+/// A directory for `fake_bin`, removed when dropped.
+#[cfg(test)]
+pub(crate) struct FakeBin(std::path::PathBuf);
+
+#[cfg(test)]
+impl std::ops::Deref for FakeBin {
+    type Target = std::path::Path;
+    fn deref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+impl Drop for FakeBin {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A directory holding `name`, a `sh` script running `body` (a version probe's stand-in), for a `PATH`.
+#[cfg(test)]
+pub(crate) fn fake_bin(name: &str, body: &str) -> FakeBin {
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = crate::test_tmp().join(format!("kbf-probe-{name}-{}-{n}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // Written by `sh`, not by this process (ETXTBSY: see `xfce.rs`'s `fake`).
+    let ok = Command::new("sh")
+        .args([
+            "-c",
+            "printf '#!/bin/sh\\n%s\\n' \"$2\" > \"$1\" && chmod 755 \"$1\"",
+            "sh",
+        ])
+        .arg(dir.join(name))
+        .arg(body)
+        .status()
+        .unwrap();
+    assert!(ok.success());
+    FakeBin(dir)
+}
+
+/// Fails unless `data/<program>/<file>` exists: a pin's version constant names its data file.
+#[cfg(test)]
+pub(crate) fn assert_data(program: &str, file: &str) {
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("data")
+        .join(program)
+        .join(file);
+    assert!(p.is_file(), "{}", p.display());
+}
+
+/// A `setup` giving the probe only `dir` as its `PATH`.
+#[cfg(test)]
+pub(crate) fn path_of(dir: &std::path::Path) -> impl Fn(&mut Command) {
+    let dir = dir.to_path_buf();
+    move |c: &mut Command| {
+        c.env("PATH", &dir);
+    }
 }
 
 #[cfg(test)]
@@ -50,11 +177,74 @@ mod tests {
     const REGISTRY: &[(&str, &str)] = &[("7.2", "a"), ("8.4", "b"), ("9.2", "c")];
 
     #[test]
+    fn no_installed_version_is_a_mismatch() {
+        let s = source("1.0", Some("1.0-preview"), false);
+        assert_eq!((s.installed, s.checked, s.mismatch), (None, true, true));
+        assert!(source("1.0", None, false).mismatch);
+        assert!(!source("1.0", Some("1.0"), false).mismatch);
+    }
+
+    #[test]
+    fn listed_defaults_have_a_source() {
+        let mut notes = vec!["later".to_string()];
+        let pick = || Ok((Some("note".to_string()), Source::unchecked("1")));
+        assert_eq!(
+            when_listed(false, &mut notes, || panic!("not probed")).unwrap(),
+            None
+        );
+        assert_eq!(notes, ["later"]);
+        assert_eq!(
+            when_listed(true, &mut notes, pick).unwrap(),
+            Some(Source::unchecked("1"))
+        );
+        assert_eq!(notes, ["note", "later"]);
+    }
+
+    #[test]
+    fn a_probe_that_fails_is_unknown() {
+        let unknown = (
+            Some("x's version is unknown: using the defaults of 1.0".to_string()),
+            Source {
+                defaults: "1.0".into(),
+                installed: None,
+                checked: true,
+                mismatch: true,
+            },
+        );
+        let run = |body: &str| {
+            let dir = fake_bin("x", body);
+            probe("x", "1.0", Command::new("x"), path_of(&dir), |t| {
+                version_after(t.lines().next(), "x ")
+            })
+            .unwrap()
+        };
+        // Run as the probes are: no mise auto-install, the C locale.
+        let ok =
+            run("[ \"$MISE_NOT_FOUND_AUTO_INSTALL|$LC_ALL\" = '0|C' ] || exit 9; echo 'x 1.0'");
+        assert_eq!(ok.1.installed.as_deref(), Some("1.0"));
+        // Too slow, or the version only on stderr: unknown.
+        let t = std::time::Instant::now();
+        assert_eq!(run("/bin/sleep 5; echo 'x 1.0'"), unknown);
+        assert!(t.elapsed() < Duration::from_secs(4), "{:?}", t.elapsed());
+        assert_eq!(run("echo 'x 1.0' >&2"), unknown);
+    }
+
+    #[test]
     fn picks_by_nanos_rules() {
         let pick = |v: Option<&str>| select("x", REGISTRY, v).unwrap();
-        assert_eq!(pick(Some("8.4")), ("8.4", "b", None));
+        let src = |d: &str, i: Option<&str>, mismatch| Source {
+            defaults: d.into(),
+            installed: i.map(Into::into),
+            checked: true,
+            mismatch,
+        };
+        assert_eq!(
+            pick(Some("8.4")),
+            ("8.4", "b", None, src("8.4", Some("8.4"), false))
+        );
         // Same major, older first.
-        let (v, _, note) = pick(Some("8.6"));
+        let (v, _, note, s) = pick(Some("8.6"));
+        assert_eq!(s, src("8.4", Some("8.6"), true));
         assert_eq!(v, "8.4");
         assert_eq!(
             note.as_deref(),
@@ -65,14 +255,16 @@ mod tests {
         // Nearest older of another major; the oldest when all are newer.
         assert_eq!(pick(Some("10.0")).0, "9.2");
         assert_eq!(pick(Some("5.4")).0, "7.2");
-        let (v, _, note) = pick(None);
+        let (v, _, note, s) = pick(None);
         assert_eq!(v, "9.2");
+        assert_eq!(s, src("9.2", None, true));
         assert_eq!(
             note.as_deref(),
             Some("x's version is unknown: using the defaults of 9.2")
         );
         // An unparsable version is unknown.
         assert_eq!(pick(Some("abc")).0, "9.2");
+        assert_eq!(pick(Some("abc")).3, src("9.2", None, true));
         assert!(select("x", &[], Some("8.4")).is_none());
         // Registry order doesn't matter, and a bad registry version is skipped.
         let shuffled = [("9.2", "c"), ("bad", "z"), ("7.2", "a")];

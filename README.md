@@ -248,7 +248,7 @@ command is shown as written, never run.
 
 In an Obsidian window (class or app id `obsidian`, or `md.obsidian.Obsidian`, Obsidian's desktop name and the
 Flatpak's id), keybind-find lists Obsidian's command hotkeys: the defaults of Obsidian 1.14.5 (read from that
-release's app bundle; Obsidian isn't run, so its version isn't checked and every version gets these), with the
+release's app bundle; Obsidian isn't run, and every version gets these), with the
 focused vault's `.obsidian/hotkeys.json` on top, as Obsidian uses it: a command you gave hotkeys has only yours, and
 one you cleared has none. Your vaults are listed in `obsidian.json`, the first found of `$XDG_CONFIG_HOME/obsidian`
 (else `~/.config/obsidian`, as for the AppImage), the Flatpak's `~/.var/app/md.obsidian.Obsidian/config/obsidian` and
@@ -258,7 +258,9 @@ several and a title that names none (a pop-out window), or two vaults sharing th
 and a one-line note. A plugin's hotkey is listed under the plugin's id; it, and a command with no default hotkey that
 you gave one, are described by their command id. Only the `.obsidian` config folder is read (a vault set to another
 config folder keeps that inside Obsidian), and only command hotkeys are listed: keys that aren't commands, such as
-the editor's own (CodeMirror's), aren't.
+the editor's own (CodeMirror's), aren't. The installed version is the one the window title ends with, checked against
+1.14.5 (see [Where the keys come from](#where-the-keys-come-from)); a title without one (a pop-out window, or `keybind-find
+dump obsidian` from a shell) is an unknown version.
 
 ### Firefox and Chromium
 
@@ -396,11 +398,12 @@ such as the `ctr-a` in mc's own default keymap) are left out and counted in one 
 Not seen: a keymap given with `mc -K`, and `MC_KEYMAP` or `MC_DATADIR` set only in the shell that started mc
 (keybind-find has its own environment, from your window manager). While mc's subshell is in front (Ctrl-O) the terminal
 still reports mc, so mc's keys are listed, not the shell's. MinIO's client is also called `mc`; in a terminal running
-it you get Midnight Commander's list.
+it you get Midnight Commander's list. keybind-find runs `mc --version` to check the installed mc against 4.8.33 (see
+[Where the keys come from](#where-the-keys-come-from)).
 
 ### ranger
 
-Over ranger in a terminal, keybind-find lists its file-browser keys without running it: the `map`, `copymap` and
+Over ranger in a terminal, keybind-find lists its file-browser keys without starting it: the `map`, `copymap` and
 `unmap` lines of ranger's default rc.conf (from 1.9.4, unchanged since 1.9.3, built in, its `eval` loops written out),
 then `/etc/ranger/rc.conf`, then yours (`$XDG_CONFIG_HOME/ranger/rc.conf`, else `~/.config/ranger/rc.conf`), read
 into ranger's key tree as ranger does: a later line wins, binding `g` drops `gg` and the reverse, `copymap` copies
@@ -410,7 +413,9 @@ the task view's `tmap`), with the command as the description and its first word 
 `XDG_CONFIG_HOME`, is read from keybind-find's environment, not ranger's, and a config directory given with `-r`/`--confdir` isn't read. `source` lines
 (an absolute path or `~/…`), `chain` and `alias` are followed. Your `eval` lines aren't run (they are counted), nor
 is any command. Keys keybind-find can't send (`<any>` bookmark keys,
-`<bg>`, a `<number>` key code) are left out with a count; an unknown `<name>` is its characters, as in ranger.
+`<bg>`, a `<number>` key code) are left out with a count; an unknown `<name>` is its characters, as in ranger. When
+the defaults are listed, keybind-find runs `ranger --version` (which reads no config) to check the installed ranger
+against 1.9.4 (see [Where the keys come from](#where-the-keys-come-from)).
 
 ### lf
 
@@ -423,6 +428,8 @@ command lf ran. lf fills that list only when it runs a shell command (opening a 
 an `on-cd` or `on-init` hook), so a fresh lf that hasn't run one yet, an lf started with `-single` (no server) or one
 that doesn't answer within a second
 is read from its config instead, with a line saying why (nothing for the fresh lf). keybind-find sends lf nothing.
+Reading the config, it runs `lf -version` to check the installed lf against r42, which the header calls `42`, as
+`lf -version` prints it on Arch (see [Where the keys come from](#where-the-keys-come-from)).
 
 The config read is lf r42's built-in keys (built in), then the files lf loads, as lf reads them: with `-config FILE` on
 lf's command line only that file, else `/etc/lf/lfrc` and `$LF_CONFIG_HOME/lf/lfrc` (else `$XDG_CONFIG_HOME/lf/lfrc`,
@@ -555,7 +562,7 @@ can't send (`null`, media keys, lone modifiers) are left out with a count.
 
 ### ncmpcpp
 
-Over ncmpcpp in a terminal, keybind-find lists its keys without running it: ncmpcpp's defaults (from 0.10.1's source,
+Over ncmpcpp in a terminal, keybind-find lists its keys without starting it: ncmpcpp's defaults (from 0.10.1's source,
 unchanged since 0.9.2, built in) with your bindings on top, read as ncmpcpp reads them:
 `$XDG_CONFIG_HOME/ncmpcpp/bindings` (`~/.config/ncmpcpp/bindings`), then `~/.ncmpcpp/bindings`. A key you bind loses
 its defaults; several `def_key` blocks for one key are alternatives, shown in order (`play item / toggle output`), and a
@@ -566,7 +573,9 @@ file and line: the running ncmpcpp read the file before it changed. `mouse` and 
 keys, and shift with tab) aren't listed. Action names aren't checked, so a misspelled one is listed as written. The paths come
 from keybind-find's environment (`HOME`, `XDG_CONFIG_HOME`), not ncmpcpp's. Files given with
 `-b`/`--bindings` on ncmpcpp's command line aren't read. One list for every screen: in ncmpcpp a key runs the first of
-its alternatives that can run where you are, so an alternative may do nothing on the current screen.
+its alternatives that can run where you are, so an alternative may do nothing on the current screen. keybind-find runs
+`ncmpcpp --version` (which doesn't connect to MPD) to check the installed ncmpcpp against 0.10.1 (see [Where the keys
+come from](#where-the-keys-come-from)).
 
 ### yazi
 
@@ -800,7 +809,9 @@ has tabs; otherwise, or under Wayland, only Xfce Terminal's own shortcuts are li
 In a Konsole window (X11 class `konsole`, Wayland app id `org.kde.konsole`), keybind-find lists Konsole's own
 shortcuts (tabs, splits, copy and paste, find, fonts, monitoring, …). Konsole has no way to print them, so its
 defaults are built in: Konsole 26.08.2's, with the KDE Frameworks 6.31 standard shortcuts it keeps and the window's
-own (Find Action, What's This, Open Menu); one version, not checked against the installed Konsole. On top go the
+own (Find Action, What's This, Open Menu); one version, checked against the installed Konsole with `konsole --version`
+(run with Qt's offscreen platform, so no window opens; see [Where the keys come from](#where-the-keys-come-from)). On
+top go the
 changes you make in Settings → Configure Keyboard Shortcuts, which Konsole saves in
 `~/.local/share/kxmlgui5/konsole/konsoleui.rc` and `sessionui.rc` (the first of each found under `$XDG_DATA_HOME` or
 `~/.local/share`, then each `$XDG_DATA_DIRS` entry): a changed shortcut replaces the default, an empty one removes it,
@@ -1062,10 +1073,33 @@ Other commands:
 
 ```sh
 keybind-find --print         # the same flow, but print the commands instead of sending keys
-keybind-find dump            # every sheet for the focused window, as a JSON array
+keybind-find dump            # every sheet for the focused window, as a JSON array, each with its "source" if it has one
 keybind-find dump nvim       # one provider's sheet (xmonad, sway, espanso, nvim, herdr, tmux, ...)
 keybind-find keys            # grab the keyboard, print each key you press in binding notation; Escape stops (X11)
 ```
+
+### Where the keys come from
+
+For 24 programs keybind-find carries the default keys of one version, built in, and lays your config over them:
+alacritty, foot, helix, herdr, Kakoune, kitty, Konsole, lazygit, lf, Midnight Commander, micro, nano, ncmpcpp, nnn,
+Obsidian, qutebrowser, ranger, screen, Vimium, VS Code, Xfce Terminal, yazi, zathura and Zed. When a newer or older version is
+installed, its defaults may differ from the list. So fzf's header has one line for each such program in the list:
+
+```text
+lazygit: 0.66.2 defaults built in (installed 0.66.2)
+```
+
+The line is red when keybind-find has no defaults for the installed version (it used another version's and says
+which file to add, on stderr), or the installed version is unknown (`installed version unknown`: the program's version
+couldn't be read). A close enough version isn't red: screen's defaults serve every release of the same major.minor.
+VS Code's, Zed's and alacritty's versions aren't checked (VS Code's CLI is too slow to run on every press; the other
+two have no check yet): `installed version not checked`. A program none of whose listed keys are the built-in
+defaults has no line: lf and qutebrowser when they answer (their own complete list), ranger with
+`RANGER_LOAD_DEFAULT_RC=false` and a config file it reads, kitty after `clear_all_shortcuts yes`, and Vimium when
+neither it nor its backup file is found, or when your `keyMappings` run `unmapAll`. Other pickers have no header: there a mismatch is the same line on stderr as before.
+`keybind-find dump` carries it as data, a `source` object on each such sheet: `defaults` (the built-in version),
+`installed` (the installed version, `null` when unknown or not checked), `checked` (whether the installed version was
+looked up) and `mismatch` (true when the line is red).
 
 ## Requirements
 

@@ -1519,8 +1519,9 @@ mod tests {
             title: None,
             providers: providers.clone(),
         };
-        let sheet = crate::providers::sheet("gimp-echo", &ctx).unwrap();
+        let (sheet, source) = crate::providers::sheet("gimp-echo", &ctx).unwrap();
         assert_eq!(sheet.provider, "gimp-echo");
+        assert_eq!(source, None);
         // Names compare ignoring case.
         assert!(sheet_with("GIMP-echo", || panic!("config read"))
             .unwrap()

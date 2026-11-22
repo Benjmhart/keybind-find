@@ -29,6 +29,80 @@ if [ "$PHASE" = x11 ]; then
   # its defaults.
   wanted lazygit && { rm -rf /tmp/e2e-repo && git init -q /tmp/e2e-repo; }
   x lazygit        "i3 lazygit" "lazygit|shift+x|Quit"              -- xterm -e lazygit -p /tmp/e2e-repo
+  # Where the keys come from: `dump`'s `source`, its installed version checked against the program's own report.
+  # lazygit's own, a stub's older one, the five probes, a failed probe, VS Code unchecked, and a provider with none.
+  if wanted defaults-source; then
+    # ds_dump NAME PROVIDER [ENV...]: `dump PROVIDER` under `env ENV...`, to $OUT/defaults-source-NAME.{json,err}.
+    ds_dump() { local n=$1 p=$2; shift 2; env "$@" timeout 60 "$KBF" dump "$p" >"$OUT/defaults-source-$n.json" 2>"$OUT/defaults-source-$n.err"; }
+    # ds_is NAME SOURCE-JSON ("null": no `source` key): the dump's source, and binds listed.
+    ds_is() {
+      python3 -I -c 'import json,sys
+s=json.load(open(sys.argv[1])); want=json.loads(sys.argv[2])
+assert ("source" in s) == (want is not None) and s.get("source") == want, s.get("source")
+assert sum(map(len, s["binds"].values())) > 0, "no binds"' "$OUT/defaults-source-$1.json" "$2" >/dev/null 2>&1 ||
+        { ds_why+="$1: $(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("source"))' "$OUT/defaults-source-$1.json" 2>&1 | tail -1); "; }
+    }
+    ds_src() { printf '{"defaults": "%s", "installed": %s, "checked": %s, "mismatch": %s}' "$@"; }
+    ds_why=""
+    ds_v=$(lazygit --version | sed -n 's/.*version=\([^,]*\),.*/\1/p')
+    ds_dump lazygit lazygit
+    ds_is lazygit "$(ds_src 0.66.2 "\"$ds_v\"" true false)"
+    ds_tmp=$(mktemp -d)
+    mkdir "$ds_tmp/old" "$ds_tmp/fail"
+    printf '#!/bin/sh\necho "commit=e2e, build date=unknown, build source=e2e, version=0.60.0, os=linux, arch=amd64, git version=2.51.0"\n' >"$ds_tmp/old/lazygit"
+    printf '#!/bin/sh\nexit 1\n' >"$ds_tmp/fail/mc"
+    chmod 755 "$ds_tmp/old/lazygit" "$ds_tmp/fail/mc"
+    ds_dump lazygit-old lazygit PATH="$ds_tmp/old:$PATH"
+    ds_is lazygit-old "$(ds_src 0.66.2 '"0.60.0"' true true)"
+    grep -qF 'lazygit 0.60.0: using the defaults of 0.66.2; add data/lazygit/0.60.0.toml' "$OUT/defaults-source-lazygit-old.err" ||
+      ds_why+="lazygit-old: no note; "
+    # Each probe against the program's own report: the pin is the snapshot's version (konsole with no display).
+    ds_dump konsole konsole -u DISPLAY -u WAYLAND_DISPLAY
+    for ds_p in "konsole 26.08.2" "mc 4.8.33" "ranger 1.9.4" "ncmpcpp 0.10.1" "lf 42"; do
+      read -r ds_prog ds_pin <<<"$ds_p"
+      [ "$ds_prog" = konsole ] || ds_dump "$ds_prog" "$ds_prog"
+      ds_is "$ds_prog" "$(ds_src "$ds_pin" "\"$ds_pin\"" true false)"
+      case $ds_prog in
+        konsole) ds_own=$(env -u DISPLAY -u WAYLAND_DISPLAY QT_QPA_PLATFORM=offscreen konsole --version 2>/dev/null) ;;
+        lf) ds_own=$(lf -version) ;;
+        *) ds_own=$("$ds_prog" --version 2>/dev/null) ;;
+      esac
+      # The pin as a whole word of the report (`42`, not the `42` in `r142`).
+      [[ " $(printf '%s' "$ds_own" | tr -s '[:space:]' ' ') " == *" $ds_pin "* ]] ||
+        ds_why+="$ds_prog: its own report lacks $ds_pin; "
+    done
+    ds_dump mc-fail mc PATH="$ds_tmp/fail:$PATH"
+    ds_is mc-fail "$(ds_src 4.8.33 null true true)"
+    grep -qF "mc's version is unknown: using the defaults of 4.8.33" "$OUT/defaults-source-mc-fail.err" ||
+      ds_why+="mc-fail: no note; "
+    ds_dump vscode vscode
+    ds_is vscode "$(ds_src 1.143.1 null false false)"
+    ds_dump less less
+    ds_is less null
+    # Bare `dump` (every sheet for the focused window) carries it too: nano's, in an xterm.
+    ds_before=$(xdotool getactivewindow 2>/dev/null)
+    setsid xterm -e nano >/dev/null 2>&1 &
+    ds_pid=$!
+    for _ in $(seq 150); do
+      ds_w=$(xdotool getactivewindow 2>/dev/null)
+      [ -n "$ds_w" ] && [ "$ds_w" != "$ds_before" ] && break
+      sleep 0.1
+    done
+    sleep 1
+    timeout 60 "$KBF" dump >"$OUT/defaults-source-all.json" 2>"$OUT/defaults-source-all.err"
+    python3 -I -c 'import json,sys
+s=[x for x in json.load(open(sys.argv[1])) if x["provider"] == "nano"]
+assert len(s) == 1 and s[0]["source"]["checked"] and s[0]["source"]["defaults"], s' "$OUT/defaults-source-all.json" >/dev/null 2>&1 ||
+      ds_why+="dump: no nano sheet with a source; "
+    i3-msg -q kill >/dev/null 2>&1
+    sleep 0.3; kill -- -"$ds_pid" 2>/dev/null; sleep 0.3
+    rm -rf "$ds_tmp"
+    if [ -z "$ds_why" ]; then
+      record defaults-source "ok	lazygit $ds_v: no mismatch; 0.60.0: mismatch and note; konsole mc ranger ncmpcpp lf: their own versions; mc failing: unknown; vscode unchecked; less none; dump: nano's source"
+    else
+      record defaults-source "FAIL	$ds_why"; FAILED=1
+    fi
+  fi
   # nnn's plugin keys come from its NNN_PLUG, which only the running nnn has (the harness sets none): proves the environ
   # read.
   x nnn            "i3 nnn"     "nnn|semicolon x|e2e quit"          -- xterm -e env NNN_PLUG='x:!echo e2e quit' nnn /tmp

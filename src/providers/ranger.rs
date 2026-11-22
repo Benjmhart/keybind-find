@@ -1,9 +1,12 @@
 //! ranger: its browser keys from the default rc.conf pinned at 1.9.4 (`data/ranger/`), then `/etc/ranger/rc.conf`
 //! and the user's `rc.conf`, read as ranger reads them into its key tree. Shown when ranger is the program in the
-//! focused terminal. ranger is never run, and no `eval` line is.
+//! focused terminal. No `eval` line is run; ranger itself is run only as `ranger --version`, for the installed
+//! version, when its defaults are listed.
 
-use crate::sheet::{Bind, Sheet};
+use super::pinned;
+use crate::sheet::{Bind, Sheet, Source};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 
@@ -11,22 +14,41 @@ const DEFAULTS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/data/ranger/1.9.4.conf"
 ));
+/// `DEFAULTS`' version.
+const VERSION: &str = "1.9.4";
 
 const SYSTEM: &str = "/etc/ranger/rc.conf";
 
-pub fn sheet() -> anyhow::Result<Sheet> {
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
-    let (sheet, notes) = read(&env, Path::new(SYSTEM));
+    let (sheet, mut notes, defaults) = read(&env, Path::new(SYSTEM));
+    let source = pinned::when_listed(defaults, &mut notes, || pick(|_| {}))?;
     for note in notes {
         eprintln!("keybind-find: ranger: {note}");
     }
-    Ok(sheet)
+    Ok((sheet, source))
+}
+
+/// The installed ranger against the pin: `ranger --version`, with `setup` (a test seam: `PATH`). The note names a
+/// `.conf`.
+fn pick(setup: impl Fn(&mut Command)) -> anyhow::Result<(Option<String>, Source)> {
+    let mut cmd = Command::new("ranger");
+    cmd.arg("--version");
+    let (note, source) = pinned::probe("ranger", VERSION, cmd, setup, version_of)?;
+    Ok((note.map(|n| n.replace(".toml", ".conf")), source))
+}
+
+/// The line `ranger version: ranger 1.9.4` → `1.9.4`; a git build's `ranger-master …` has none.
+fn version_of(text: &str) -> Option<String> {
+    text.lines()
+        .find_map(|l| pinned::version_after(Some(l), "ranger version: ranger "))
 }
 
 /// The sheet and notes from the files ranger would source (`load_settings`): the defaults unless
 /// `RANGER_LOAD_DEFAULT_RC` is `false` (any case) and the system or user file is readable, then `system`, then the
-/// user's. A file that can't be read is skipped, as ranger's `os.access(…, R_OK)` check does.
-fn read(env: Env, system: &Path) -> (Sheet, Vec<String>) {
+/// user's. A file that can't be read is skipped, as ranger's `os.access(…, R_OK)` check does. Also whether the
+/// defaults were read.
+fn read(env: Env, system: &Path) -> (Sheet, Vec<String>, bool) {
     // ranger reads text; a file that isn't UTF-8 is read lossily here.
     let text = |p: &Path| {
         std::fs::read(p)
@@ -56,7 +78,8 @@ fn read(env: Env, system: &Path) -> (Sheet, Vec<String>) {
         // A relative path (or `~user`) is relative to ranger's directory, unknown here.
         path.is_absolute().then(|| text(&path)).flatten()
     };
-    parse(&texts, &load)
+    let (sheet, notes) = parse(&texts, &load);
+    (sheet, notes, !skip_defaults)
 }
 
 /// The user's rc.conf: `$XDG_CONFIG_HOME/ranger/rc.conf` when that is absolute, else `~/.config/ranger/rc.conf`.
@@ -550,6 +573,44 @@ fn key(k: i64) -> Option<(Vec<&'static str>, String)> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_version() {
+        pinned::assert_data("ranger", &format!("{VERSION}.conf"));
+        let out = "ranger version: ranger 1.9.4\nPython version: 3.13.7 (main, Aug 15 2025)\nLocale: C.UTF-8\n";
+        assert_eq!(version_of(out).as_deref(), Some("1.9.4"));
+        for junk in [
+            "",
+            "garbage",
+            "ranger version: ranger-master v1.9.4-12-gabc\nPython version: 3.13.7\n",
+            "ranger version: ranger 1.9.4\x1b",
+        ] {
+            assert_eq!(version_of(junk), None, "{junk:?}");
+        }
+        let bin = pinned::fake_bin(
+            "ranger",
+            "[ \"$*|$LC_ALL\" = '--version|C' ] || exit 9; echo 'ranger version: ranger 1.9.3'",
+        );
+        let (note, source) = pick(pinned::path_of(&bin)).unwrap();
+        assert_eq!(
+            note.as_deref(),
+            Some("ranger 1.9.3: using the defaults of 1.9.4; add data/ranger/1.9.3.conf")
+        );
+        assert!(source.mismatch && source.installed.as_deref() == Some("1.9.3"));
+        let bin = pinned::fake_bin("ranger", "echo 'ranger version: ranger 1.9.4'");
+        assert_eq!(
+            pick(pinned::path_of(&bin)).unwrap(),
+            (
+                None,
+                Source {
+                    defaults: "1.9.4".into(),
+                    installed: Some("1.9.4".into()),
+                    checked: true,
+                    mismatch: false
+                }
+            )
+        );
+    }
+
     fn fixture(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/ranger")
@@ -753,7 +814,7 @@ mod tests {
         std::fs::set_permissions(&locked, std::os::unix::fs::PermissionsExt::from_mode(0o000))
             .unwrap();
         if std::fs::read(&locked).is_err() {
-            let (s, notes) = read(&|_| None, &locked);
+            let (s, notes, _) = read(&|_| None, &locked);
             assert_eq!((get(&s, "q"), notes.len()), (vec!["quit"], 1));
         }
         // `source ~/…` in the user's file, through `read`'s loader (`HOME`); a relative one isn't read.
@@ -766,21 +827,24 @@ mod tests {
             ),
         )
         .unwrap();
-        let (s, notes) = read(&env(&[]), &system);
+        let (s, notes, _) = read(&env(&[]), &system);
         assert_eq!(get(&s, "F7"), ["reload_cwd"]);
         assert!(notes[0].contains(" and 2 line(s)"), "{notes:?}");
         // Defaults, then the user's file (no system file).
-        let (s, _) = read(&env(&[]), &system);
+        let (s, _, defaults) = read(&env(&[]), &system);
+        assert!(defaults);
         assert_eq!(
             (get(&s, "q"), get(&s, "g g")),
             (vec!["quitall"], vec!["move to=0"])
         );
         // RANGER_LOAD_DEFAULT_RC=false (any case) with a readable user file: no defaults.
-        let (s, _) = read(&env(&[("RANGER_LOAD_DEFAULT_RC", "false")]), &system);
+        let (s, _, defaults) = read(&env(&[("RANGER_LOAD_DEFAULT_RC", "false")]), &system);
+        // No defaults listed: `sheet` reports no source.
+        assert!(!defaults);
         assert!(get(&s, "g g").is_empty());
         assert_eq!(get(&s, "q"), ["quitall"]);
         // … but kept when neither the user's nor the system file is readable.
-        let (s, _) = read(
+        let (s, _, _) = read(
             &env(&[
                 ("RANGER_LOAD_DEFAULT_RC", "FALSE"),
                 ("XDG_CONFIG_HOME", "/nonexistent"),
@@ -790,7 +854,7 @@ mod tests {
         assert_eq!(get(&s, "g g"), ["move to=0"]);
         // The system file counts as readable, and comes before the user's.
         std::fs::copy(fixture("system-rc.conf"), &system).unwrap();
-        let (s, _) = read(
+        let (s, _, _) = read(
             &env(&[
                 ("RANGER_LOAD_DEFAULT_RC", "False"),
                 ("XDG_CONFIG_HOME", "/nonexistent"),

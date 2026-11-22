@@ -5,7 +5,7 @@
 use super::nvim::single;
 use super::pinned::{self, parse_version};
 use crate::context::run_for;
-use crate::sheet::{chord, Bind, Sheet};
+use crate::sheet::{chord, Bind, Sheet, Source};
 use anyhow::Context as _;
 use serde::Deserialize;
 use std::path::Path;
@@ -36,12 +36,12 @@ struct Entry {
     category: String,
 }
 
-pub fn sheet() -> anyhow::Result<Sheet> {
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| {
         use std::os::unix::ffi::OsStringExt;
         std::env::var_os(k).map(OsStringExt::into_vec)
     };
-    let (sheet, notes) = sheet_with(
+    let (sheet, notes, source) = sheet_with(
         REGISTRY,
         |_| {},
         crate::context::editor_pid(),
@@ -51,7 +51,7 @@ pub fn sheet() -> anyhow::Result<Sheet> {
     for note in notes {
         eprintln!("keybind-find: nnn: {note}");
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
 }
 
 /// The sheet for the nnn at `pid` (none: `dump nnn` from a shell), its process read under `proc`; `setup` is applied
@@ -62,7 +62,7 @@ fn sheet_with(
     pid: Option<u32>,
     proc: &Path,
     env: Env,
-) -> anyhow::Result<(Sheet, Vec<String>)> {
+) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
     let is_nnn = |dir: &Path| {
         std::fs::read_to_string(dir.join("comm")).is_ok_and(|c| c.trim_end_matches('\n') == "nnn")
     };
@@ -85,7 +85,8 @@ fn sheet_with(
         .as_deref()
         .map(str::trim)
         .filter(|v| parse_version(v).is_some());
-    let (v, text, note) = pinned::select("nnn", registry, version).context("no pinned nnn keys")?;
+    let (v, text, note, source) =
+        pinned::select("nnn", registry, version).context("no pinned nnn keys")?;
     let pin: Pinned = toml::from_str(text).with_context(|| format!("reading data/nnn/{v}.toml"))?;
     let mut notes: Vec<String> = note.into_iter().collect();
 
@@ -178,7 +179,7 @@ fn sheet_with(
             "leaving out {left_out} {keys} that can't be sent or that nnn never reads (no keysym, such as a control or non-ASCII byte; or a `,` bookmark, which `b ,` never reaches)"
         ));
     }
-    Ok((sheet, notes))
+    Ok((sheet, notes, source))
 }
 
 /// `name`'s value in a NUL-separated environment block: the first `name=` entry, as glibc's `getenv` finds it.
@@ -513,7 +514,7 @@ mod tests {
         assert_eq!(byte_key(0x7f), None);
     }
 
-    fn sheet_of(env: &'static [(&'static str, &'static str)]) -> (Sheet, Vec<String>) {
+    fn sheet_of(env: &'static [(&'static str, &'static str)]) -> (Sheet, Vec<String>, Source) {
         sheet_with(
             REGISTRY,
             no_nnn,
@@ -534,7 +535,7 @@ mod tests {
 
     #[test]
     fn plugin_and_bookmark_keys() {
-        let (s, notes) = sheet_of(&[
+        let (s, notes, _) = sheet_of(&[
             ("NNN_PLUG", "x:!echo e2e quit;p:-preview-tui"),
             ("NNN_BMS", "d:~/Docs;u:/media/usb"),
         ]);
@@ -557,7 +558,7 @@ mod tests {
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert!(notes[0].contains("version is unknown"), "{notes:?}");
 
-        let (s, notes) = sheet_of(&[("NNN_PLUG", "xy:z"), ("NNN_BMS", "d:~/Docs;u:/media/usb")]);
+        let (s, notes, _) = sheet_of(&[("NNN_PLUG", "xy:z"), ("NNN_BMS", "d:~/Docs;u:/media/usb")]);
         assert_eq!(count(&s), 93);
         assert!(!s.binds.contains_key("PLUGIN KEYS"));
         assert_eq!(
@@ -565,7 +566,7 @@ mod tests {
             1,
             "{notes:?}"
         );
-        let (s, notes) = sheet_of(&[("NNN_PLUG", "F:x;m:-"), ("NNN_BMS", "d:")]);
+        let (s, notes, _) = sheet_of(&[("NNN_PLUG", "F:x;m:-"), ("NNN_BMS", "d:")]);
         assert_eq!(count(&s), 93);
         assert_eq!(find(&s, "semicolon shift+f").unwrap().desc, "plugin: x");
         // A lone `-` isn't the no-refresh flag (`tmp[1]` is checked).
@@ -577,7 +578,7 @@ mod tests {
         );
         // A key byte with no keysym, and a `,` bookmark (`b ,` is nnn's marked directory): left out and counted. A
         // `,` plugin is read.
-        let (s, notes) = sheet_of(&[
+        let (s, notes, _) = sheet_of(&[
             ("NNN_PLUG", "\x01:x;\x7f:y;a:z;,:c"),
             ("NNN_BMS", ",:/tmp;e:/etc"),
         ]);
@@ -587,7 +588,7 @@ mod tests {
             notes.iter().any(|n| n.starts_with("leaving out 3 keys")),
             "{notes:?}"
         );
-        let (_, notes) = sheet_of(&[]);
+        let (_, notes, _) = sheet_of(&[]);
         assert!(
             !notes.iter().any(|n| n.starts_with("leaving out")),
             "{notes:?}"
@@ -642,7 +643,7 @@ mod tests {
         let environ =
             b"HOME=/h\0NNN_PLUGX=z:no\0NNN_PLUG=n:\xffnnn's\0NNN_PLUG=s:second\0NNN_BMS=d:/tmp\0";
         let proc = fake_proc("env", "nnn", Some(environ));
-        let (s, notes) = run(&proc);
+        let (s, notes, _) = run(&proc);
         assert_eq!(
             find(&s, "semicolon n").unwrap().desc,
             "plugin: \u{fffd}nnn's"
@@ -660,7 +661,7 @@ mod tests {
             fake_proc("noenv", "nnn", None),
             fake_proc("zombie", "nnn", Some(b"")),
         ] {
-            let (s, notes) = run(&proc);
+            let (s, notes, _) = run(&proc);
             assert_eq!(find(&s, "semicolon o").unwrap().desc, "plugin: own");
             assert!(find(&s, "semicolon n").is_none());
             assert_eq!(
@@ -690,7 +691,7 @@ mod tests {
         let path = move |c: &mut Command| {
             c.env("PATH", &bin);
         };
-        let (s, notes) = sheet_with(
+        let (s, notes, source) = sheet_with(
             REGISTRY,
             path,
             None,
@@ -698,6 +699,15 @@ mod tests {
             &env_of(&[]),
         )
         .unwrap();
+        assert_eq!(
+            source,
+            Source {
+                defaults: "5.3".into(),
+                installed: Some("5.4".into()),
+                checked: true,
+                mismatch: true
+            }
+        );
         assert_eq!(count(&s), 91);
         assert_eq!(
             notes[0],

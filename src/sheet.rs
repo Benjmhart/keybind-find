@@ -3,6 +3,50 @@
 
 pub use keybind_find_sheet::{chord, Bind, Name, Sheet, Values};
 
+/// Where a provider's keys came from: the built-in defaults of version `defaults`, and the version installed.
+/// `installed` is only ever a version `pinned::parse_version` accepts; `mismatch` is "the version pick wrote its note".
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Source {
+    pub defaults: String,
+    pub installed: Option<String>,
+    pub checked: bool,
+    pub mismatch: bool,
+}
+
+impl Source {
+    /// Defaults of `defaults`, the installed version not probed.
+    pub fn unchecked(defaults: &str) -> Source {
+        Source {
+            defaults: defaults.into(),
+            installed: None,
+            checked: false,
+            mismatch: false,
+        }
+    }
+
+    /// The picker's header line for `provider`, without colour.
+    pub fn line(&self, provider: &str) -> String {
+        let installed = match (&self.installed, self.checked) {
+            (Some(i), _) => format!("installed {i}"),
+            (None, true) => "installed version unknown".into(),
+            (None, false) => "installed version not checked".into(),
+        };
+        format!(
+            "{provider}: {} defaults built in ({installed})",
+            self.defaults
+        )
+    }
+}
+
+/// A sheet as `dump` prints it: the sheet's own keys, then `source` when the provider returned one.
+#[derive(serde::Serialize)]
+pub struct Dumped<'a> {
+    #[serde(flatten)]
+    pub sheet: &'a Sheet,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<&'a Source>,
+}
+
 /// One bind flattened out of its sheet, for the picker and the runner.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
@@ -82,6 +126,64 @@ mod tests {
             serde_json::to_string(&s).unwrap(),
             r#"{"title":"x title","provider":"x","binds":{}}"#
         );
+    }
+
+    #[test]
+    fn source_lines() {
+        let mut s = Source::unchecked("1.143.1");
+        assert_eq!(
+            s.line("vscode"),
+            "vscode: 1.143.1 defaults built in (installed version not checked)"
+        );
+        s.checked = true;
+        s.mismatch = true;
+        assert_eq!(
+            s.line("vscode"),
+            "vscode: 1.143.1 defaults built in (installed version unknown)"
+        );
+        s.installed = Some("1.140.0".into());
+        assert_eq!(
+            s.line("vscode"),
+            "vscode: 1.143.1 defaults built in (installed 1.140.0)"
+        );
+        s.installed = Some("1.143.1".into());
+        s.mismatch = false;
+        assert_eq!(
+            s.line("vscode"),
+            "vscode: 1.143.1 defaults built in (installed 1.143.1)"
+        );
+    }
+
+    #[test]
+    fn dumped_adds_source_last() {
+        let s = sheet("x", &[("c", &["k"])]);
+        let plain = serde_json::to_string(&Dumped {
+            sheet: &s,
+            source: None,
+        })
+        .unwrap();
+        assert_eq!(plain, serde_json::to_string(&s).unwrap());
+        let mut src = Source::unchecked("1.0");
+        let json = |src: &Source| {
+            serde_json::to_string(&Dumped {
+                sheet: &s,
+                source: Some(src),
+            })
+            .unwrap()
+        };
+        let base = plain.strip_suffix('}').unwrap();
+        assert_eq!(
+            json(&src),
+            format!(
+                r#"{base},"source":{{"defaults":"1.0","installed":null,"checked":false,"mismatch":false}}}}"#
+            )
+        );
+        src.installed = Some("1.1".into());
+        src.checked = true;
+        src.mismatch = true;
+        assert!(json(&src).ends_with(
+            r#","source":{"defaults":"1.0","installed":"1.1","checked":true,"mismatch":true}}"#
+        ));
     }
 
     #[test]

@@ -94,6 +94,16 @@ that provider's sheet: one of
 .BR openbox ,
 .BR qutebrowser ,
 .BR vimium .
+A sheet whose keys include defaults built in for one version of the program has a
+.B source
+object: the built-in version
+.RB ( defaults ),
+the installed one
+.RB ( installed ,
+null when unknown or not checked), whether it was checked
+.RB ( checked )
+and whether keybind-find has no defaults for the installed version, or it is unknown
+.RB ( mismatch ).
 .TP
 .B keybind\-find keys
 Grab the keyboard and print each key pressed, in keybind-find's key notation, until Escape or 30 seconds with no

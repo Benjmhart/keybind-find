@@ -5,7 +5,7 @@
 use super::nvim::single;
 use super::pinned;
 use crate::context::run_for;
-use crate::sheet::{chord, Bind, Name, Sheet, Values};
+use crate::sheet::{chord, Bind, Name, Sheet, Source, Values};
 use anyhow::{anyhow, bail, ensure, Context as _};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -78,13 +78,13 @@ struct Typable {
     doc: String,
 }
 
-pub fn sheet() -> anyhow::Result<Sheet> {
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
-    let (sheet, notes) = sheet_with(REGISTRY, |_| {}, &env)?;
+    let (sheet, notes, source) = sheet_with(REGISTRY, |_| {}, &env)?;
     if !notes.is_empty() {
         eprintln!("keybind-find: helix: {}", notes.join("; "));
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
 }
 
 /// `sheet` over `registry`, with `setup` applied to `hx --version` and `helix --version` (a test seam: `PATH`) and
@@ -93,7 +93,7 @@ fn sheet_with(
     registry: &[(&'static str, &'static str)],
     setup: impl Fn(&mut Command),
     env: Env,
-) -> anyhow::Result<(Sheet, Vec<String>)> {
+) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
     let installed = ["hx", "helix"].iter().find_map(|program| {
         let mut cmd = Command::new(program);
         cmd.arg("--version")
@@ -121,8 +121,16 @@ fn sheet_with(
             })
         })
     });
-    let (v, text, note) = match same_month {
-        Some(found) => found,
+    let (v, text, note, source) = match same_month {
+        Some((v, t, note)) => {
+            let mismatch = note.is_some();
+            (
+                v,
+                t,
+                note,
+                pinned::source(v, installed.as_deref(), mismatch),
+            )
+        }
         None => pinned::select("helix", registry, installed.as_deref())
             .context("no pinned helix keymap")?,
     };
@@ -156,7 +164,7 @@ fn sheet_with(
             "leaving out {left_out} key(s) with no X keysym (null, media keys, lone modifiers and the like)"
         ));
     }
-    Ok((sheet, notes))
+    Ok((sheet, notes, source))
 }
 
 /// The version in `helix 25.07.1 (a05c151b)`; `None` for another program's line (`hx` is also a hex viewer's name).
@@ -1026,7 +1034,7 @@ mod tests {
             .unwrap()
         };
         // No binary: the newest file and the note.
-        let (s, notes) = run(Path::new("/nonexistent"));
+        let (s, notes, _) = run(Path::new("/nonexistent"));
         assert_eq!(s.title, "helix 25.07.1");
         assert_eq!(
             notes,
@@ -1038,7 +1046,7 @@ mod tests {
         let helix = fake("helix", "helix 25.01.1 (e7ac2fcd)");
         let both = std::env::join_paths([&bin, &helix]).unwrap();
         let path = both.to_string_lossy().into_owned();
-        let (s, notes) = sheet_with(
+        let (s, notes, _) = sheet_with(
             REGISTRY,
             move |c: &mut Command| {
                 c.env("PATH", &path);
@@ -1060,16 +1068,26 @@ mod tests {
             ),
             (
                 "hx",
+                "helix 25.07.0 (0123abcd)",
+                "helix 25.07.1",
+                Some("helix 25.07.0: using the defaults of 25.07.1, the same month's release"),
+            ),
+            (
+                "hx",
                 "helix 25.10.0 (0123abcd)",
                 "helix 25.07.1",
                 Some("helix 25.10.0: using the defaults of 25.07.1; add data/helix/25.10.0.toml"),
             ),
         ] {
             let bin = fake(name, out);
-            let (s, notes) = run(&bin);
+            let (s, notes, source) = run(&bin);
             let _ = std::fs::remove_dir_all(&bin);
             assert_eq!(s.title, title, "{name} {out}");
             assert_eq!(notes.first().map(String::as_str), note, "{name} {out}");
+            // The same month's release is another file: a mismatch, as its note says.
+            assert_eq!(source.mismatch, note.is_some(), "{name} {out}");
+            assert_eq!(source.installed, version_of(out), "{name} {out}");
+            assert_eq!(s.title, format!("helix {}", source.defaults));
         }
     }
 
@@ -1133,7 +1151,7 @@ mod tests {
         let no_binary = |c: &mut Command| {
             c.env("PATH", "/nonexistent");
         };
-        let (s, notes) = sheet_with(REGISTRY, no_binary, &env_of(Some(&xdg))).unwrap();
+        let (s, notes, _) = sheet_with(REGISTRY, no_binary, &env_of(Some(&xdg))).unwrap();
         assert_eq!(binds(&s, "normal").len(), 322);
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert!(
@@ -1144,14 +1162,14 @@ mod tests {
         );
         // A good one: merged, and the left-out count.
         std::fs::write(&in_xdg, fixture("config.toml")).unwrap();
-        let (s, notes) = sheet_with(REGISTRY, no_binary, &env_of(Some(&xdg))).unwrap();
+        let (s, notes, _) = sheet_with(REGISTRY, no_binary, &env_of(Some(&xdg))).unwrap();
         assert_eq!(get(&s, "normal", "x"), None);
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert!(notes[1].starts_with("leaving out 2 key(s)"), "{notes:?}");
         // A file that can't be read (a directory): a note, the defaults.
         std::fs::remove_file(&in_xdg).unwrap();
         std::fs::create_dir(&in_xdg).unwrap();
-        let (s, notes) = sheet_with(REGISTRY, no_binary, &env_of(Some(&xdg))).unwrap();
+        let (s, notes, _) = sheet_with(REGISTRY, no_binary, &env_of(Some(&xdg))).unwrap();
         assert_eq!(binds(&s, "normal").len(), 322);
         assert!(notes[1].contains("using helix's defaults"), "{notes:?}");
         let _ = std::fs::remove_dir_all(&dir);

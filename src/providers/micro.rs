@@ -5,7 +5,7 @@
 use super::nvim::single;
 use super::pinned;
 use crate::context::run_for;
-use crate::sheet::{chord, Bind, Sheet};
+use crate::sheet::{chord, Bind, Sheet, Source};
 use anyhow::{bail, Context as _};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -43,13 +43,13 @@ const PANES: [&str; 3] = ["buffer", "command", "terminal"];
 
 type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 
-pub fn sheet() -> anyhow::Result<Sheet> {
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
-    let (sheet, notes) = sheet_with(REGISTRY, |_| {}, &env)?;
+    let (sheet, notes, source) = sheet_with(REGISTRY, |_| {}, &env)?;
     if !notes.is_empty() {
         eprintln!("keybind-find: micro: {}", notes.join("; "));
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
 }
 
 /// `sheet` over `registry`, with `setup` applied to `micro -version` (a test seam: `PATH`) and `bindings.json` found
@@ -58,7 +58,7 @@ fn sheet_with(
     registry: &[(&'static str, &'static str)],
     setup: impl Fn(&mut Command),
     env: Env,
-) -> anyhow::Result<(Sheet, Vec<String>)> {
+) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
     let mut cmd = Command::new("micro");
     cmd.arg("-version")
         .env("LC_ALL", "C")
@@ -66,7 +66,7 @@ fn sheet_with(
     setup(&mut cmd);
     let version = run_for(cmd, VERSION_TIMEOUT).context("running micro -version")?;
     let installed = version_of(&version);
-    let (v, text, note) = pinned::select("micro", registry, installed.as_deref())
+    let (v, text, note, source) = pinned::select("micro", registry, installed.as_deref())
         .context("no pinned micro bindings")?;
     // `pinned::select` names a `.toml` to add; micro's pins are `.json`.
     let installed = installed.unwrap_or_default();
@@ -111,7 +111,7 @@ fn sheet_with(
              or values that aren't strings"
         ));
     }
-    Ok((keymap.into_sheet(), notes))
+    Ok((keymap.into_sheet(), notes, source))
 }
 
 /// The first dotted number in `micro -version` (`Version: 2.0.15`, then the commit and build date); a build without
@@ -750,7 +750,7 @@ mod tests {
     #[test]
     fn version_pick() {
         let pick = |out: &str| {
-            let (v, _, note) =
+            let (v, _, note, _) =
                 pinned::select("micro", REGISTRY, version_of(out).as_deref()).unwrap();
             (v, note)
         };
@@ -1001,7 +1001,8 @@ mod tests {
             let d = fixtures().join(d).to_string_lossy().into_owned();
             move |k: &str| (k == "MICRO_CONFIG_HOME").then(|| d.clone())
         };
-        let (s, notes) = sheet_with(REGISTRY, path(&bin), &dir("config")).unwrap();
+        let (s, notes, source) = sheet_with(REGISTRY, path(&bin), &dir("config")).unwrap();
+        assert_eq!(source.installed.as_deref(), Some("2.0.14"));
         assert_eq!(find(&s, "buffer", "ctrl+s"), ["SaveAll"]);
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert!(
@@ -1009,7 +1010,7 @@ mod tests {
             "{notes:?}"
         );
         // Not JSON: the defaults and one line.
-        let (s, notes) = sheet_with(REGISTRY, path(&bin), &dir("bad")).unwrap();
+        let (s, notes, _) = sheet_with(REGISTRY, path(&bin), &dir("bad")).unwrap();
         assert_eq!(find(&s, "buffer", "ctrl+c"), ["CopyLine|Copy"]);
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(
@@ -1017,18 +1018,18 @@ mod tests {
             "{notes:?}"
         );
         // Not an object: the defaults and one line.
-        let (_, notes) = sheet_with(REGISTRY, path(&bin), &dir("array")).unwrap();
+        let (_, notes, _) = sheet_with(REGISTRY, path(&bin), &dir("array")).unwrap();
         assert_eq!(
             notes,
             ["bindings.json isn't a JSON object; showing micro's defaults"]
         );
         // No file: the defaults, no line.
-        let (_, notes) = sheet_with(REGISTRY, path(&bin), &dir("nowhere")).unwrap();
+        let (_, notes, _) = sheet_with(REGISTRY, path(&bin), &dir("nowhere")).unwrap();
         assert!(notes.is_empty(), "{notes:?}");
         let _ = std::fs::remove_dir_all(&bin);
         // Another version: the note names the `.json` to add.
         let bin2 = fake_micro("newer", "Version: 2.0.16\\n");
-        let (_, notes) = sheet_with(REGISTRY, path(&bin2), &dir("nowhere")).unwrap();
+        let (_, notes, _) = sheet_with(REGISTRY, path(&bin2), &dir("nowhere")).unwrap();
         assert_eq!(
             notes,
             ["micro 2.0.16: using the defaults of 2.0.15; add data/micro/2.0.16.json"]
@@ -1036,7 +1037,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&bin2);
         // A micro printing nothing: the newest, with a note.
         let bin = fake_micro("silent", "");
-        let (_, notes) = sheet_with(REGISTRY, path(&bin), &dir("nowhere")).unwrap();
+        let (_, notes, _) = sheet_with(REGISTRY, path(&bin), &dir("nowhere")).unwrap();
         assert_eq!(
             notes,
             ["micro's version is unknown: using the defaults of 2.0.15"]

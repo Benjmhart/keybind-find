@@ -3,7 +3,7 @@
 
 use super::pinned;
 use crate::context::run_for;
-use crate::sheet::{Bind, Sheet};
+use crate::sheet::{Bind, Sheet, Source};
 use anyhow::Context as _;
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -46,13 +46,13 @@ struct Action {
     label: String,
 }
 
-pub fn sheet() -> anyhow::Result<Sheet> {
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
-    let (sheet, notes) = sheet_with(REGISTRY, |_| {}, &env)?;
+    let (sheet, notes, source) = sheet_with(REGISTRY, |_| {}, &env)?;
     if !notes.is_empty() {
         eprintln!("keybind-find: xfce4-terminal: {}", notes.join("; "));
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
 }
 
 /// `sheet` over `registry`, with `setup` applied to `xfce4-terminal --version` (a test seam: `PATH`) and
@@ -61,7 +61,7 @@ fn sheet_with(
     registry: &[(&'static str, &'static str)],
     setup: impl Fn(&mut Command),
     env: Env,
-) -> anyhow::Result<(Sheet, Vec<String>)> {
+) -> anyhow::Result<(Sheet, Vec<String>, Source)> {
     // The display stays: `main` runs `gtk_init` (which exits without one) before it handles `--version`; it opens no
     // window and asks no running instance.
     let mut cmd = Command::new("xfce4-terminal");
@@ -72,7 +72,7 @@ fn sheet_with(
     let installed = run_for(cmd, VERSION_TIMEOUT)
         .ok()
         .and_then(|t| version_of(&t));
-    let (v, text, note) = pinned::select("xfce4_terminal", registry, installed.as_deref())
+    let (v, text, note, source) = pinned::select("xfce4_terminal", registry, installed.as_deref())
         .context("no pinned xfce4-terminal accelerators")?;
     let pinned: Pinned =
         toml::from_str(text).with_context(|| format!("reading data/xfce4_terminal/{v}.toml"))?;
@@ -91,7 +91,7 @@ fn sheet_with(
              modifier, or a key that isn't a keysym name)"
         ));
     }
-    Ok((sheet, notes))
+    Ok((sheet, notes, source))
 }
 
 /// The version in `xfce4-terminal 1.2.0 (Xfce 4.20)`.
@@ -471,7 +471,7 @@ mod tests {
             ),
         ] {
             let bin = fake(&version[15..20], version);
-            let (s, notes) = sheet_with(
+            let (s, notes, _) = sheet_with(
                 REGISTRY,
                 |c: &mut Command| {
                     c.env("PATH", &bin);
@@ -598,7 +598,7 @@ mod tests {
         }
         // No xfce4-terminal: the newest defaults and the note.
         let none = |_: &str| None;
-        let (s, notes) = sheet_with(
+        let (s, notes, source) = sheet_with(
             REGISTRY,
             |c: &mut Command| {
                 c.env("PATH", "/nonexistent");
@@ -606,6 +606,7 @@ mod tests {
             &none,
         )
         .unwrap();
+        assert!(source.checked && source.mismatch && source.installed.is_none());
         assert_eq!(s.binds["xfce4-terminal"].len(), 37);
         assert_eq!(
             notes,

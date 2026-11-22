@@ -8,7 +8,7 @@ use super::micro::strip_jsonc;
 use super::nvim::single;
 use crate::context::{title_extension, Context};
 use crate::scope::Facts;
-use crate::sheet::{chord, Bind, Name, Sheet, Values};
+use crate::sheet::{chord, Bind, Name, Sheet, Source, Values};
 use anyhow::Context as _;
 use serde::Deserialize;
 use serde_json::Value;
@@ -21,6 +21,8 @@ const PINNED: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/data/vscode/1.143.1.json"
 ));
+/// `PINNED`'s version.
+const VERSION: &str = "1.143.1";
 
 type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 
@@ -125,7 +127,7 @@ struct Entry {
     user: bool,
 }
 
-pub fn sheet(ctx: &Context) -> anyhow::Result<Sheet> {
+pub fn sheet(ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
     let (sheet, facts, notes) =
         sheet_with(PINNED, ctx.title.as_deref(), ctx.class.as_deref(), &env)?;
@@ -135,7 +137,8 @@ pub fn sheet(ctx: &Context) -> anyhow::Result<Sheet> {
     for note in notes {
         eprintln!("keybind-find: vscode: {note}");
     }
-    Ok(sheet)
+    // Not checked: no probe (see `PINNED`).
+    Ok((sheet, Some(Source::unchecked(VERSION))))
 }
 
 /// The sheet, the facts from the title, and the lines for stderr, for a window titled `title` of class `class`.
@@ -1017,6 +1020,19 @@ fn scopes_of(scopes: &Scopes) -> BTreeMap<Name, Values> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_defaults_are_unchecked() {
+        super::super::pinned::assert_data("vscode", &format!("{VERSION}.json"));
+        let ctx = Context {
+            window_id: None,
+            class: None,
+            instance: None,
+            title: None,
+            providers: vec![],
+        };
+        assert_eq!(sheet(&ctx).unwrap().1, Some(Source::unchecked("1.143.1")));
+    }
 
     fn fixture(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))

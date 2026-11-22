@@ -1,9 +1,12 @@
 //! ncmpcpp: its default keys pinned at 0.10.1 (`data/ncmpcpp/`), with the user's bindings files on top, read as
-//! ncmpcpp reads them. Shown when ncmpcpp is the program in the focused terminal. ncmpcpp is never run.
+//! ncmpcpp reads them. Shown when ncmpcpp is the program in the focused terminal. ncmpcpp is run only as
+//! `ncmpcpp --version`, for the installed version (it prints it before connecting to MPD).
 
-use crate::sheet::{Bind, Sheet};
+use super::pinned;
+use crate::sheet::{Bind, Sheet, Source};
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::process::Command;
 
 type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 
@@ -11,6 +14,8 @@ const DEFAULTS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/data/ncmpcpp/0.10.1.toml"
 ));
+/// `DEFAULTS`' version.
+const VERSION: &str = "0.10.1";
 
 #[derive(Deserialize)]
 struct Pinned {
@@ -24,13 +29,26 @@ struct PinnedKey {
     actions: Vec<Vec<String>>,
 }
 
-pub fn sheet() -> anyhow::Result<Sheet> {
+pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
+    let (note, source) = pick(|_| {})?;
     let (sheet, notes) = read(&env)?;
-    for note in notes {
+    for note in note.into_iter().chain(notes) {
         eprintln!("keybind-find: ncmpcpp: {note}");
     }
-    Ok(sheet)
+    Ok((sheet, Some(source)))
+}
+
+/// The installed ncmpcpp against the pin: `ncmpcpp --version`, with `setup` (a test seam: `PATH`).
+fn pick(setup: impl Fn(&mut Command)) -> anyhow::Result<(Option<String>, Source)> {
+    let mut cmd = Command::new("ncmpcpp");
+    cmd.arg("--version");
+    pinned::probe("ncmpcpp", VERSION, cmd, setup, version_of)
+}
+
+/// `ncmpcpp 0.10.1` on the first line (then the screens compiled in) → `0.10.1`.
+fn version_of(text: &str) -> Option<String> {
+    pinned::version_after(text.lines().next(), "ncmpcpp ")
 }
 
 /// The sheet and the notes for stderr, with the user's files found through `env`.
@@ -413,6 +431,39 @@ fn notation(name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_version() {
+        pinned::assert_data("ncmpcpp", &format!("{VERSION}.toml"));
+        let out = "ncmpcpp 0.10.1\n\noptional screens compiled-in:\n - tag editor\n";
+        assert_eq!(version_of(out).as_deref(), Some("0.10.1"));
+        for junk in ["", "garbage", "\nncmpcpp 0.10.1", "ncmpcpp 0.10.1\x00"] {
+            assert_eq!(version_of(junk), None, "{junk:?}");
+        }
+        let bin = pinned::fake_bin(
+            "ncmpcpp",
+            "[ \"$*|$LC_ALL\" = '--version|C' ] || exit 9; printf 'ncmpcpp 0.10.1\\n\\noptional screens compiled-in:\\n'",
+        );
+        assert_eq!(
+            pick(pinned::path_of(&bin)).unwrap(),
+            (
+                None,
+                Source {
+                    defaults: "0.10.1".into(),
+                    installed: Some("0.10.1".into()),
+                    checked: true,
+                    mismatch: false
+                }
+            )
+        );
+        let none = crate::test_tmp().join("kbf-ncmpcpp-none");
+        let (note, source) = pick(pinned::path_of(&none)).unwrap();
+        assert_eq!(
+            note.as_deref(),
+            Some("ncmpcpp's version is unknown: using the defaults of 0.10.1")
+        );
+        assert!(source.checked && source.mismatch && source.installed.is_none());
+    }
     use std::path::Path;
 
     fn fixture(name: &str) -> String {
