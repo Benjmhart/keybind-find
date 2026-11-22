@@ -883,6 +883,10 @@ fn providers_for(
     if class.is_some_and(crate::providers::is_gimp) {
         providers.push("gimp");
     }
+    // Inkscape too: X11 class `Inkscape`, prgname `org.inkscape.Inkscape` (with a tag or revision suffix in some builds).
+    if class.is_some_and(crate::providers::is_inkscape) {
+        providers.push("inkscape");
+    }
     // Zed's release channels: the window itself, by app id or X11 class.
     if class.is_some_and(crate::providers::is_zed) {
         providers.push("zed");
@@ -2279,6 +2283,25 @@ mod tests {
             }
         }
         assert!(!providers_for(Some("xmonad"), Some("Gimp-2.10"), None, &[]).contains(&"gimp"));
+    }
+
+    #[test]
+    fn inkscape_by_window_class() {
+        for wm in ["xmonad", "sway"] {
+            for class in [
+                "Inkscape",
+                "inkscape",
+                "org.inkscape.Inkscape",
+                "org.inkscape.Inkscape.e2e",
+            ] {
+                let got = providers_for(Some(wm), Some(class), None, &[]);
+                assert!(got.ends_with(&["inkscape", "sheets"]), "{class}: {got:?}");
+            }
+        }
+        assert!(
+            !providers_for(Some("xmonad"), Some("org.inkscape.InkscapeX"), None, &[])
+                .contains(&"inkscape")
+        );
     }
 
     #[test]

@@ -17,6 +17,7 @@ mod helix;
 mod herdr;
 mod hyprland;
 mod i3;
+mod inkscape;
 mod kakoune;
 mod kde;
 mod kdl_v1;
@@ -61,6 +62,7 @@ mod zed;
 mod zellij;
 
 pub(crate) use gimp::is_gimp;
+pub(crate) use inkscape::is_inkscape;
 pub(crate) use qutebrowser::is_qutebrowser;
 pub(crate) use sheets::is_browser;
 pub(crate) use sxhkd::running as sxhkd_running;
@@ -119,6 +121,7 @@ pub const KNOWN: &[&str] = &[
     "openbox",
     "qutebrowser",
     "gimp",
+    "inkscape",
 ];
 
 /// The versions of the built-in defaults of zed (`data/zed/<v>/`) and alacritty (`alacritty_defaults.rs`), which have
@@ -132,6 +135,7 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>
         "foot" => foot::sheet(),
         "gimp" => gimp::sheet(),
         "helix" => helix::sheet(),
+        "inkscape" => inkscape::sheet(),
         "herdr" => herdr::sheet(ctx),
         "kakoune" => kakoune::sheet(),
         "kitty" => kitty::sheet(),
@@ -158,6 +162,38 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>
         }
         _ => other(name, ctx).map(|s| (s, None)),
     }
+}
+
+/// The text of the file at `path`, read whole: `None` when it doesn't exist; else why it can't be read (not a regular
+/// file, larger than `max` bytes, not UTF-8, an I/O error).
+pub(super) fn read_capped(path: &std::path::Path, max: u64) -> Result<Option<String>, String> {
+    use std::io::Read as _;
+    use std::os::unix::fs::OpenOptionsExt;
+    // Opened non-blocking and checked on the handle, so a FIFO put there can't hang us.
+    // ponytail: Linux's O_NONBLOCK on x86 and arm (libc isn't a dependency); alpha, mips, parisc and sparc differ.
+    const O_NONBLOCK: i32 = 0o4000;
+    let f = match std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NONBLOCK)
+        .open(path)
+    {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+        Ok(f) => f,
+    };
+    if !f.metadata().map_err(|e| e.to_string())?.is_file() {
+        return Err("not a regular file".into());
+    }
+    let mut bytes = Vec::new();
+    f.take(max + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > max {
+        return Err(format!("larger than {} MiB", max >> 20));
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|_| "not UTF-8".to_string())
 }
 
 /// The providers whose keys never come from built-in defaults, and plugins.

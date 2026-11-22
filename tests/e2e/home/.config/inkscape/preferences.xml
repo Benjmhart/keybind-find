@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<inkscape version="1">
+  <group id="options">
+    <group id="kbshortcuts" shortcutfile="xara.xml" />
+    <group id="boot" showsplash="0" showwelcome="0" />
+  </group>
+</inkscape>

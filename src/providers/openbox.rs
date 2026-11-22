@@ -12,7 +12,6 @@
 use crate::context::{run, Context};
 use crate::sheet::{chord, Bind, Sheet};
 use std::collections::{HashMap, HashSet};
-use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -51,7 +50,7 @@ pub fn sheet(_ctx: &Context) -> anyhow::Result<Sheet> {
 
 /// `s` with control and bidirectional-format characters escaped: a note quotes a file's text and a root-window
 /// property any X client can set.
-fn printable(s: &str) -> String {
+pub(super) fn printable(s: &str) -> String {
     s.chars()
         .map(|c| match c {
             '\u{200e}'
@@ -168,30 +167,9 @@ fn config_dirs(env: Env) -> Vec<PathBuf> {
 
 /// The file's root element and its `xi:include` count; `None` when it doesn't exist; why it doesn't load otherwise.
 fn load(path: &Path) -> Result<Option<Element>, String> {
-    use std::os::unix::fs::OpenOptionsExt;
-    // Opened non-blocking and checked on the handle, so a FIFO put there can't hang us.
-    // ponytail: Linux's O_NONBLOCK on x86 and arm (libc isn't a dependency); alpha, mips, parisc and sparc differ.
-    const O_NONBLOCK: i32 = 0o4000;
-    let f = match std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(O_NONBLOCK)
-        .open(path)
-    {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e.to_string()),
-        Ok(f) => f,
+    let Some(text) = super::read_capped(path, MAX_SIZE)? else {
+        return Ok(None);
     };
-    if !f.metadata().map_err(|e| e.to_string())?.is_file() {
-        return Err("not a regular file".into());
-    }
-    let mut bytes = Vec::new();
-    f.take(MAX_SIZE + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())?;
-    if bytes.len() as u64 > MAX_SIZE {
-        return Err(format!("larger than {} MiB", MAX_SIZE >> 20));
-    }
-    let text = String::from_utf8(bytes).map_err(|_| "not UTF-8".to_string())?;
     let root = parse_xml(&text)?;
     // `obt/xml.c:160-170`: a document of another type is passed over.
     if root.name != "openbox_config" {
