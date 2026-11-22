@@ -565,11 +565,41 @@ def qutebrowser_report(text):
     return keys
 
 
-# Providers whose report gives each key's command: their dump keys carry the bind's description (`=> DESC`) too.
-PAIRS = {"qutebrowser"}
+# --- gimp -------------------------------------------------------------------------------------------------------------
+# oracle-gimp.sh's report: the shortcutsrc GIMP writes on a clean exit, `(action "NAME" "ACCEL"…)` per action, commented
+# (`# `) when on its defaults. Accelerators as gtk_accelerator_name writes them (`<Primary><Shift>z`, GDK's XF86 names
+# without the prefix). Its own small table of the names GIMP 3.2.6's defaults and the e2e file use.
+GIMP_MODS = {"primary": "ctrl", "control": "ctrl", "shift": "shift", "alt": "alt", "super": "super", "hyper": "hyper",
+             "meta": "meta"}
+GIMP_XF86 = {"Cut", "Copy", "Paste", "ZoomIn", "ZoomOut", "Back", "Forward"}
+
+
+def gimp_key(accel):
+    """One accelerator in keybind-find's notation; `!ACCEL` for a modifier this table lacks."""
+    m = re.fullmatch(r"((?:<[A-Za-z0-9]+>)*)(.+)", accel)
+    mods = [GIMP_MODS.get(x.lower(), "!" + x) for x in re.findall(r"<([^>]+)>", m.group(1))]
+    name = m.group(2)
+    sym = name.lower() if len(name) == 1 else "XF86" + name if name in GIMP_XF86 else name
+    ordered = [x for x in MOD_ORDER if x in mods] + [x for x in dict.fromkeys(mods) if x not in MOD_ORDER]
+    return "+".join(ordered + [sym])
+
+
+def gimp_report(text):
+    """Every action's accelerators, commented or not, as `KEY<TAB>=> NAME` (the action compared too: PAIRS)."""
+    keys = set()
+    for line in text.splitlines():
+        m = re.fullmatch(r'(?:# )?\(action "([^"]*)"((?: "[^"]*")*)\)', line)
+        if m:
+            keys |= {f"{gimp_key(a)}\t=> {m.group(1)}" for a in re.findall(r'"([^"]*)"', m.group(2))}
+    return keys
+
+
+# Providers whose report gives each key's command: their dump keys carry that field of the bind too (`=> VALUE`).
+PAIRS = {"qutebrowser": "desc", "gimp": "action"}
 
 REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report, "zellij": zellij_report, "awesome": awesome_report,
-           "lf": lf_report, "nnn": nnn_report, "kakoune": kakoune_report, "qutebrowser": qutebrowser_report}
+           "lf": lf_report, "nnn": nnn_report, "kakoune": kakoune_report, "qutebrowser": qutebrowser_report,
+           "gimp": gimp_report}
 
 KNOWN = {
     "kitty": [
@@ -633,6 +663,8 @@ KNOWN = {
                           "(FR-019), qutebrowser.rs leaves it out"),
         ("mode=*\tqt:*", "a Qt key with no X keysym (<Guide> in the e2e autoconfig): qutebrowser.rs leaves it out"),
     ],
+    # The report is GIMP's own shortcutsrc after the same user file the dump reads (tests/e2e/home/.config/GIMP/3.2).
+    "gimp": [("hyper+r\t=> tools-rect-select", "gimp.rs leaves out a hyper modifier (FR-019)")],
 }
 
 # Keys the e2e config unbinds in every mode: none may stay in the dump. A KNOWN pattern alone can't tell: a key keybind-
@@ -643,16 +675,16 @@ UNBOUND = {
 
 
 # --- shared -----------------------------------------------------------------------------------------------------------
-def dump_keys(sheet, pairs=False):
+def dump_keys(sheet, pair=None):
     """Every bind's key, after its `when` scopes (`name=value<TAB>`, sorted), from one `dump PROVIDER` sheet; with
-    `pairs`, followed by `<TAB>=> DESC`."""
+    `pair` (a bind's field), followed by `<TAB>=> VALUE`."""
     keys = set()
     for binds in sheet["binds"].values():
         for b in binds:
             scopes = []
             for name, v in sorted((b.get("when") or {}).items()):
                 scopes += [f"{name}={x}" for x in (v if isinstance(v, list) else [v])]
-            keys.add("\t".join(scopes + [b["key"]] + ([f"=> {b['desc']}"] if pairs else [])))
+            keys.add("\t".join(scopes + [b["key"]] + ([f"=> {b[pair]}"] if pair else [])))
     return keys
 
 
@@ -707,7 +739,7 @@ def main(provider, report_path, dump_path):
     try:
         report = REPORTS[provider](open(report_path).read())
         sheet = json.load(open(dump_path))
-        dump = dump_keys(sheet[0] if isinstance(sheet, list) else sheet, provider in PAIRS)
+        dump = dump_keys(sheet[0] if isinstance(sheet, list) else sheet, PAIRS.get(provider))
     except Exception as e:
         print(f"FAIL\tunreadable report or dump: {e!r}")
         return 1
@@ -917,7 +949,7 @@ def self_test():
         assert qute_keys(qk) == want, (qk, qute_keys(qk))
     assert qutebrowser_report("normal\tgt\ttab-focus\ncaret\t<Ctrl+Space>\tselection-drop\nstray\n") == {
         "mode=normal\tg t\t=> tab-focus", "mode=caret\tctrl+space\t=> selection-drop", "!line:stray"}
-    assert dump_keys({"binds": {"n": [{"key": "g t", "desc": "tab-focus", "when": {"mode": "normal"}}]}}, True) == {
+    assert dump_keys({"binds": {"n": [{"key": "g t", "desc": "tab-focus", "when": {"mode": "normal"}}]}}, "desc") == {
         "mode=normal\tg t\t=> tab-focus"}
     qk = KNOWN["qutebrowser"]
     examples = {"mode=*\t*num+*\t=> *": "mode=normal\t" + qute_keys("<Num+5>") + "\t=> message-info keypad",
@@ -928,6 +960,18 @@ def self_test():
     for k in ("mode=normal\tn\t=> search-next", "mode=normal\tctrl+n\t=> x", "mode=normal\tg t\t=> x",
               "mode=caret\tq\t=> qt:x", "mode=normal\tx\t=> num+x"):
         assert not [p for p, *_ in qk if fnmatch.fnmatchcase(k, p)], k
+    # Real lines of GIMP 3.2.6's shortcutsrc: commented, uncommented, no accelerators.
+    assert gimp_report('# (action "edit-cut" "<Primary>x" "Cut")\n(action "view-zoom-in" "<Primary>KP_Add" "ZoomIn")\n'
+                       '(action "edit-paste")\n# (action "edit-strong-undo" "<Primary><Shift>z")\n'
+                       '(action "tools-rect-select" "<Super>r" "<Hyper>r")\n') == {
+        "ctrl+x\t=> edit-cut", "XF86Cut\t=> edit-cut", "ctrl+KP_Add\t=> view-zoom-in", "XF86ZoomIn\t=> view-zoom-in",
+        "ctrl+shift+z\t=> edit-strong-undo", "super+r\t=> tools-rect-select", "hyper+r\t=> tools-rect-select"}
+    assert gimp_key("<Primary>Z") == "ctrl+z" and gimp_key("slash") == "slash" and gimp_key("<Release>q") == "!Release+q"
+    assert dump_keys({"binds": {"Edit": [{"key": "ctrl+z", "desc": "Undo", "action": "edit-undo"}]}}, "action") == {
+        "ctrl+z\t=> edit-undo"}
+    for p, *_ in KNOWN["gimp"]:
+        assert fnmatch.fnmatchcase(gimp_key("<Hyper>r") + "\t=> tools-rect-select", p), p
+    assert not fnmatch.fnmatchcase("super+r\t=> tools-rect-select", KNOWN["gimp"][0][0])
     print("oracle.py: self-test ok")
     return 0
 

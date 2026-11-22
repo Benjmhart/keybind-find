@@ -10,6 +10,7 @@ mod emacs;
 mod espanso;
 mod foot;
 mod ghostty;
+mod gimp;
 mod gnome;
 mod gnome_terminal;
 mod helix;
@@ -59,6 +60,7 @@ mod zathura;
 mod zed;
 mod zellij;
 
+pub(crate) use gimp::is_gimp;
 pub(crate) use qutebrowser::is_qutebrowser;
 pub(crate) use sheets::is_browser;
 pub(crate) use sxhkd::running as sxhkd_running;
@@ -116,6 +118,7 @@ pub const KNOWN: &[&str] = &[
     "kakoune",
     "openbox",
     "qutebrowser",
+    "gimp",
 ];
 
 /// The versions of the built-in defaults of zed (`data/zed/<v>/`) and alacritty (`alacritty_defaults.rs`), which have
@@ -127,6 +130,7 @@ const ALACRITTY_DEFAULTS: &str = "0.17.0";
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>)> {
     match name {
         "foot" => foot::sheet(),
+        "gimp" => gimp::sheet(),
         "helix" => helix::sheet(),
         "herdr" => herdr::sheet(ctx),
         "kakoune" => kakoune::sheet(),

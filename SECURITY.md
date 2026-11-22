@@ -50,7 +50,8 @@ Please report security problems privately, through GitHub's private vulnerabilit
     limit and only a version read from what it prints: `konsole --version` (with Qt's offscreen platform, so it needs
     no display; it prints its version and exits before any window or D-Bus, though, as on every Konsole start, it may
     first rename old keys in `konsolerc`), `mc --version`, `ranger --version` (before any config is read), `ncmpcpp
-    --version` (before connecting to MPD) and `lf -version`;
+    --version` (before connecting to MPD), `lf -version` and `gimp --version` (it prints its version and exits before
+    any window or plug-in);
   - the picker: `alacritty` with `fzf`, `fuzzel` or `dmenu`, or whatever program `KEYBIND_FIND_PICKER` names;
   - `notify-send` for errors under a hotkey.
 - **It has your qutebrowser run a script of its own.** Over a qutebrowser window, keybind-find writes a fixed Python
@@ -79,7 +80,9 @@ Please report security problems privately, through GitHub's private vulnerabilit
   the focused terminal (its `NNN_PLUG` and `NNN_BMS` are shown, never run), and `/proc/<pid>/{comm,cmdline,environ,exe}`
   of the kak in the focused terminal (its session name and socket directory, and its config and runtime paths), and
   `/proc/<pid>/{comm,fd,net/unix}` of the focused qutebrowser window's process (to find its IPC socket); the first 256
-  bytes of the `qutebrowser` on PATH (its `#!` line); qutebrowser's `autoconfig.yml` (read by qutebrowser's own Python; a `config.py` beside it is only checked for, never read).
+  bytes of the `qutebrowser` on PATH (its `#!` line); qutebrowser's `autoconfig.yml` (read by qutebrowser's own Python; a `config.py` beside it is only checked for, never read); GIMP's
+  `shortcutsrc` (its `GIMP3_DIRECTORY` or `GIMP/3.N` config directory; only its `action` lines are read, at most 4 MiB,
+  a regular file only).
 - **It writes:** the usage log, `$XDG_STATE_HOME/keybind-find/usage.tsv` (default `~/.local/state/...`), which holds
   the time, provider and key of each pick (an espanso trigger, never its replacement); and, while the fzf picker is
   open, a `0700` directory under `$XDG_RUNTIME_DIR` (else the temporary directory) with the list, the key-search list,

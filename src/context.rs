@@ -879,6 +879,10 @@ fn providers_for(
     if class.is_some_and(crate::providers::is_qutebrowser) {
         providers.push("qutebrowser");
     }
+    // GIMP 3 is the window itself too (X11 class `Gimp`, app id `gimp`; `org.gimp.GIMP`: the Flatpak's app id).
+    if class.is_some_and(crate::providers::is_gimp) {
+        providers.push("gimp");
+    }
     // Zed's release channels: the window itself, by app id or X11 class.
     if class.is_some_and(crate::providers::is_zed) {
         providers.push("zed");
@@ -2264,6 +2268,17 @@ mod tests {
                 "{class}"
             );
         }
+    }
+
+    #[test]
+    fn gimp_by_window_class() {
+        for wm in ["xmonad", "sway"] {
+            for class in ["Gimp", "gimp", "org.gimp.GIMP"] {
+                let got = providers_for(Some(wm), Some(class), None, &[]);
+                assert!(got.ends_with(&["gimp", "sheets"]), "{class}: {got:?}");
+            }
+        }
+        assert!(!providers_for(Some("xmonad"), Some("Gimp-2.10"), None, &[]).contains(&"gimp"));
     }
 
     #[test]

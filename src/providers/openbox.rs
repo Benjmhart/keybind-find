@@ -803,7 +803,7 @@ enum Why {
 
 /// The X keysym names `XStringToKeysym` takes (keysymdef.h's and XF86keysym.h's), from keybind-find's table.
 /// ponytail: libX11's other forms (`U20AC`, the Sun/DEC/HP vendor names) aren't taken. Add them if a report shows one.
-fn is_keysym(name: &str) -> bool {
+pub(super) fn is_keysym(name: &str) -> bool {
     static NAMES: OnceLock<HashSet<&'static str>> = OnceLock::new();
     NAMES
         .get_or_init(|| {

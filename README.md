@@ -59,6 +59,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | VS Code, VSCodium, Code - OSS | the default keys (1.143.1's built in), your installed extensions' and your `keybindings.json` on top, each tagged with where it works; the file's language guessed from the title | none ([below](#vs-code)) |
 | Zed | its default keymaps (1.25.3's built in) for your base keymap and vim or helix mode, with your `keymap.json` on top, each tagged with its context; the file's extension guessed from the title | none ([below](#zed)) |
 | qutebrowser | its bindings by mode, asked of the running browser (defaults, `config.py`, `autoconfig.yml`, `:bind`s, as `qute://bindings` lists them) with the mode it is in; else 3.7.0's defaults with your `autoconfig.yml` on top | none ([below](#qutebrowser)) |
+| GIMP | its keyboard shortcuts by menu group, named as its menus name them: GIMP 3.2.6's defaults (built in) with your `shortcutsrc` applied as GIMP applies it | none ([below](#gimp)) |
 | Obsidian | its default hotkeys (1.14.5's built in) with your vault's `.obsidian/hotkeys.json` on top, the vault picked by window title | none ([below](#obsidian)) |
 | st, surf, tabbed, dwm | their stock keys from `config.def.h` at st 0.9.3, surf 2.1, tabbed 0.9 and dwm 6.8 (dwm's in a dwm session, whatever window has focus); a patched `config.h` isn't read: replace the sheet with your own of the same name | none ([below](#suckless-st-surf-tabbed-dwm)) |
 | browsers | built-in sheets for Gmail, YouTube and GitHub; any web app you write a sheet for | none; GitHub's needs a URL-in-title extension ([docs/sheets.md](docs/sheets.md)) |
@@ -243,6 +244,26 @@ Not listed: `bindings.key_mappings` (aliases such as `<Ctrl-[>` for `<Escape>`);
 with no X keysym (`<Guide>`), counted on one line. A private directory path holding `{…}` would be expanded by
 qutebrowser's command runner (keybind-find makes its own under qutebrowser's runtime directory, so it holds none). Each
 command is shown as written, never run.
+
+### GIMP
+
+Over a GIMP 3 window (X11 class `Gimp`, Wayland app id `gimp`, the Flatpak's `org.gimp.GIMP`), keybind-find lists
+GIMP's keyboard shortcuts by menu group, each named as GIMP's menus and its Keyboard Shortcuts editor name it (`Undo`,
+`Rectangle Select`): GIMP 3.2.6's defaults, built in (from GIMP's source and the file GIMP writes), with your
+`shortcutsrc` laid over them as GIMP lays it, conflicts included (a key you give one action leaves the action that had
+it by default). The file is `$GIMP3_DIRECTORY/shortcutsrc` when that is set, else
+`$XDG_CONFIG_HOME/GIMP/<major.minor>/shortcutsrc` (`~/.config/GIMP/3.2/` for GIMP 3.2, the version from `gimp
+--version`; with no `gimp` on `PATH`, the Flatpak's case, the highest `GIMP/3.N` that has one). GIMP writes it only when
+it quits cleanly or on Preferences → Interface → "Save Keyboard Shortcuts Now", so a change made in a running GIMP
+shows once GIMP has quit (or saved); a fresh install has none, and the defaults are listed.
+
+Not read: GIMP 2.10 and its `menurc` (GIMP 3 converts it into its `shortcutsrc` on first start); the Flatpak's
+`HOST_XDG_CONFIG_HOME` and the Snap's `SNAP_REAL_HOME`. Labels are GIMP's English ones (a translated GIMP shows its own
+language in its menus); a plug-in's action, which has no built-in label, is named by its action name, and a plug-in
+action in your file that GIMP no longer has is still listed (GIMP would drop it). Tab (hide docks) is a display hint in
+GIMP's menus, not a shortcut, and isn't listed. Keys keybind-find can't send (a `<Hyper>`, `<Meta>`, `<Mod2>`,
+`<Mod3>`, `<Mod5>` or `<Release>` modifier, a keycode, a key name with no X keysym) are left out with a count. The e2e
+test checks the list against the `shortcutsrc` GIMP 3.2.6 itself writes for the same file.
 
 ### Obsidian
 
@@ -1080,8 +1101,8 @@ keybind-find keys            # grab the keyboard, print each key you press in bi
 
 ### Where the keys come from
 
-For 24 programs keybind-find carries the default keys of one version, built in, and lays your config over them:
-alacritty, foot, helix, herdr, Kakoune, kitty, Konsole, lazygit, lf, Midnight Commander, micro, nano, ncmpcpp, nnn,
+For 25 programs keybind-find carries the default keys of one version, built in, and lays your config over them:
+alacritty, foot, GIMP, helix, herdr, Kakoune, kitty, Konsole, lazygit, lf, Midnight Commander, micro, nano, ncmpcpp, nnn,
 Obsidian, qutebrowser, ranger, screen, Vimium, VS Code, Xfce Terminal, yazi, zathura and Zed. When a newer or older version is
 installed, its defaults may differ from the list. So fzf's header has one line for each such program in the list:
 

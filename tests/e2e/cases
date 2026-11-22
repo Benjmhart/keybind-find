@@ -253,6 +253,24 @@ print("qutebrowser:%d, no comma l" % sum(map(len, s["binds"].values())))' \
   # the dump, which, with no qutebrowser in front, reads the same autoconfig.yml over the pinned defaults.
   o qutebrowser-oracle qutebrowser -- qutebrowser -s qt.force_software_rendering chromium -s qt.chromium.sandboxing disable-all ":debug-pyeval --file $E/oracle-qutebrowser.py" ":quit"
   wanted qutebrowser-oracle && qute_gone qutebrowser-oracle
+  # GIMP's own shortcutsrc, written on a clean exit from a copy of the e2e home's GIMP/3.2 (tests/e2e/oracle-gimp.sh),
+  # against the dump, which reads the home's untouched file over the pinned 3.2.6 defaults. Before the gimp case: the
+  # GIMP there may save over the home's file when its window is closed.
+  o gimp-oracle gimp -- sh "$E/oracle-gimp.sh" "$OUT"
+  # The same dump's `source`: the pin is the snapshot's GIMP, its version checked.
+  if wanted gimp-oracle; then
+    if python3 -I -c 'import json,sys
+assert json.load(open(sys.argv[1]))["source"] == {"defaults": "3.2.6", "installed": "3.2.6", "checked": True, "mismatch": False}' \
+      "$OUT/gimp-oracle.json" >/dev/null 2>&1; then record gimp-source "ok	3.2.6, installed 3.2.6, no mismatch"
+    else record gimp-source "FAIL	$(grep -o '"source":.*' "$OUT/gimp-oracle.json" | cut -c1-200)"; FAILED=1; fi
+  fi
+  # GIMP's image window (gimprc: no Welcome dialog); ctrl+u is Undo in the e2e shortcutsrc. No GIMP outlives the case,
+  # and none quits cleanly (it would save over the home's file; SIGTERM doesn't save).
+  x gimp           "i3 gimp"    "gimp|ctrl+u|Undo"                  10 -- gimp --no-splash
+  if wanted gimp; then
+    for _ in $(seq 100); do pgrep -x 'gimp-[0-9.]+' >/dev/null || break; sleep 0.1; done
+    ! pkill -9 -x 'gimp-[0-9.]+' || { record gimp-cleanup "FAIL	a gimp outlived SIGTERM for 10 s"; FAILED=1; }
+  fi
 elif [ "$PHASE" = awesome ]; then
   # awesome on the same display, i3 stopped: its keys from the running awesome over D-Bus
   # (tests/e2e/home/.config/awesome/rc.lua: the stock rc.lua plus keys of our own).
