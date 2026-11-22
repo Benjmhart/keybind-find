@@ -130,8 +130,7 @@ fn read(env: Env, class: Option<&str>, roots: &[&str]) -> anyhow::Result<(Sheet,
 /// that has one. Nothing is run.
 fn install_root(env: Env, roots: &[&str]) -> anyhow::Result<PathBuf> {
     let path = env("PATH").unwrap_or_default();
-    let on_path = std::env::split_paths(&path)
-        .filter(|d| !d.as_os_str().is_empty())
+    let on_path = path_dirs(&path)
         .filter_map(|d| d.join("soffice").canonicalize().ok())
         .find_map(|f| {
             let program = f.parent()?;
@@ -152,6 +151,11 @@ fn install_root(env: Env, roots: &[&str]) -> anyhow::Result<PathBuf> {
             roots.join(" or ")
         ),
     }
+}
+
+/// `PATH`'s directories, empty entries skipped (not the current directory).
+fn path_dirs(path: &str) -> impl Iterator<Item = PathBuf> + '_ {
+    std::env::split_paths(path).filter(|d| !d.as_os_str().is_empty())
 }
 
 /// `registrymodifications.xcu` under `UserInstallation=$SYSUSERCONFIG/libreoffice/4` (Arch's bootstraprc), with
@@ -204,7 +208,8 @@ fn parse<'a>(text: &'a str, root: &str, nodes_limit: u32) -> Result<Document<'a>
     // The walk follows the registry's own shape (a few levels), so this only keeps hostile nesting out.
     if doc
         .descendants()
-        .any(|n| n.ancestors().nth(MAX_DEPTH).is_some())
+        // `ancestors()` counts the node itself and the document node: more than MAX_DEPTH elements deep.
+        .any(|n| n.ancestors().nth(MAX_DEPTH + 1).is_some())
     {
         return Err(format!("its elements nest deeper than {MAX_DEPTH}"));
     }
@@ -262,12 +267,15 @@ fn load_layer(reg: &mut Registry, dir: &Path, nodes_limit: u32, notes: &mut Vec<
         }
     }
     let mut done: HashSet<&str> = HashSet::new();
+    // `XcdParser::startElement` (`configmgr/source/xcdparser.cxx:69-118`): on the first pass (the directory scan) every
+    // dependency must be read already; on later passes an optional one that doesn't exist doesn't count.
+    let mut first = true;
     loop {
         let before = pending.len();
         let mut i = 0;
         while i < pending.len() {
             let ready = pending[i].3.iter().all(|(d, optional)| {
-                done.contains(d.as_str()) || (*optional && !existing.contains(d.as_str()))
+                done.contains(d.as_str()) || (!first && *optional && !existing.contains(d.as_str()))
             });
             if ready {
                 let (name, _, doc, _) = pending.remove(i);
@@ -277,9 +285,10 @@ fn load_layer(reg: &mut Registry, dir: &Path, nodes_limit: u32, notes: &mut Vec<
                 i += 1;
             }
         }
-        if pending.len() == before {
+        if pending.len() == before && !first {
             break;
         }
+        first = false;
     }
     for (_, path, _, deps) in pending {
         let waits: Vec<String> = deps
@@ -527,7 +536,10 @@ impl Registry {
         let commands = || {
             TNode::group(vec![(
                 "UserInterface",
-                TNode::group(vec![("Commands", TNode::new(Kind::Set { of_sets: false }))]),
+                TNode::group(vec![
+                    ("Commands", TNode::new(Kind::Set { of_sets: false })),
+                    ("Popups", TNode::new(Kind::Set { of_sets: false })),
+                ]),
             )])
         };
         let mut components = HashMap::new();
@@ -594,14 +606,16 @@ impl Registry {
     }
 
     /// `UICommandDescription` (`uicommanddescription.cxx` `getInfoFromCommand` 398-420, `fillInfoFromResult` 254-262):
-    /// the module's labels, else the generic ones; the locale, its language, `en-US`, `""`; then the product name, no
+    /// the module's labels, else the generic ones, each under `Commands`, else `Popups` (`fillCache` 341-359: the
+    /// first a command is found under stays); the locale, its language, `en-US`, `""`; then the product name, no
     /// trailing dots, no mnemonics. `None`: no label.
     fn label(&self, labels: &str, command: &str, locale: &str) -> Option<String> {
         let language = locale.split('-').next().unwrap_or(locale);
         let module = format!("org.openoffice.Office.UI.{labels}");
         let vals = &[module.as_str(), GENERIC]
             .iter()
-            .find_map(|c| self.node(&[c, "UserInterface", "Commands", command]))?
+            .flat_map(|c| ["Commands", "Popups"].map(|set| (*c, set)))
+            .find_map(|(c, set)| self.node(&[c, "UserInterface", set, command]))?
             .vals;
         let text = [locale, language, "en-US", ""]
             .iter()
@@ -674,7 +688,11 @@ fn event(name: &str) -> Result<Event, Out> {
 }
 
 /// The X keysym LibreOffice's GTK backend turns into key code `KEY_<key>` (`keymapping.cxx:31-140`, `gtkframe.cxx`
-/// `GetKeyCode` 126-262): `Ok(None)` when none does, `Err` for a name `KeyMapping` doesn't know.
+/// `GetKeyCode` 126-322): `Ok(None)` for the codes left out (AC #6), which GTK gives only for vendor and XF86
+/// keysyms (`XF86Copy`, `XF86Cut`, `XF86Open`, `XF86Paste`, Sun's, Apollo's, OSF's) or none (MENU); `Err` for a name
+/// `KeyMapping` doesn't know.
+/// ponytail: `GetKeyCode` also turns F13, F14, F16, F18 and F20 (Sun's L3, L4, L6, L8, L10) into PROPERTIES, UNDO,
+/// COPY, PASTE and CUT; AC #6 lists F13-F26 as themselves.
 fn keysym(key: &str) -> Result<Option<String>, ()> {
     const NAMED: &[(&str, &str)] = &[
         ("DOWN", "Down"),
@@ -683,8 +701,8 @@ fn keysym(key: &str) -> Result<Option<String>, ()> {
         ("RIGHT", "Right"),
         ("HOME", "Home"),
         ("END", "End"),
-        ("PAGEUP", "Page_Up"),
-        ("PAGEDOWN", "Page_Down"),
+        ("PAGEUP", "Prior"),
+        ("PAGEDOWN", "Next"),
         ("RETURN", "Return"),
         ("ESCAPE", "Escape"),
         ("TAB", "Tab"),
@@ -725,7 +743,6 @@ fn keysym(key: &str) -> Result<Option<String>, ()> {
         "PROPERTIES",
         "FRONT",
         "MENU",
-        "HANGUL_HANJA",
     ];
     let mut chars = key.chars();
     if let (Some(c), None) = (chars.next(), chars.next()) {
@@ -741,8 +758,8 @@ fn keysym(key: &str) -> Result<Option<String>, ()> {
     if let Some((_, s)) = NAMED.iter().find(|(k, _)| *k == key) {
         return Ok(Some(s.to_string()));
     }
-    // `HANGUL_HANJA` holds a `_`, so a key name never reaches here as it: it is split as `HANGUL` + `HANJA` first,
-    // and `KEY_HANGUL` is unknown, as it is to LibreOffice.
+    // `HANGUL_HANJA` holds a `_`, so it is split as `HANGUL` + `HANJA` first, and `KEY_HANGUL` is unknown, as it is
+    // to LibreOffice: counted as an unknown name.
     if NONE.contains(&key) {
         return Ok(None);
     }
@@ -860,14 +877,14 @@ fn to_sheet(
     let parts: Vec<String> = [
         (
             left.no_keysym,
-            "on OPEN, CUT, COPY, PASTE, PROPERTIES, FRONT, MENU or HANGUL_HANJA (no X keysym GTK turns into them)",
+            "on OPEN, CUT, COPY, PASTE, PROPERTIES, FRONT or MENU (LibreOffice's own key codes, not sent)",
         ),
         (left.unknown, "with a key name LibreOffice doesn't know"),
         (left.invalid, "with an invalid name"),
     ]
     .iter()
     .filter(|(n, _)| *n > 0)
-    .map(|(n, why)| format!("{n} keys {why}"))
+    .map(|(n, why)| format!("{n} {} {why}", if *n == 1 { "key" } else { "keys" }))
     .chain(left.capped.then(|| format!("everything after the first {max_rows} keys")))
     .collect();
     if !parts.is_empty() {
@@ -1027,13 +1044,33 @@ mod tests {
             get(&m, "LibreOffice", "ctrl+f"),
             Some(("Find", "vnd.sun.star.findbar:FocusToFindbar"))
         );
-        // Arguments are part of the command looked up; this one has no label: described by itself.
+        // Labelled only under Popups: WriterCommands' (arguments are part of the command looked up), GenericCommands'.
         let (d, a) = get(&m, "Writer", "ctrl+0").unwrap();
-        assert_eq!(d, a);
+        assert_eq!(d, "Body Text");
         assert!(
             a.starts_with(".uno:StyleApply?Style:string=Text body&FamilyName"),
             "{a}"
         );
+        assert_eq!(get(&m, "Writer", "ctrl+1").map(|x| x.0), Some("Heading 1"));
+        assert_eq!(
+            get(&m, "LibreOffice", "alt+1"),
+            Some(("Open the Properties Deck", ".uno:SidebarDeck.PropertyDeck"))
+        );
+        assert_eq!(
+            get(&m, "LibreOffice", "alt+c"),
+            Some(("Character", ".uno:FontDialog"))
+        );
+        // PAGEUP and PAGEDOWN as XKeysymToString names them.
+        assert_eq!(
+            get(&m, "Writer", "ctrl+Next"),
+            Some(("To Footer", ".uno:JumpToFooter"))
+        );
+        assert_eq!(
+            get(&m, "LibreOffice", "ctrl+shift+Prior"),
+            Some(("Zoom In", ".uno:ZoomPlus"))
+        );
+        // No Writer default is unlabelled now; a command with no label anywhere is described by itself (`labels`).
+        assert!(m.values().all(|(d, a)| d != a), "{m:?}");
         assert_eq!(
             counts(&m),
             [("LibreOffice".into(), GLOBAL_ROWS), ("Writer".into(), 142)]
@@ -1047,6 +1084,10 @@ mod tests {
     #[test]
     fn calc_start_center_and_base() {
         let (m, _) = sheet_of("libreoffice-calc", None);
+        assert_eq!(
+            get(&m, "Calc", "ctrl+Next").map(|x| x.1),
+            Some(".uno:JumpToNextTable")
+        );
         assert_eq!(
             get(&m, "Calc", "F2"),
             Some(("Cell Edit Mode", ".uno:SetInputMode"))
@@ -1085,7 +1126,7 @@ mod tests {
     }
 
     /// The defaults' bare OPEN, CUT, COPY and PASTE keys, once each per sheet (module or Global).
-    const LEFT_OUT: &str = "leaving out: 4 keys on OPEN, CUT, COPY, PASTE, PROPERTIES, FRONT, MENU or HANGUL_HANJA (no X keysym GTK turns into them)";
+    const LEFT_OUT: &str = "leaving out: 4 keys on OPEN, CUT, COPY, PASTE, PROPERTIES, FRONT or MENU (LibreOffice's own key codes, not sent)";
 
     const MODULE_ROWS: [(&str, usize, &str); 7] = [
         ("libreoffice-writer", 176, LEFT_OUT),
@@ -1197,6 +1238,11 @@ mod tests {
 
     /// Files (name, text) in a registry directory loaded with `limit`: the registry and notes.
     fn load(files: &[(&str, &[u8])], limit: u32) -> (Registry, Vec<String>) {
+        load_for("WriterCommands", files, limit)
+    }
+
+    /// `load` with the labels component `labels`.
+    fn load_for(labels: &str, files: &[(&str, &[u8])], limit: u32) -> (Registry, Vec<String>) {
         static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let d = tmp(&format!(
             "reg-{}",
@@ -1205,7 +1251,7 @@ mod tests {
         for (name, text) in files {
             write(&d.join(name), text);
         }
-        let mut reg = Registry::new("WriterCommands");
+        let mut reg = Registry::new(labels);
         let mut notes = Vec::new();
         load_layer(&mut reg, &d, limit, &mut notes);
         (reg, notes)
@@ -1321,8 +1367,18 @@ mod tests {
             NODES_LIMIT,
         );
         assert!(notes.is_empty(), "{notes:?}");
-        // configmgr's first pass reads `main` then `o` (its dependency now read); `a` waits for the second.
-        assert_eq!(globals(&reg), pairs(&[("A_MOD1", ".uno:FromA")]));
+        // configmgr's first pass (the directory scan) reads only `main`: an optional dependency waits there too; the
+        // second reads `a`, then `o`, its absent optional one no longer counted.
+        assert_eq!(globals(&reg), pairs(&[("A_MOD1", ".uno:FromO")]));
+        // An optional dependency that exists orders its file after it.
+        let p = data(&(dep("z", true) + &k(".uno:FromP")));
+        let z = data(&k(".uno:FromZ"));
+        let (reg, notes) = load(
+            &[("p.xcd", p.as_bytes()), ("z.xcd", z.as_bytes())],
+            NODES_LIMIT,
+        );
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(globals(&reg), pairs(&[("A_MOD1", ".uno:FromP")]));
         // A cycle, and a missing dependency: one note each, the files skipped, the rest read.
         let x = data(&(dep("y", false) + &k(".uno:X")));
         let y = data(&(dep("x", false) + &k(".uno:Y")));
@@ -1589,8 +1645,8 @@ mod tests {
             ("RIGHT", "Right"),
             ("HOME", "Home"),
             ("END", "End"),
-            ("PAGEUP", "Page_Up"),
-            ("PAGEDOWN", "Page_Down"),
+            ("PAGEUP", "Prior"),
+            ("PAGEDOWN", "Next"),
             ("RETURN", "Return"),
             ("ESCAPE", "Escape"),
             ("TAB", "Tab"),
@@ -1635,11 +1691,21 @@ mod tests {
             "PROPERTIES",
             "FRONT",
             "MENU",
-            "HANGUL_HANJA",
         ] {
             assert_eq!(keysym(code), Ok(None), "{code}");
         }
-        for code in ["F0", "F27", "F01", "a", "ZZZ", "", "AA", "KEY_A"] {
+        for code in [
+            "F0",
+            "F27",
+            "F01",
+            "a",
+            "ZZZ",
+            "",
+            "AA",
+            "KEY_A",
+            "HANGUL",
+            "HANGUL_HANJA",
+        ] {
             assert_eq!(keysym(code), Err(()), "{code}");
         }
         assert_eq!(event("1_SHIFT_MOD1"), Ok(("1".into(), 3)));
@@ -1703,7 +1769,7 @@ mod tests {
         assert_eq!(m.len(), 4, "{m:?}");
         assert_eq!(
             notes,
-            ["leaving out: 1 keys on OPEN, CUT, COPY, PASTE, PROPERTIES, FRONT, MENU or HANGUL_HANJA (no X keysym GTK turns into them), 1 keys with a key name LibreOffice doesn't know, 1 keys with an invalid name"]
+            ["leaving out: 1 key on OPEN, CUT, COPY, PASTE, PROPERTIES, FRONT or MENU (LibreOffice's own key codes, not sent), 1 key with a key name LibreOffice doesn't know, 1 key with an invalid name"]
         );
     }
 
@@ -1828,5 +1894,206 @@ mod tests {
         ] {
             assert!(!is_libreoffice(c), "{c}");
         }
+    }
+
+    // --- review round 1 ----------------------------------------------------------------------------------------------
+
+    #[test]
+    fn fuse_keeps_what_it_doesnt_mention() {
+        let base = data(&global(&key(
+            "A_MOD1",
+            "replace",
+            &(v("en-US", ".uno:A") + &v("de", ".uno:Ade")),
+        )));
+        let over = data(&global(&key("A_MOD1", "fuse", &v("en-US", ".uno:A2"))));
+        let (reg, _) = load(
+            &[("a.xcd", base.as_bytes()), ("b.xcd", over.as_bytes())],
+            NODES_LIMIT,
+        );
+        let g = reg.node(&[ACCELERATORS, "PrimaryKeys", "Global"]).unwrap();
+        assert_eq!(g.kids["A_MOD1"].vals["en-US"], ".uno:A2");
+        // `replace` would have dropped it.
+        assert_eq!(g.kids["A_MOD1"].vals["de"], ".uno:Ade");
+    }
+
+    /// Each module's labels component (AC #1) over GenericCommands, through the module's own key.
+    #[test]
+    fn each_module_labels_its_keys() {
+        let comp = |name: &str, label: &str| {
+            format!(
+                r#"<oor:component-data oor:name="{name}" oor:package="org.openoffice.Office.UI"><node oor:name="UserInterface"><node oor:name="Commands"><node oor:name=".uno:X" oor:op="replace"><prop oor:name="Label"><value xml:lang="en-US">{label}</value></prop></node></node></node></oor:component-data>"#
+            )
+        };
+        let mut inner = comp("GenericCommands", "Generic");
+        let mut modules = String::new();
+        for m in MODULES {
+            inner += &comp(m.labels, m.labels);
+            modules += &format!(
+                r#"<node oor:name="{}" oor:op="replace">{}</node>"#,
+                m.id,
+                key("A_MOD1", "replace", &v("en-US", ".uno:X"))
+            );
+        }
+        inner += &format!(
+            r#"<oor:component-data oor:name="Accelerators" oor:package="org.openoffice.Office"><node oor:name="PrimaryKeys"><node oor:name="Modules">{modules}</node></node></oor:component-data>"#
+        );
+        let text = data(&inner);
+        for m in MODULES {
+            let (reg, notes) = load_for(m.labels, &[("a.xcd", text.as_bytes())], NODES_LIMIT);
+            assert!(notes.is_empty(), "{notes:?}");
+            let mut notes = Vec::new();
+            let s = to_sheet(&reg, m, "en-US", MAX_ROWS, &mut notes);
+            let cat = m.title.trim_start_matches("LibreOffice ");
+            assert_eq!(
+                get(&flat(&s), cat, "ctrl+a"),
+                Some((m.labels, ".uno:X")),
+                "{}",
+                m.class
+            );
+        }
+        let labels: Vec<_> = MODULES.iter().map(|m| (m.class, m.labels)).collect();
+        assert_eq!(
+            labels,
+            [
+                ("libreoffice-writer", "WriterCommands"),
+                ("libreoffice-calc", "CalcCommands"),
+                ("libreoffice-impress", "DrawImpressCommands"),
+                ("libreoffice-draw", "DrawImpressCommands"),
+                ("libreoffice-math", "MathCommands"),
+                ("libreoffice-base", "DbuCommands"),
+                ("libreoffice-startcenter", "StartModuleCommands"),
+            ]
+        );
+    }
+
+    #[test]
+    fn popups_after_commands() {
+        let comp = |name: &str, set: &str, cmd: &str, label: &str| {
+            format!(
+                r#"<oor:component-data oor:name="{name}" oor:package="org.openoffice.Office.UI"><node oor:name="UserInterface"><node oor:name="{set}"><node oor:name="{cmd}" oor:op="replace"><prop oor:name="Label"><value xml:lang="en-US">{label}</value></prop></node></node></node></oor:component-data>"#
+            )
+        };
+        let text = data(
+            &[
+                comp("WriterCommands", "Popups", ".uno:P", "Writer popup"),
+                comp("WriterCommands", "Commands", ".uno:B", "Writer command"),
+                comp("WriterCommands", "Popups", ".uno:B", "Writer popup"),
+                comp("GenericCommands", "Commands", ".uno:P", "Generic command"),
+                comp("GenericCommands", "Popups", ".uno:G", "Generic popup"),
+            ]
+            .concat(),
+        );
+        let (reg, _) = load(&[("a.xcd", text.as_bytes())], NODES_LIMIT);
+        let l = |c: &str| reg.label("WriterCommands", c, "en-US");
+        assert_eq!(l(".uno:B").as_deref(), Some("Writer command"));
+        // The module's Popups before the generic Commands.
+        assert_eq!(l(".uno:P").as_deref(), Some("Writer popup"));
+        assert_eq!(l(".uno:G").as_deref(), Some("Generic popup"));
+    }
+
+    #[test]
+    fn notes_and_rows_are_made_safe() {
+        // A note quoting a file name with a bidi and a control character is escaped.
+        let fake = tmp("unsafe");
+        write(&fake.join("program/soffice"), "");
+        write(&fake.join("share/registry/b\u{202e}\u{1b}.xcd"), "<broken");
+        let (_, notes) = read(
+            &|_| None,
+            Some("libreoffice-writer"),
+            &[fake.to_str().unwrap()],
+        )
+        .unwrap();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("b\\u{202e}\\u{1b}.xcd: "), "{}", notes[0]);
+        assert!(!notes[0].contains('\u{202e}') && !notes[0].contains('\u{1b}'));
+        // desc and action: control and bidi characters as spaces.
+        let text = data(
+            &(global(&key(
+                "A_MOD1",
+                "replace",
+                &v("en-US", ".uno:A&#9;B\u{202e}"),
+            )) + r#"<oor:component-data oor:name="GenericCommands" oor:package="org.openoffice.Office.UI"><node oor:name="UserInterface"><node oor:name="Commands"><node oor:name=".uno:A&#9;B&#x202e;" oor:op="replace"><prop oor:name="Label"><value xml:lang="en-US">L&#x2066;x&#x85;y</value></prop></node></node></node></oor:component-data>"#),
+        );
+        let (reg, _) = load(&[("a.xcd", text.as_bytes())], NODES_LIMIT);
+        let mut notes = Vec::new();
+        let s = to_sheet(
+            &reg,
+            module("libreoffice-writer"),
+            "en-US",
+            MAX_ROWS,
+            &mut notes,
+        );
+        assert_eq!(
+            get(&flat(&s), "LibreOffice", "ctrl+a"),
+            Some(("L x y", ".uno:A B "))
+        );
+    }
+
+    #[test]
+    fn more_orders_and_limits() {
+        assert_eq!(MAX_ROWS, 5000);
+        // Same event; by code units the longer name comes first, by length the shorter wins: configmgr's order.
+        let text = data(&global(
+            &[
+                key("A_SHIFT_MOD1", "replace", &v("en-US", ".uno:Short")),
+                key("A_MOD1_MOD1_SHIFT", "replace", &v("en-US", ".uno:Long")),
+            ]
+            .concat(),
+        ));
+        let (reg, _) = load(&[("a.xcd", text.as_bytes())], NODES_LIMIT);
+        let mut notes = Vec::new();
+        let s = to_sheet(
+            &reg,
+            module("libreoffice-writer"),
+            "en-US",
+            MAX_ROWS,
+            &mut notes,
+        );
+        assert_eq!(
+            get(&flat(&s), "LibreOffice", "ctrl+shift+a").map(|x| x.1),
+            Some(".uno:Short")
+        );
+        // 64 elements deep reads; 65 is a note.
+        let nest = |n: usize| {
+            format!(
+                r#"<oor:data xmlns:oor="{OOR}">{}{}</oor:data>"#,
+                "<x>".repeat(n - 1),
+                "</x>".repeat(n - 1)
+            )
+        };
+        let (_, notes) = load(&[("a.xcd", nest(64).as_bytes())], NODES_LIMIT);
+        assert!(notes.is_empty(), "{notes:?}");
+        let (_, notes) = load(&[("a.xcd", nest(65).as_bytes())], NODES_LIMIT);
+        assert!(
+            notes[0].ends_with("its elements nest deeper than 64; skipped"),
+            "{notes:?}"
+        );
+        // Several L10N items: the last wins.
+        let user = items(&(locale_item("fr") + &locale_item("de")));
+        let (m, _) = sheet_of("libreoffice-writer", Some(&user));
+        assert_eq!(
+            get(&m, "Writer", "ctrl+b").map(|x| x.1),
+            Some(".uno:JustifyPara")
+        );
+        // PATH's empty entries are skipped, not read as the current directory.
+        assert_eq!(
+            path_dirs(":/a::/b:").collect::<Vec<_>>(),
+            [PathBuf::from("/a"), PathBuf::from("/b")]
+        );
+        // The first of two soffice on PATH.
+        let d = tmp("two");
+        for i in ["one", "two"] {
+            write(&d.join(i).join("program/soffice"), "");
+        }
+        let p = format!(
+            "{}:{}",
+            d.join("one/program").display(),
+            d.join("two/program").display()
+        );
+        let env = move |k: &str| (k == "PATH").then(|| p.clone());
+        assert_eq!(
+            install_root(&env, &[]).unwrap(),
+            d.join("one").canonicalize().unwrap()
+        );
     }
 }
