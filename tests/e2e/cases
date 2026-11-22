@@ -333,7 +333,7 @@ else: print(f"ok\t{len(ours)} ids, {len(undescribed)} without action data, {len(
   if wanted libreoffice-oracle; then
     lo_gone libreoffice-oracle
     # LibreOffice's defaults come from its own install: no `source` in the dump (10.1).
-    if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit("source" in d)' \
+    if python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); d=d[0] if isinstance(d, list) else d; sys.exit("source" in d)' \
       "$OUT/libreoffice-oracle.json" >/dev/null 2>&1; then record libreoffice-source "ok	none: LibreOffice's own registry"
     else record libreoffice-source "FAIL	$(grep -o '"source":.*' "$OUT/libreoffice-oracle.json" | cut -c1-200)"; FAILED=1; fi
   fi

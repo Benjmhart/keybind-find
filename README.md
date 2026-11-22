@@ -308,14 +308,16 @@ all, which also gives a note; one whose file fails to load is a note).
 Over a LibreOffice window, keybind-find lists the shortcuts of the module in front, by its window class (X11's
 `WM_CLASS` class, Wayland's app id, any case): `libreoffice-writer`, `-calc`, `-impress`, `-draw`, `-math`, `-base` and
 `-startcenter`. The module's own keys come first (category `Writer`, `Calc`, …), then each global key on a key the
-module doesn't bind (category `LibreOffice`), as LibreOffice looks a key up. Each is named as Tools › Customize ›
-Keyboard names it (`Bold`, `Find and Replace`: the module's labels, else the generic ones, without `~` and `...`).
-`keybind-find dump libreoffice` from a terminal lists Writer's, with a note.
+module doesn't bind (category `LibreOffice`), as LibreOffice looks a key up. Each is described by the command's name as
+LibreOffice's command description gives it, the text Tools › Customize › Keyboard shows (`Bold`, `Find and Replace`):
+its label from the module's commands, else the generic ones (each under `Commands`, then `Popups`), with `~` and
+trailing dots removed. `keybind-find dump libreoffice` from a terminal lists Writer's, with a note.
 
 Nothing is built in: the keys are read from your installation, as LibreOffice's configuration reads them at start:
 
 - the **install**: the `soffice` on your `PATH` whose real path (symlinks followed) is `<install>/program/soffice`,
-  else `/usr/lib/libreoffice` or `/usr/lib64/libreoffice`; nothing is run. None found: no list, with a note;
+  else `/usr/lib/libreoffice` or `/usr/lib64/libreoffice`; nothing is run. None found: an error naming where it looked,
+  and no list;
 - its **defaults**: every `*.xcd` in `<install>/share/registry` (each after the files it depends on, else by name),
   then those in `share/registry/res` (the language packs), layered as LibreOffice layers them;
 - then **your changes**: `registrymodifications.xcu` in your profile (`$XDG_CONFIG_HOME/libreoffice/4/user/`, else
@@ -324,21 +326,30 @@ Nothing is built in: the keys are read from your installation, as LibreOffice's 
 
 The UI locale is your profile's (LibreOffice saves it at every start), else `en-US`. A key's command is the one for that
 locale exactly, else the `en-US` one (a few languages bind some keys differently); labels fall back from the locale to
-its language, then `en-US`. Left out with a count on one line: keys on OPEN, CUT, COPY, PASTE, PROPERTIES, FRONT, MENU
-or HANGUL_HANJA (no X keysym LibreOffice's GTK backend turns into them; the defaults bind the first four), key names
-LibreOffice doesn't know, and invalid names. The e2e test checks the list, labels included, against what LibreOffice
-itself reports over UNO for the same profile (a headless soffice; Writer).
+its language, then `en-US`. Left out with a count on one line: keys on OPEN, CUT, COPY, PASTE, PROPERTIES, FRONT or
+MENU (LibreOffice's own key codes, which only vendor and XF86 keys such as `XF86Copy` give, and which keybind-find
+doesn't send; the defaults bind the first four), key names LibreOffice doesn't know (`HANGUL_HANJA` among them: its
+name is split at the `_`, as LibreOffice splits it), and invalid names. The e2e test checks the list, commands and
+labels, against what LibreOffice itself reports over UNO for the same profile (a headless soffice; Writer).
 
-Limits: keybind-find's own environment is used (a `-env:UserInstallation=` or an edited `bootstraprc` isn't followed),
-and Flatpak and Snap installs are neither detected nor found. Extensions' keys, a document's own keys and a change made
-a moment ago (LibreOffice writes the file a little later) aren't listed. Labels come from each component's
-`UserInterface/Commands`; a command labelled only under `UserInterface/Popups` (Writer's sidebar decks, its paragraph
-styles, `alt+c` → Character) is described by its command. The language fallback for labels is the language part only,
-and the product name is always `LibreOffice`. Writer/Web, master documents and XForms share Writer's class and are
-listed as Writer; Base's designers list Base's (global) keys; the Basic IDE and the Bibliography share the Start
-Center's class. `+` and `*` are listed as `KP_Add` and `KP_Multiply` (with Shift on most layouts they would arrive as
-another key); other symbols (`less`, `asciitilde`, `colon`, `numbersign`) are listed as their keysyms and may need Shift
-on your layout. An unknown key name leaves out that one key, where LibreOffice drops its whole key set.
+Limits:
+
+- One window class covers several modules: Base's form and report design, Writer/Web, master documents and XForms,
+  the Basic IDE and the Bibliography get the keys of their class's main module (Base, Writer, Start Center).
+- A TDF install under `/opt/libreoffice<version>` with only a `libreoffice<version>` launcher on `PATH` isn't found.
+- Flatpak and Snap installs, and development or rebranded builds (other class names), are neither detected nor found.
+- Extensions' `.xcu` layers and the `data/**/*.xcu` of an install aren't read; a document's own keys aren't either.
+- `oor:finalized` and `oor:mandatory` aren't followed.
+- keybind-find's own environment is used: a `-env:UserInstallation=`, an edited `bootstraprc` or another
+  `SYSUSERCONFIG` isn't followed.
+- With no UI locale in your profile, labels are `en-US`'s where LibreOffice uses the system language.
+- A change made a moment ago may not be listed yet (LibreOffice writes the file a little later).
+- The language fallback for labels is the language part only, and the product name is always `LibreOffice`.
+- `+` and `*` are listed as `KP_Add` and `KP_Multiply` (with Shift on most layouts they would arrive as another key);
+  other symbols (`less`, `asciitilde`, `colon`, `numbersign`) are listed as their keysyms and may need Shift on your
+  layout. F13, F14, F16, F18 and F20 are listed as such, though LibreOffice's GTK backend reads them as PROPERTIES,
+  UNDO, COPY, PASTE and CUT.
+- An unknown key name leaves out that one key, where LibreOffice drops its whole key set.
 
 ### Obsidian
 

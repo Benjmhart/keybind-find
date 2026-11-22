@@ -18,6 +18,8 @@ local = uno.getComponentContext()
 resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
 ctx = None
 for _ in range(200):
+    if soffice.poll() is not None:
+        sys.exit(f"oracle-libreoffice.py: soffice exited ({soffice.returncode}) before answering on its pipe")
     try:
         ctx = resolver.resolve(f"uno:pipe,name={PIPE};urp;StarOffice.ComponentContext")
         break
