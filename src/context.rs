@@ -2021,7 +2021,7 @@ mod tests {
             x(Some("Alacritty"), None),
             ["xmonad", "espanso", "alacritty", "sheets"]
         );
-        assert_eq!(x(Some("Gimp"), None), base);
+        assert_eq!(x(Some("Xmessage"), None), base);
         let browser = ["xmonad", "espanso", "vimium", "sheets"];
         assert_eq!(x(Some("Vivaldi"), None), browser);
         assert_eq!(x(Some("Vivaldi-stable"), Some("nvim")), browser);
@@ -2190,7 +2190,7 @@ mod tests {
         );
         // Not a terminal, or an unlisted class: no less.
         assert_eq!(
-            providers_for(None, Some("Gimp"), Some("man"), &man),
+            providers_for(None, Some("Xmessage"), Some("man"), &man),
             ["espanso", "sheets"]
         );
         assert_eq!(
@@ -2220,7 +2220,7 @@ mod tests {
             for (class, child) in [
                 ("Alacritty", Some("nvim")),
                 ("kitty", Some("zsh")),
-                ("Gimp", Some("vim")),
+                ("Xmessage", Some("vim")),
             ] {
                 assert!(
                     !providers_for(Some(wm), Some(class), child, &[]).contains(&"vim"),
@@ -2936,8 +2936,8 @@ mod tests {
         let focus = read_sway_focus(&mut ctx, &tree("xwayland"));
         settle(&mut ctx, Some("sway"), focus);
         assert_eq!(ctx.window_id.as_deref(), Some("9"));
-        assert_eq!(ctx.class.as_deref(), Some("Gimp"));
-        assert_eq!(ctx.instance.as_deref(), Some("gimp"));
+        assert_eq!(ctx.class.as_deref(), Some("Xmessage"));
+        assert_eq!(ctx.instance.as_deref(), Some("xmessage"));
         assert_eq!(ctx.title.as_deref(), Some("GIMP"));
         assert_eq!(ctx.providers, ["sway", "espanso", "sheets"]);
         // An empty workspace: nothing filled in, no error.
@@ -3009,9 +3009,9 @@ mod tests {
         drop(sh.0.stdin.take());
         // An XWayland window gives the same fields.
         let mut ctx = empty_context();
-        let focus = read_hyprland_focus(&mut ctx, &hypr_window("Gimp", 1, true));
+        let focus = read_hyprland_focus(&mut ctx, &hypr_window("Xmessage", 1, true));
         settle(&mut ctx, Some("hyprland"), focus);
-        assert_eq!(ctx.class.as_deref(), Some("Gimp"));
+        assert_eq!(ctx.class.as_deref(), Some("Xmessage"));
         assert_eq!(ctx.title.as_deref(), Some("a title"));
         assert_eq!(ctx.providers, ["hyprland", "espanso", "sheets"]);
         // No window: nothing filled in, no error.
@@ -3170,12 +3170,12 @@ mod tests {
             Some("niri"),
             false,
             |ctx| {
-                ctx.class = Some("Gimp".into());
+                ctx.class = Some("Xmessage".into());
                 Ok(None)
             },
             |p, _| panic!("{p} asked on X11"),
         );
-        assert_eq!(x11.class.as_deref(), Some("Gimp"));
+        assert_eq!(x11.class.as_deref(), Some("Xmessage"));
         assert_eq!(x11.providers, ["niri", "espanso", "sheets"]);
         assert_eq!(ctx.class.as_deref(), Some("org.gnome.Nautilus"));
         assert_eq!(ctx.providers, ["niri", "espanso", "sheets"]);
@@ -3214,10 +3214,10 @@ mod tests {
         drop(sh.0.stdin.take());
         // A caption with a newline keeps both lines; the class reaches the providers.
         let mut ctx = empty_context();
-        let focus = read_kde_focus(&mut ctx, "42\nGimp\nline one\nline two\n");
+        let focus = read_kde_focus(&mut ctx, "42\nXmessage\nline one\nline two\n");
         settle(&mut ctx, Some("kde"), focus);
         assert_eq!(ctx.title.as_deref(), Some("line one\nline two"));
-        assert_eq!(ctx.class.as_deref(), Some("Gimp"));
+        assert_eq!(ctx.class.as_deref(), Some("Xmessage"));
         assert_eq!(ctx.providers, ["kde", "espanso", "sheets"]);
         // No window: nothing filled in, no error.
         let mut ctx = empty_context();
@@ -3271,7 +3271,7 @@ mod tests {
             false,
             |ctx| {
                 ctx.window_id = Some("5".into());
-                ctx.class = Some("Gimp".into());
+                ctx.class = Some("Xmessage".into());
                 Ok(None)
             },
             |p, _| panic!("{p} asked on X11"),
@@ -3837,7 +3837,7 @@ mod tests {
                 session,
                 false,
                 |ctx| {
-                    ctx.class = Some("Gimp".into());
+                    ctx.class = Some("Xmessage".into());
                     Ok(None)
                 },
                 |p, _| panic!("{p} asked on X11"),
@@ -3851,7 +3851,7 @@ mod tests {
         }
         // The program inside the window comes back for plugins to match on, from X and from sway.
         let gimp = |ctx: &mut Context| {
-            ctx.class = Some("Gimp".into());
+            ctx.class = Some("Xmessage".into());
             Ok(Some(Foreground {
                 comm: "btop".into(),
                 group: vec!["btop".into()],
@@ -3885,7 +3885,7 @@ mod tests {
                 Ok(tree("xwayland"))
             },
         );
-        assert_eq!(ctx.class.as_deref(), Some("Gimp"));
+        assert_eq!(ctx.class.as_deref(), Some("Xmessage"));
         assert_eq!(ctx.window_id.as_deref(), Some("9"));
         assert_eq!(ctx.providers, ["sway", "espanso", "sheets"]);
     }
@@ -3900,7 +3900,7 @@ mod tests {
         };
         // Not a terminal: no lookup, even with a pid that has no process.
         assert_eq!(
-            program_in(&props("Gimp", Some(u32::MAX)), "pid", None).unwrap(),
+            program_in(&props("Xmessage", Some(u32::MAX)), "pid", None).unwrap(),
             None
         );
         assert_eq!(program_in(&Props::default(), "pid", None).unwrap(), None);
@@ -3931,7 +3931,7 @@ mod tests {
         "focused": {a}, "nodes": [], "floating_nodes": []}}
     ], "floating_nodes": [
       {{"id": 9, "type": "floating_con", "name": "GIMP", "app_id": null, "pid": 5150,
-        "window_properties": {{"class": "Gimp", "instance": "gimp"}}, "focused": {x}, "nodes": [], "floating_nodes": []}}
+        "window_properties": {{"class": "Xmessage", "instance": "xmessage"}}, "focused": {x}, "nodes": [], "floating_nodes": []}}
     ]}}
   ]}}
 ], "floating_nodes": []}}"#,
@@ -3962,8 +3962,8 @@ mod tests {
             (
                 "9".to_string(),
                 Props {
-                    class: Some("Gimp".into()),
-                    instance: Some("gimp".into()),
+                    class: Some("Xmessage".into()),
+                    instance: Some("xmessage".into()),
                     pid: Some(5150),
                     title: Some("GIMP".into()),
                 }
@@ -3978,7 +3978,7 @@ mod tests {
         // A native Wayland window has no instance; an XWayland one has `window_properties.instance`.
         assert_eq!(p.instance, None);
         let (_, p) = parse_sway_tree(&tree("xwayland")).unwrap().unwrap();
-        assert_eq!(p.instance.as_deref(), Some("gimp"));
+        assert_eq!(p.instance.as_deref(), Some("xmessage"));
         // With app_id null, the X class.
         let (_, p) = parse_sway_tree(&tree_with("alacritty", "null"))
             .unwrap()
