@@ -61,6 +61,7 @@ The lists are read from the programs' real configuration, your own bindings incl
 | qutebrowser | its bindings by mode, asked of the running browser (defaults, `config.py`, `autoconfig.yml`, `:bind`s, as `qute://bindings` lists them) with the mode it is in; else 3.7.0's defaults with your `autoconfig.yml` on top | none ([below](#qutebrowser)) |
 | GIMP | its keyboard shortcuts by menu group, named as its menus name them: GIMP 3.2.6's defaults (built in) with your `shortcutsrc` applied as GIMP applies it | none ([below](#gimp)) |
 | Inkscape | its keyboard shortcuts by section, named as its Keyboard preferences name them: the preset it loads (its own, Xara, Corel, …) with your `keys/default.xml` on top, as Inkscape reads them | none ([below](#inkscape)) |
+| LibreOffice | the shortcuts of the module in front (Writer, Calc, Impress, Draw, Math, Base, Start Center) and the global ones, named as its menus name them: its installed defaults with your Tools › Customize › Keyboard changes, as LibreOffice reads them | none ([below](#libreoffice)) |
 | Obsidian | its default hotkeys (1.14.5's built in) with your vault's `.obsidian/hotkeys.json` on top, the vault picked by window title | none ([below](#obsidian)) |
 | st, surf, tabbed, dwm | their stock keys from `config.def.h` at st 0.9.3, surf 2.1, tabbed 0.9 and dwm 6.8 (dwm's in a dwm session, whatever window has focus); a patched `config.h` isn't read: replace the sheet with your own of the same name | none ([below](#suckless-st-surf-tabbed-dwm)) |
 | browsers | built-in sheets for Gmail, YouTube and GitHub; any web app you write a sheet for | none; GitHub's needs a URL-in-title extension ([docs/sheets.md](docs/sheets.md)) |
@@ -301,6 +302,54 @@ under `Extensions` by its id. Left out with a count on one line: keys keybind-fi
 `<Mod2>`, `<Mod3>`, `<Mod5>`, `<Release>`), keys GTK can't parse, binds to actions Inkscape doesn't have, Inkscape 0.92's
 `verb=` binds, and includes it doesn't follow (no `href`, `parse="text"`, `xpointer`, a URL, or past 64 includes in
 all, which also gives a note; one whose file fails to load is a note).
+
+### LibreOffice
+
+Over a LibreOffice window, keybind-find lists the shortcuts of the module in front, by its window class (X11's
+`WM_CLASS` class, Wayland's app id, any case): `libreoffice-writer`, `-calc`, `-impress`, `-draw`, `-math`, `-base` and
+`-startcenter`. The module's own keys sit under its own category (`Writer`, `Calc`, …) and the global keys under
+`LibreOffice`, each global key only where the module doesn't bind that key, as LibreOffice looks a key up. Each is described by the command's name as
+LibreOffice's command description gives it, the text Tools › Customize › Keyboard shows (`Bold`, `Find and Replace`):
+its label from the module's commands, else the generic ones (each under `Commands`, then `Popups`), with `~` and
+trailing dots removed. `keybind-find dump libreoffice` from a terminal lists Writer's, with a note.
+
+Nothing is built in: the keys are read from your installation, as LibreOffice's configuration reads them at start:
+
+- the **install**: the `soffice` on your `PATH` whose real path (symlinks followed) is `<install>/program/soffice`,
+  else `/usr/lib/libreoffice` or `/usr/lib64/libreoffice`; nothing is run. None found: an error naming where it looked,
+  and no list;
+- its **defaults**: every `*.xcd` in `<install>/share/registry` (each after the files it depends on, else by name),
+  then those in `share/registry/res` (the language packs), layered as LibreOffice layers them;
+- then **your changes**: `registrymodifications.xcu` in your profile (`$XDG_CONFIG_HOME/libreoffice/4/user/`, else
+  `~/.config/libreoffice/4/user/`), where Tools › Customize › Keyboard saves them: added keys, changed commands and
+  removed defaults, in its order.
+
+The UI locale is your profile's (LibreOffice saves it at every start), else `en-US`. A key's command is the one for that
+locale exactly, else the `en-US` one (a few languages bind some keys differently); labels fall back from the locale to
+its language, then `en-US`. Left out with a count on one line: keys on OPEN, CUT, COPY, PASTE, PROPERTIES, FRONT or
+MENU (LibreOffice's own key codes, which only vendor and XF86 keys such as `XF86Copy` give, and which keybind-find
+doesn't send; the defaults bind the first four), key names LibreOffice doesn't know (`HANGUL_HANJA` among them: its
+name is split at the `_`, as LibreOffice splits it), and invalid names. The e2e test checks the list, commands and
+labels, against what LibreOffice itself reports over UNO for the same profile (a headless soffice; Writer).
+
+Limits:
+
+- One window class covers several modules: Base's form and report design, Writer/Web, master documents and XForms,
+  the Basic IDE and the Bibliography get the keys of their class's main module (Base, Writer, Start Center).
+- A TDF install under `/opt/libreoffice<version>` with only a `libreoffice<version>` launcher on `PATH` isn't found.
+- Flatpak and Snap installs, and development or rebranded builds (other class names), are neither detected nor found.
+- Extensions' `.xcu` layers and the `data/**/*.xcu` of an install aren't read; a document's own keys aren't either.
+- `oor:finalized` and `oor:mandatory` aren't followed.
+- keybind-find's own environment is used: a `-env:UserInstallation=`, an edited `bootstraprc` or another
+  `SYSUSERCONFIG` isn't followed.
+- With no UI locale in your profile, labels are `en-US`'s where LibreOffice uses the system language.
+- A change made a moment ago may not be listed yet (LibreOffice writes the file a little later).
+- The language fallback for labels is the language part only, and the product name is always `LibreOffice`.
+- `+` and `*` are listed as `KP_Add` and `KP_Multiply` (with Shift on most layouts they would arrive as another key);
+  other symbols (`less`, `asciitilde`, `colon`, `numbersign`) are listed as their keysyms and may need Shift on your
+  layout. F13, F14, F16, F18 and F20 are listed as such, though LibreOffice's GTK backend reads them as PROPERTIES,
+  UNDO, COPY, PASTE and CUT.
+- An unknown key name leaves out that one key, where LibreOffice drops its whole key set.
 
 ### Obsidian
 
@@ -1157,6 +1206,7 @@ defaults has no line: lf and qutebrowser when they answer (their own complete li
 neither it nor its backup file is found, or when your `keyMappings` run `unmapAll`. Other pickers have no header: there a mismatch is the same line on stderr as before.
 Inkscape's keys are your installed files, not built-in defaults, but its labels are Inkscape 1.4.4's built-in action
 table: its line (`inkscape: 1.4.4 defaults built in (installed …)`) names that table's version.
+LibreOffice's keys and labels all come from its own installation, so it has no line.
 `keybind-find dump` carries it as data, a `source` object on each such sheet: `defaults` (the built-in version),
 `installed` (the installed version, `null` when unknown or not checked), `checked` (whether the installed version was
 looked up) and `mismatch` (true when the line is red).

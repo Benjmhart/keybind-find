@@ -600,12 +600,46 @@ def gimp_report(text):
     return keys
 
 
+# --- libreoffice ------------------------------------------------------------------------------------------------------
+# oracle-libreoffice.py's report: css.awt.Key codes and css.awt.KeyModifier bits (offapi/com/sun/star/awt/Key.idl and
+# KeyModifier.idl at libreoffice-26.8.1.1), each code as the X keysym LibreOffice's GTK backend turns into it
+# (vcl/unx/gtk3/gtkframe.cxx GetKeyCode). Its own table: the codes keybind-find doesn't send (only vendor and XF86
+# keysyms give them) keep LibreOffice's `KEY_` name. Modifiers in chord()'s order: super, ctrl, alt, shift.
+LO_KEYS = {**{256 + i: str(i) for i in range(10)}, **{512 + i: chr(ord("a") + i) for i in range(26)},
+           **{768 + i: f"F{i + 1}" for i in range(26)},
+           1024: "Down", 1025: "Up", 1026: "Left", 1027: "Right", 1028: "Home", 1029: "End", 1030: "Prior",
+           1031: "Next", 1280: "Return", 1281: "Escape", 1282: "Tab", 1283: "BackSpace", 1284: "space",
+           1285: "Insert", 1286: "Delete", 1287: "KP_Add", 1288: "minus", 1289: "KP_Multiply", 1290: "slash",
+           1291: "period", 1292: "comma", 1293: "less", 1294: "greater", 1295: "equal", 1296: "KEY_OPEN",
+           1297: "KEY_CUT", 1298: "KEY_COPY", 1299: "KEY_PASTE", 1300: "Undo", 1301: "Redo", 1302: "Find",
+           1303: "KEY_PROPERTIES", 1304: "KEY_FRONT", 1305: "Menu", 1306: "Help", 1307: "KEY_MENU",
+           1308: "KEY_HANGUL_HANJA", 1309: "KP_Decimal", 1310: "asciitilde", 1311: "grave", 1315: "bracketleft",
+           1316: "bracketright", 1317: "semicolon", 1318: "apostrophe", 1319: "braceright", 1320: "colon",
+           191: "numbersign"}
+LO_MODS = [(8, "super"), (2, "ctrl"), (4, "alt"), (1, "shift")]
+
+
+def libreoffice_report(text):
+    """oracle-libreoffice.py's lines as `KEY<TAB>=> COMMAND<TAB>=> LABEL` (both compared: PAIRS)."""
+    keys = set()
+    for line in filter(None, text.splitlines()):
+        parts = line.split("\t")
+        if len(parts) != 4 or not parts[0].isdigit() or not parts[1].isdigit():
+            keys.add("!line:" + line)
+            continue
+        code, mods, command, label = int(parts[0]), int(parts[1]), parts[2], parts[3]
+        sym = LO_KEYS.get(code, f"!code{code}")
+        names = [n for b, n in LO_MODS if mods & b]
+        keys.add("+".join(names + [sym]) + f"\t=> {command}\t=> {label}")
+    return keys
+
+
 # Providers whose report gives each key's command: their dump keys carry that field of the bind too (`=> VALUE`).
-PAIRS = {"qutebrowser": "desc", "gimp": "action"}
+PAIRS = {"qutebrowser": "desc", "gimp": "action", "libreoffice": ("action", "desc")}
 
 REPORTS = {"kitty": kitty_report, "wezterm": wezterm_report, "zellij": zellij_report, "awesome": awesome_report,
            "lf": lf_report, "nnn": nnn_report, "kakoune": kakoune_report, "qutebrowser": qutebrowser_report,
-           "gimp": gimp_report}
+           "gimp": gimp_report, "libreoffice": libreoffice_report}
 
 KNOWN = {
     "kitty": [
@@ -671,6 +705,8 @@ KNOWN = {
     ],
     # The report is GIMP's own shortcutsrc after the same user file the dump reads (tests/e2e/home/.config/GIMP/3.2).
     "gimp": [("hyper+r\t=> tools-rect-select", "gimp.rs leaves out a hyper modifier (FR-019)")],
+    "libreoffice": [(f"*{k}\t=> *", "only vendor and XF86 keysyms give them: libreoffice.rs leaves them out (AC #6)")
+                    for k in ("KEY_OPEN", "KEY_CUT", "KEY_COPY", "KEY_PASTE")],
 }
 
 # Keys the e2e config unbinds in every mode: none may stay in the dump. A KNOWN pattern alone can't tell: a key keybind-
@@ -683,14 +719,15 @@ UNBOUND = {
 # --- shared -----------------------------------------------------------------------------------------------------------
 def dump_keys(sheet, pair=None):
     """Every bind's key, after its `when` scopes (`name=value<TAB>`, sorted), from one `dump PROVIDER` sheet; with
-    `pair` (a bind's field), followed by `<TAB>=> VALUE`."""
+    `pair` (a bind's field, or a tuple of them), followed by `<TAB>=> VALUE` for each."""
+    pairs = (pair,) if isinstance(pair, str) else pair or ()
     keys = set()
     for binds in sheet["binds"].values():
         for b in binds:
             scopes = []
             for name, v in sorted((b.get("when") or {}).items()):
                 scopes += [f"{name}={x}" for x in (v if isinstance(v, list) else [v])]
-            keys.add("\t".join(scopes + [b["key"]] + ([f"=> {b[pair]}"] if pair else [])))
+            keys.add("\t".join(scopes + [b["key"]] + [f"=> {b[p]}" for p in pairs]))
     return keys
 
 
@@ -980,6 +1017,25 @@ def self_test():
     for p, *_ in KNOWN["gimp"]:
         assert fnmatch.fnmatchcase(gimp_key("<Hyper>r") + "\t=> tools-rect-select", p), p
     assert not fnmatch.fnmatchcase("super+r\t=> tools-rect-select", KNOWN["gimp"][0][0])
+    # oracle-libreoffice.py's lines: a letter, a digit with Shift, a named key, a code with no keysym, stray output.
+    assert libreoffice_report("514\t2\t.uno:Copy\tCopy\n257\t3\t.uno:X\tX\n1287\t2\t.uno:CalculateSel\tCalculate\n"
+                              "1298\t0\t.uno:Copy\tCopy\n1030\t9\t.uno:Y\tY\n1031\t14\t.uno:Z\tZ\nnoise\n") == {
+        "ctrl+c\t=> .uno:Copy\t=> Copy", "ctrl+shift+1\t=> .uno:X\t=> X",
+        "ctrl+KP_Add\t=> .uno:CalculateSel\t=> Calculate", "KEY_COPY\t=> .uno:Copy\t=> Copy",
+        "super+shift+Prior\t=> .uno:Y\t=> Y", "super+ctrl+alt+Next\t=> .uno:Z\t=> Z", "!line:noise"}
+    # Key.idl's codes for a few names (PAGEUP 1030, PAGEDOWN 1031, NUMBERSIGN 191, COLON 1320, NUM0 256, A 512, F1 768,
+    # ADD 1287, HANGUL_HANJA 1308).
+    assert [LO_KEYS[c] for c in (1030, 1031, 191, 1320, 256, 512, 768, 1287, 1308)] == [
+        "Prior", "Next", "numbersign", "colon", "0", "a", "F1", "KP_Add", "KEY_HANGUL_HANJA"]
+    # Both fields of the dump, in the report's order.
+    assert dump_keys({"binds": {"Writer": [{"key": "ctrl+b", "desc": "Bold", "action": ".uno:Bold"}]}},
+                     ("action", "desc")) == {"ctrl+b\t=> .uno:Bold\t=> Bold"}
+    lk = KNOWN["libreoffice"]
+    for k in ("KEY_OPEN", "KEY_CUT", "KEY_COPY", "KEY_PASTE"):
+        assert [p for p, *_ in lk if fnmatch.fnmatchcase(f"shift+{k}\t=> x", p)], k
+    for k in ("ctrl+c\t=> Copy", "Find\t=> Find", "!code5\t=> x", "KEY_MENU\t=> x", "ctrl+shift+1\t=> x",
+              "alt+shift+c\t=> x", "ctrl+10\t=> x"):
+        assert not [p for p, *_ in lk if fnmatch.fnmatchcase(k, p)], k
     print("oracle.py: self-test ok")
     return 0
 

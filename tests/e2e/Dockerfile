@@ -39,6 +39,8 @@ RUN pacman -S --noconfirm --needed qutebrowser && pacman -Scc --noconfirm
 RUN pacman -S --noconfirm --needed gimp && pacman -Scc --noconfirm
 # Inkscape for the inkscape cases.
 RUN pacman -S --noconfirm --needed inkscape && pacman -Scc --noconfirm
+# LibreOffice (fresh) for the libreoffice cases.
+RUN pacman -S --noconfirm --needed libreoffice-fresh && pacman -Scc --noconfirm
 # sway ships with cap_sys_nice, which a container's capability set doesn't allow: its exec fails with EPERM.
 RUN setcap -r /usr/bin/sway
 # zellij 0.46.0, newer than the snapshot (which has 0.45.1): its keybinding presets are what keybind-find reads now; 0.45
