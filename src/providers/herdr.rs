@@ -870,6 +870,15 @@ command = ""
             Some(("0.9.3", REG, None, src("0.9.3", false)))
         );
         assert_eq!(select(Some("0.9.5")).unwrap().3, src("0.9.5", true));
+        assert_eq!(
+            select(None).unwrap().3,
+            Source {
+                defaults: "0.9.3".into(),
+                installed: None,
+                checked: true,
+                mismatch: true
+            }
+        );
         let fake: &[(&str, &str)] = &[("0.10.0", "c"), ("0.9.1", "a"), ("0.9.3", "b")];
         let pick = |i: Option<&str>| select_from(fake, i).unwrap();
         assert_eq!(pick(Some("0.9.3")), ("0.9.3", "b", None));

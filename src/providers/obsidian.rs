@@ -70,7 +70,7 @@ pub fn sheet(ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>)> {
 /// any other title (a pop-out's `Obsidian`, none) is an unknown version.
 fn pick(title: Option<&str>) -> anyhow::Result<(Option<String>, Source)> {
     let installed = title
-        .and_then(|t| t.rsplit_once(" - Obsidian "))
+        .and_then(split_title)
         .and_then(|(_, v)| pinned::version_after(Some(v), ""));
     let (_, _, note, source) = pinned::select("obsidian", &[(VERSION, "")], installed.as_deref())
         .context("the pinned Obsidian version")?;
@@ -145,11 +145,16 @@ fn vault(title: Option<&str>, env: Env, notes: &mut Vec<String>) -> Option<PathB
     }
 }
 
+/// A window title `<head> - Obsidian <version>` as head and version (unchecked), split at the last ` - Obsidian `.
+fn split_title(title: &str) -> Option<(&str, &str)> {
+    title.rsplit_once(" - Obsidian ")
+}
+
 /// The vault a window title names: `<vault> - Obsidian <version>`, or `<note> - <vault> - Obsidian <version>`, by
 /// the vault folder's name. The longest name wins when two match (vaults `Work` and `a - Work`, title
 /// `a - Work - Obsidian …`); two vaults with that same name are no answer.
 fn by_title<'a>(title: &str, paths: &'a [PathBuf]) -> Option<&'a PathBuf> {
-    let (head, version) = title.rsplit_once(" - Obsidian ")?;
+    let (head, version) = split_title(title)?;
     if !version.starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }

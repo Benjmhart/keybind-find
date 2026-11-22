@@ -22,14 +22,7 @@ const SYSTEM: &str = "/etc/ranger/rc.conf";
 pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
     let env = |k: &str| std::env::var(k).ok();
     let (sheet, mut notes, defaults) = read(&env, Path::new(SYSTEM));
-    let source = match defaults {
-        true => {
-            let (note, source) = pick(|_| {})?;
-            notes.splice(0..0, note);
-            Some(source)
-        }
-        false => None,
-    };
+    let source = pinned::when_listed(defaults, &mut notes, || pick(|_| {}))?;
     for note in notes {
         eprintln!("keybind-find: ranger: {note}");
     }

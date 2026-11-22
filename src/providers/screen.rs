@@ -711,6 +711,7 @@ mod tests {
                 (source.defaults.as_str(), source.mismatch),
                 (v, note.is_some())
             );
+            assert_eq!(source.installed, version_of(text));
             (v, note.is_some())
         };
         assert_eq!(

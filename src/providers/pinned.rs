@@ -82,6 +82,21 @@ pub(crate) fn probe(
     Ok((note, source))
 }
 
+/// The `Source` of a provider whose list may leave its defaults out: `pick`'s (its note put first in `notes`) when
+/// `defaults` were listed, else none and `pick` isn't run.
+pub(crate) fn when_listed(
+    defaults: bool,
+    notes: &mut Vec<String>,
+    pick: impl FnOnce() -> anyhow::Result<(Option<String>, Source)>,
+) -> anyhow::Result<Option<Source>> {
+    if !defaults {
+        return Ok(None);
+    }
+    let (note, source) = pick()?;
+    notes.splice(0..0, note);
+    Ok(Some(source))
+}
+
 /// The version after `prefix` on `line` (`konsole 26.08.2`, `konsole ` → `26.08.2`), when `parse_version` accepts it.
 pub(crate) fn version_after(line: Option<&str>, prefix: &str) -> Option<String> {
     let v = line?.trim().strip_prefix(prefix)?;
@@ -129,6 +144,51 @@ mod tests {
     use super::*;
 
     const REGISTRY: &[(&str, &str)] = &[("7.2", "a"), ("8.4", "b"), ("9.2", "c")];
+
+    #[test]
+    fn listed_defaults_have_a_source() {
+        let mut notes = vec!["later".to_string()];
+        let pick = || Ok((Some("note".to_string()), Source::unchecked("1")));
+        assert_eq!(
+            when_listed(false, &mut notes, || panic!("not probed")).unwrap(),
+            None
+        );
+        assert_eq!(notes, ["later"]);
+        assert_eq!(
+            when_listed(true, &mut notes, pick).unwrap(),
+            Some(Source::unchecked("1"))
+        );
+        assert_eq!(notes, ["note", "later"]);
+    }
+
+    #[test]
+    fn a_probe_that_fails_is_unknown() {
+        let unknown = (
+            Some("x's version is unknown: using the defaults of 1.0".to_string()),
+            Source {
+                defaults: "1.0".into(),
+                installed: None,
+                checked: true,
+                mismatch: true,
+            },
+        );
+        let run = |body: &str| {
+            let dir = fake_bin("x", body);
+            probe("x", "1.0", Command::new("x"), path_of(&dir), |t| {
+                version_after(t.lines().next(), "x ")
+            })
+            .unwrap()
+        };
+        // Run as the probes are: no mise auto-install, the C locale.
+        let ok =
+            run("[ \"$MISE_NOT_FOUND_AUTO_INSTALL|$LC_ALL\" = '0|C' ] || exit 9; echo 'x 1.0'");
+        assert_eq!(ok.1.installed.as_deref(), Some("1.0"));
+        // Too slow, or the version only on stderr: unknown.
+        let t = std::time::Instant::now();
+        assert_eq!(run("/bin/sleep 5; echo 'x 1.0'"), unknown);
+        assert!(t.elapsed() < Duration::from_secs(4), "{:?}", t.elapsed());
+        assert_eq!(run("echo 'x 1.0' >&2"), unknown);
+    }
 
     #[test]
     fn picks_by_nanos_rules() {

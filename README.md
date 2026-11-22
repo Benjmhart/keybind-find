@@ -1080,19 +1080,20 @@ keybind-find keys            # grab the keyboard, print each key you press in bi
 
 ### Where the keys come from
 
-For 22 programs keybind-find carries the default keys of one version, built in, and lays your config over them: foot,
-helix, herdr, Kakoune, kitty, Konsole, lazygit, lf, Midnight Commander, micro, nano, ncmpcpp, nnn, Obsidian,
-qutebrowser, ranger, screen, Vimium, VS Code, Xfce Terminal, yazi and zathura. When a newer or older version is
+For 24 programs keybind-find carries the default keys of one version, built in, and lays your config over them:
+alacritty, foot, helix, herdr, Kakoune, kitty, Konsole, lazygit, lf, Midnight Commander, micro, nano, ncmpcpp, nnn,
+Obsidian, qutebrowser, ranger, screen, Vimium, VS Code, Xfce Terminal, yazi, zathura and Zed. When a newer or older version is
 installed, its defaults may differ from the list. So fzf's header has one line for each such program in the list:
 
 ```text
 lazygit: 0.66.2 defaults built in (installed 0.66.2)
 ```
 
-The line is red when the defaults are another version's than the one installed, or the installed version is unknown
-(`installed version unknown`: the program's version couldn't be read); adding that version's defaults is what the line
-asks for. VS Code's version isn't checked (its CLI is too slow to run on every press): `installed version not
-checked`. A program whose keys come only from itself (lf and qutebrowser when they answer, Vimium when it isn't
+The line is red when keybind-find has no defaults for the installed version (it used another version's and says
+which file to add, on stderr), or the installed version is unknown (`installed version unknown`: the program's version
+couldn't be read). A close enough version isn't red: screen's defaults serve every release of the same major.minor.
+VS Code's, Zed's and alacritty's versions aren't checked (VS Code's CLI is too slow to run on every press; the other
+two have no check yet): `installed version not checked`. A program whose keys come only from itself (lf and qutebrowser when they answer, Vimium when it isn't
 installed) has no line. Other pickers have no header: there a mismatch is the same line on stderr as before.
 `keybind-find dump` carries it as data, a `source` object on each such sheet: `defaults` (the built-in version),
 `installed` (the installed version, `null` when unknown or not checked), `checked` (whether the installed version was

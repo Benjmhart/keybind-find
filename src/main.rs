@@ -82,22 +82,15 @@ fn check_plugin(args: &[&str]) -> anyhow::Result<()> {
 fn pick_and_run(dry_run: bool) -> anyhow::Result<()> {
     let ctx = context::detect();
     let (sheets, sources): (Vec<Sheet>, Vec<Option<Source>>) = collect(&ctx)?.into_iter().unzip();
-    // fzf's header says where each program's built-in defaults came from; a mismatch in red.
-    let header: Vec<(String, bool)> = sheets
-        .iter()
-        .zip(&sources)
-        .filter_map(|(s, src)| {
-            src.as_ref()
-                .map(|src| (src.line(&s.provider), src.mismatch))
-        })
-        .collect();
     // What the running nvim reported (its mode and filetype) hides what can't apply; other scopes show as tags.
     let mut entries = scope::shown(&sheets, &context::facts())?;
     usage::rank(&mut entries, &usage::load());
     // A JSON frontend is told the window, with what the running nvim reported.
     let mut window = context::window();
     window.facts = context::facts();
-    let Some((i, print)) = picker::pick(&entries, &window, &header)? else {
+    // fzf's header says where each listed program's built-in defaults came from; built only for fzf.
+    let header = || header_lines(&sheets, &sources, &entries);
+    let Some((i, print)) = picker::pick(&entries, &window, header)? else {
         return Ok(());
     };
     // A frontend's `print` is `--print` for this pick: keys printed, nothing sent or logged.
@@ -109,6 +102,24 @@ fn pick_and_run(dry_run: bool) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// fzf's header lines, in sheet order: for each sheet with a `Source` and an entry still shown, its line, red on a
+/// mismatch.
+fn header_lines(
+    sheets: &[Sheet],
+    sources: &[Option<Source>],
+    entries: &[sheet::Entry],
+) -> Vec<(String, bool)> {
+    sheets
+        .iter()
+        .zip(sources)
+        .filter(|(s, _)| entries.iter().any(|e| e.provider == s.provider))
+        .filter_map(|(s, src)| {
+            src.as_ref()
+                .map(|src| (src.line(&s.provider), src.mismatch))
+        })
+        .collect()
 }
 
 /// Prints each chord as it is pressed. Unlike `print_out`, a closed stdout ends the capture, at the next key pressed:
@@ -326,6 +337,47 @@ mod tests {
         assert_eq!(
             (got[1].0.provider.as_str(), got[1].1.clone()),
             ("b", Some(Source::unchecked("1.0")))
+        );
+    }
+
+    #[test]
+    fn header_lines_for_shown_sheets_with_a_source() {
+        let sheet = |p: &str| {
+            let mut s = ok(p).unwrap().0;
+            s.binds.insert(
+                "c".into(),
+                vec![serde_json::from_str(r#"{"key": "ctrl+k", "desc": "d"}"#).unwrap()],
+            );
+            s
+        };
+        let sheets = [sheet("b"), sheet("a"), sheet("hidden"), sheet("none")];
+        let mut checked = Source::unchecked("2.0");
+        checked.checked = true;
+        checked.installed = Some("2.0".into());
+        let mut red = Source::unchecked("1.0");
+        red.mismatch = true;
+        let sources = [
+            Some(checked),
+            Some(red),
+            Some(Source::unchecked("3.0")),
+            None,
+        ];
+        let entries: Vec<_> = sheet::entries(&sheets)
+            .into_iter()
+            .filter(|e| e.provider != "hidden")
+            .collect();
+        assert_eq!(
+            header_lines(&sheets, &sources, &entries),
+            [
+                (
+                    "b: 2.0 defaults built in (installed 2.0)".to_string(),
+                    false
+                ),
+                (
+                    "a: 1.0 defaults built in (installed version not checked)".to_string(),
+                    true
+                ),
+            ]
         );
     }
 

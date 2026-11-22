@@ -38,14 +38,7 @@ pub fn sheet() -> anyhow::Result<(Sheet, Option<Source>)> {
         &|k| std::env::var(k).ok(),
     );
     // The live answer is lf's own complete table: no defaults in it.
-    let source = match defaults {
-        true => {
-            let (note, source) = pick(|_| {})?;
-            notes.splice(0..0, note);
-            Some(source)
-        }
-        false => None,
-    };
+    let source = pinned::when_listed(defaults, &mut notes, || pick(|_| {}))?;
     for note in notes {
         eprintln!("keybind-find: lf: {note}");
     }

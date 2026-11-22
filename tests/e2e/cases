@@ -47,11 +47,12 @@ assert sum(map(len, s["binds"].values())) > 0, "no binds"' "$OUT/defaults-source
     ds_v=$(lazygit --version | sed -n 's/.*version=\([^,]*\),.*/\1/p')
     ds_dump lazygit lazygit
     ds_is lazygit "$(ds_src 0.66.2 "\"$ds_v\"" true false)"
-    mkdir -p /tmp/kbf-old /tmp/kbf-fail
-    printf '#!/bin/sh\necho "commit=e2e, build date=unknown, build source=e2e, version=0.60.0, os=linux, arch=amd64, git version=2.51.0"\n' >/tmp/kbf-old/lazygit
-    printf '#!/bin/sh\nexit 1\n' >/tmp/kbf-fail/mc
-    chmod 755 /tmp/kbf-old/lazygit /tmp/kbf-fail/mc
-    ds_dump lazygit-old lazygit PATH="/tmp/kbf-old:$PATH"
+    ds_tmp=$(mktemp -d)
+    mkdir "$ds_tmp/old" "$ds_tmp/fail"
+    printf '#!/bin/sh\necho "commit=e2e, build date=unknown, build source=e2e, version=0.60.0, os=linux, arch=amd64, git version=2.51.0"\n' >"$ds_tmp/old/lazygit"
+    printf '#!/bin/sh\nexit 1\n' >"$ds_tmp/fail/mc"
+    chmod 755 "$ds_tmp/old/lazygit" "$ds_tmp/fail/mc"
+    ds_dump lazygit-old lazygit PATH="$ds_tmp/old:$PATH"
     ds_is lazygit-old "$(ds_src 0.66.2 '"0.60.0"' true true)"
     grep -qF 'lazygit 0.60.0: using the defaults of 0.66.2; add data/lazygit/0.60.0.toml' "$OUT/defaults-source-lazygit-old.err" ||
       ds_why+="lazygit-old: no note; "
@@ -66,9 +67,11 @@ assert sum(map(len, s["binds"].values())) > 0, "no binds"' "$OUT/defaults-source
         lf) ds_own=$(lf -version) ;;
         *) ds_own=$("$ds_prog" --version 2>/dev/null) ;;
       esac
-      [[ $ds_own == *"$ds_pin"* ]] || ds_why+="$ds_prog: its own report lacks $ds_pin; "
+      # The pin as a whole word of the report (`42`, not the `42` in `r142`).
+      [[ " $(printf '%s' "$ds_own" | tr -s '[:space:]' ' ') " == *" $ds_pin "* ]] ||
+        ds_why+="$ds_prog: its own report lacks $ds_pin; "
     done
-    ds_dump mc-fail mc PATH="/tmp/kbf-fail:$PATH"
+    ds_dump mc-fail mc PATH="$ds_tmp/fail:$PATH"
     ds_is mc-fail "$(ds_src 4.8.33 null true true)"
     grep -qF "mc's version is unknown: using the defaults of 4.8.33" "$OUT/defaults-source-mc-fail.err" ||
       ds_why+="mc-fail: no note; "
@@ -76,6 +79,7 @@ assert sum(map(len, s["binds"].values())) > 0, "no binds"' "$OUT/defaults-source
     ds_is vscode "$(ds_src 1.143.1 null false false)"
     ds_dump less less
     ds_is less null
+    rm -rf "$ds_tmp"
     if [ -z "$ds_why" ]; then
       record defaults-source "ok	lazygit $ds_v: no mismatch; 0.60.0: mismatch and note; konsole mc ranger ncmpcpp lf: their own versions; mc failing: unknown; vscode unchecked; less none"
     else

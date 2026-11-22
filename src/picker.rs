@@ -19,11 +19,12 @@ const DESC_CAP: usize = 60;
 
 /// Shows `entries` in the picker; the index of the chosen one and whether to print its keys rather than send them
 /// (a JSON frontend's `print`), or `None` if the user cancelled. `window` is what a JSON frontend is told. `header`:
-/// lines for fzf's header, each red when its flag is set; other pickers have no header to show them in.
+/// the lines for fzf's header, each red when its flag is set, asked for only when fzf runs (other pickers have no
+/// header to show them in).
 pub fn pick(
     entries: &[Entry],
     window: &keybind_find_sheet::Context,
-    header: &[(String, bool)],
+    header: impl FnOnce() -> Vec<(String, bool)>,
 ) -> anyhow::Result<Option<(usize, bool)>> {
     if entries.is_empty() {
         return Ok(None);
@@ -49,7 +50,7 @@ pub fn pick(
     }
     let plain = |i: Option<usize>| i.map(|i| (i, false));
     match choice {
-        Choice::Fzf(terminal) => pick_fzf(entries, &terminal, header).map(plain),
+        Choice::Fzf(terminal) => pick_fzf(entries, &terminal, &header()).map(plain),
         Choice::Dmenu(cmd) => pick_with(&cmd, entries).map(plain),
         Choice::Json(cmd) => pick_json(&cmd, entries, window),
     }
@@ -197,10 +198,7 @@ fn pick_fzf(
 ) -> anyhow::Result<Option<usize>> {
     let dir = RunDir::new()?;
     let (list, out) = (dir.0.join("list"), dir.0.join("out"));
-    if !header.is_empty() {
-        std::fs::write(dir.0.join("header"), header_text(header))
-            .context("writing the fzf header")?;
-    }
+    write_header(&dir.0, header);
     let all: Vec<Entry> = entries
         .iter()
         .cloned()
@@ -232,6 +230,21 @@ fn pick_fzf(
         anyhow::bail!("{}", msg.trim_end());
     }
     Ok(pick_index(&text, entries.len()))
+}
+
+/// The file `header` in `dir` for `__fzf`, only when there are lines. A failed write is one stderr line: the picker
+/// goes on without them.
+fn write_header(dir: &Path, header: &[(String, bool)]) {
+    if header.is_empty() {
+        return;
+    }
+    let path = dir.join("header");
+    if let Err(e) = std::fs::write(&path, header_text(header)) {
+        eprintln!(
+            "keybind-find: writing {}: {e}; the picker shows no versions",
+            path.display()
+        );
+    }
 }
 
 /// The header lines as fzf shows them, each ending in a newline; a flagged one red (`Ui::new`'s colour).
@@ -1946,8 +1959,12 @@ mod tests {
         // Through the run directory's `header` file, as `__fzf` reads it; none without the file.
         let dir = RunDir::new().unwrap();
         let list = dir.0.join("list");
+        // Written only when there are lines; a failed write is no header, not an error.
+        write_header(&dir.0, &[]);
         assert_eq!(header_of(&list), "");
-        std::fs::write(dir.0.join("header"), header_text(&lines)).unwrap();
+        assert!(!dir.0.join("header").exists());
+        write_header(&dir.0.join("gone"), &lines);
+        write_header(&dir.0, &lines);
         assert_eq!(header_of(&list), head);
         let refused = "\x1b[31m/c/config.toml: bad\x1b[0m | ";
         let note = format!("{head}{refused}");

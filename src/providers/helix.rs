@@ -1086,6 +1086,7 @@ mod tests {
             assert_eq!(notes.first().map(String::as_str), note, "{name} {out}");
             // The same month's release is another file: a mismatch, as its note says.
             assert_eq!(source.mismatch, note.is_some(), "{name} {out}");
+            assert_eq!(source.installed, version_of(out), "{name} {out}");
             assert_eq!(s.title, format!("helix {}", source.defaults));
         }
     }

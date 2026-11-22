@@ -118,6 +118,11 @@ pub const KNOWN: &[&str] = &[
     "qutebrowser",
 ];
 
+/// The versions of the built-in defaults of zed (`data/zed/<v>/`) and alacritty (`alacritty_defaults.rs`), which have
+/// no version probe.
+const ZED_DEFAULTS: &str = "1.25.3";
+const ALACRITTY_DEFAULTS: &str = "0.17.0";
+
 /// The sheet of provider `name`, and where its keys came from when they include built-in defaults.
 pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>)> {
     match name {
@@ -143,6 +148,10 @@ pub fn sheet(name: &str, ctx: &Context) -> anyhow::Result<(Sheet, Option<Source>
         "xfce4_terminal" => xfce4_terminal::sheet(),
         "yazi" => yazi::sheet(),
         "zathura" => zathura::sheet(ctx),
+        "zed" => zed::sheet(ctx).map(|s| (s, Some(Source::unchecked(ZED_DEFAULTS)))),
+        "alacritty" => {
+            alacritty::sheet(ctx).map(|s| (s, Some(Source::unchecked(ALACRITTY_DEFAULTS))))
+        }
         _ => other(name, ctx).map(|s| (s, None)),
     }
 }
@@ -160,7 +169,6 @@ fn other(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "i3" => i3::sheet(ctx),
         "espanso" => espanso::sheet(ctx),
         "nvim" => nvim::sheet(ctx),
-        "alacritty" => alacritty::sheet(ctx),
         "ghostty" => ghostty::sheet(ctx),
         "sheets" => sheets::sheet(ctx),
         "tmux" => tmux::sheet(ctx),
@@ -169,7 +177,6 @@ fn other(name: &str, ctx: &Context) -> anyhow::Result<Sheet> {
         "mpv" => mpv::sheet(),
         "vim" => vim::sheet(ctx),
         "emacs" => emacs::sheet(ctx),
-        "zed" => zed::sheet(ctx),
         "wezterm" => wezterm::sheet(ctx),
         "zellij" => zellij::sheet(),
         "sxhkd" => sxhkd::sheet(ctx),
@@ -204,6 +211,20 @@ mod tests {
     }
 
     #[test]
+    fn unchecked_pins_match_their_data() {
+        let zed = format!("{}/data/zed/{ZED_DEFAULTS}", env!("CARGO_MANIFEST_DIR"));
+        assert!(std::path::Path::new(&zed).is_dir(), "{zed}");
+        let alacritty = include_str!("alacritty_defaults.rs");
+        assert!(
+            alacritty
+                .lines()
+                .next()
+                .is_some_and(|l| l.contains(&format!("alacritty {ALACRITTY_DEFAULTS}"))),
+            "alacritty_defaults.rs names another version"
+        );
+    }
+
+    #[test]
     fn every_known_name_has_an_arm() {
         let ctx = Context {
             window_id: None,
@@ -214,7 +235,9 @@ mod tests {
         };
         assert!(KNOWN.contains(&"alacritty") && KNOWN.contains(&"sway"));
         // The arm reaches the alacritty provider (it falls back to defaults, so this holds on any host).
-        assert_eq!(sheet("alacritty", &ctx).unwrap().0.provider, "alacritty");
+        let (alacritty, source) = sheet("alacritty", &ctx).unwrap();
+        assert_eq!(alacritty.provider, "alacritty");
+        assert_eq!(source, Some(Source::unchecked("0.17.0")));
         assert_eq!(sheet("sheets", &ctx).unwrap().0.provider, "sheets");
         // kitty falls back to its pinned defaults with no kitty installed.
         assert_eq!(sheet("kitty", &ctx).unwrap().0.provider, "kitty");
