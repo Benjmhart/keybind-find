@@ -7,7 +7,12 @@ All notable changes to keybind-find are listed here. The format follows
 
 ### Added
 
-- Where the keys come from: for the 24 programs whose defaults are built in for one version, fzf's header says which version's defaults are listed and which version is installed, in red when keybind-find has no defaults for the installed version or that version is unknown, and `keybind-find dump` adds a `source` object; Konsole, Midnight Commander, ranger, ncmpcpp and lf are now asked their version (`--version`, lf's `-version`), Obsidian's is read from its window title ([#80](https://github.com/Benjmhart/keybind-find/issues/80)).
+- GIMP 3: its keyboard shortcuts by menu group, named as GIMP's menus name them: GIMP 3.2.6's defaults with your `shortcutsrc` applied as GIMP applies it ([#60](https://github.com/Benjmhart/keybind-find/issues/60)).
+- Where the keys come from: for the 25 programs whose defaults are built in for one version, fzf's header says which version's defaults are listed and which version is installed, in red when keybind-find has no defaults for the installed version or that version is unknown, and `keybind-find dump` adds a `source` object; Konsole, Midnight Commander, ranger, ncmpcpp and lf are now asked their version (`--version`, lf's `-version`), Obsidian's is read from its window title ([#80](https://github.com/Benjmhart/keybind-find/issues/80)).
+
+### Changed
+
+- A plugin named `gimp` in `config.toml` is now refused ("keybind-find's own"): the name is the built-in GIMP provider's.
 
 ## [1.3.0] - 2026-11-21
 

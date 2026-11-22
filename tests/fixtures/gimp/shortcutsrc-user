@@ -1,0 +1,14 @@
+# A synthetic user file: changes made in GIMP's Keyboard Shortcuts editor, as GIMP writes them.
+(file-version 1)
+
+(action "edit-undo" "<Primary>u")
+(action "edit-copy" "<Primary>v")
+(action "edit-redo" "<Primary>u" "<Primary>y")
+(action "view-zoom-in" "<Ctrl>KP_Add" "XF86ZoomIn")
+(action "tools-rect-select" "<Super>r" "<Hyper>r" "<Mod4>e")
+(action "edit-cut")
+# (action "file-quit" "<Primary>k")
+(frobnicate 1 2)
+(action "plug-in-e2e" "<Primary><Alt>F12")
+
+# end of shortcutsrc

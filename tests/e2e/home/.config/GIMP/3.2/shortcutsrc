@@ -1,0 +1,7 @@
+(file-version 1)
+(action "edit-undo" "<Primary>u")
+(action "edit-copy" "<Primary>v")
+(action "edit-redo" "<Primary>u" "<Primary>y")
+(action "view-zoom-in" "<Ctrl>KP_Add" "XF86ZoomIn")
+(action "tools-rect-select" "<Super>r" "<Hyper>r")
+(action "view-zoom-out" "<Primary>minus" "ZoomOut")

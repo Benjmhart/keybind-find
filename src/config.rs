@@ -673,7 +673,7 @@ inputs = ["~/.config/btop/btop.conf", "~/.config/btop/themes/*.theme"]
 match = { class = ["Alacritty", "kitty"], program = "btop" }
 
 [[plugin]]
-name = "gimp"
+name = "gimp-plugin"
 program = "gimp-keys"
 [plugin.match]
 window_title = "GIMP"
