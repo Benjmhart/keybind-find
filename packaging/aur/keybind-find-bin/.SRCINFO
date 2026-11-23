@@ -1,6 +1,6 @@
 pkgbase = keybind-find-bin
 	pkgdesc = A command palette for your whole workspace, built from the keybindings of your window manager and apps (prebuilt static binary)
-	pkgver = 1.2.0
+	pkgver = 1.4.0
 	pkgrel = 1
 	url = https://github.com/Benjmhart/keybind-find
 	arch = x86_64
@@ -23,7 +23,7 @@ pkgbase = keybind-find-bin
 	conflicts = keybind-find
 	options = !strip
 	options = !debug
-	source_x86_64 = https://github.com/Benjmhart/keybind-find/releases/download/v1.2.0/keybind-find-1.2.0-x86_64-unknown-linux-musl.tar.gz
-	sha256sums_x86_64 = 06b723b87295a8ff6de43921e4b2620620aa6e89d1900ceed141d0758beaa495
+	source_x86_64 = https://github.com/Benjmhart/keybind-find/releases/download/v1.4.0/keybind-find-1.4.0-x86_64-unknown-linux-musl.tar.gz
+	sha256sums_x86_64 = 022e736089a8fa789091c5f1b18019a96cc89cdff520d6955c398798eb3a5a59
 
 pkgname = keybind-find-bin
