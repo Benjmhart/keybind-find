@@ -12,10 +12,17 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const REGISTRY: &[(&str, &str)] = &[(
-    "3.2.6",
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/data/gimp/3.2.6.toml")),
-)];
+/// One entry per GIMP version whose defaults we know, oldest first (3.2.8's are 3.2.6's: the same file and labels).
+const REGISTRY: &[(&str, &str)] = &[
+    (
+        "3.2.6",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/data/gimp/3.2.6.toml")),
+    ),
+    (
+        "3.2.8",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/data/gimp/3.2.8.toml")),
+    ),
+];
 
 /// The largest `shortcutsrc` read (GIMP's own is about 50 KB).
 const MAX_SIZE: u64 = 4 << 20;
@@ -846,9 +853,28 @@ mod tests {
 
     #[test]
     fn the_pinned_defaults() {
-        assert_data("gimp", &format!("{}.toml", REGISTRY[0].0));
+        for (v, _) in REGISTRY {
+            assert_data("gimp", &format!("{v}.toml"));
+        }
+        // 3.2.8 changed no default: its pin is 3.2.6's but for the version.
+        let p328: Pin = toml::from_str(REGISTRY[1].1).unwrap();
+        assert_eq!(p328.gimp_version, "3.2.8");
         let pin = pin();
         assert_eq!(pin.gimp_version, "3.2.6");
+        let names = |p: &Pin| -> Vec<_> {
+            p.action
+                .iter()
+                .map(|a| {
+                    (
+                        a.name.clone(),
+                        a.category.clone(),
+                        a.label.clone(),
+                        a.keys.clone(),
+                    )
+                })
+                .collect()
+        };
+        assert_eq!(names(&p328), names(&pin));
         assert_eq!(pin.action.len(), 1132);
         let keyed: Vec<_> = pin.action.iter().filter(|a| !a.keys.is_empty()).collect();
         assert_eq!(keyed.len(), 136);
@@ -1088,6 +1114,16 @@ mod tests {
                 mismatch: false,
             }
         );
+        // 3.2.8: its own pin, no note.
+        let (s, notes, source) = run(
+            &[("HOME", &home)],
+            Some("GNU Image Manipulation Program version 3.2.8"),
+        );
+        assert_eq!((undo(&s).as_str(), notes.len()), ("ctrl+u", 0));
+        assert_eq!(
+            (source.defaults.as_str(), source.mismatch),
+            ("3.2.8", false)
+        );
         // XDG_CONFIG_HOME set: there; empty: ~/.config.
         let xdg = d.join("xdg");
         put(
@@ -1143,7 +1179,7 @@ mod tests {
         assert_eq!(undo(&s), "ctrl+4");
         assert_eq!(
             notes,
-            ["gimp 3.4.0: using the defaults of 3.2.6; add data/gimp/3.4.0.toml"]
+            ["gimp 3.4.0: using the defaults of 3.2.8; add data/gimp/3.4.0.toml"]
         );
         assert_eq!(
             (source.installed.as_deref(), source.mismatch),
@@ -1159,7 +1195,7 @@ mod tests {
         assert_eq!(undo(&s), "ctrl+u");
         assert_eq!(
             notes,
-            ["gimp's version is unknown: using the defaults of 3.2.6"]
+            ["gimp's version is unknown: using the defaults of 3.2.8"]
         );
         assert_eq!((source.installed, source.mismatch), (None, true));
         // A gimp printing something else: no version.

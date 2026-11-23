@@ -5,6 +5,10 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- GIMP: the built-in defaults are GIMP 3.2.8's, so GIMP 3.2.8 gets no "using the defaults of 3.2.6" note; its defaults are unchanged from 3.2.6, which keeps its own.
+
 ## [1.4.0] - 2026-11-22
 
 ### Added
