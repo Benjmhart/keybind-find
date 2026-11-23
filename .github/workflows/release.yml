@@ -1,6 +1,7 @@
 # Releases (story 5.5): a pushed `v*` tag builds a static musl binary, a .deb and SHA256SUMS, and attaches them to a
-# draft GitHub release whose notes are the tag's CHANGELOG.md section. Publishing the draft is left to a person;
-# nothing goes to crates.io from here. Third-party actions are pinned to commit SHAs (tag in the comment), as in ci.yml.
+# draft GitHub release whose notes are the tag's CHANGELOG.md section. Publishing the draft is left to a person. The
+# same tag publishes the crates to crates.io (Ben, 2026-11-23) by trusted publishing: no stored token; crates.io trusts
+# this repository's release.yml. Third-party actions are pinned to commit SHAs (tag in the comment), as in ci.yml.
 name: release
 
 on:
@@ -91,3 +92,37 @@ jobs:
           pre=; case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; esac
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft $pre \
             --title "$GITHUB_REF_NAME" --notes-file dist-notes.md dist/*
+
+  # crates.io, after the build has checked the tag against Cargo.toml: keybind-find-sheet first when its version is new,
+  # then keybind-find. A version already there is skipped, so a re-run is safe; a pre-release tag publishes nothing.
+  crates-io:
+    needs: build
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          version: 2026.10.17
+          cache: false
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+        id: auth
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          for c in keybind-find-sheet keybind-find; do
+            v=$(cargo metadata --locked --no-deps --format-version 1 | jq -r --arg c "$c" '.packages[] | select(.name == $c) | .version')
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -A "keybind-find release workflow" "https://crates.io/api/v1/crates/$c/$v")
+            case "$code" in
+              200) echo "$c $v is already on crates.io" ;;
+              404) cargo publish --locked -p "$c" ;;
+              *) echo "crates.io answered $code for $c $v"; exit 1 ;;
+            esac
+          done
