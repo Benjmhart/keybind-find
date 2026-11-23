@@ -60,7 +60,7 @@ program's real configuration, your own bindings included. A [plugin](docs/plugin
 | VS Code, VSCodium, Code - OSS | the default keys (1.143.1's built in), your installed extensions' and your `keybindings.json` on top, each tagged with where it works; the file's language guessed from the title | none ([below](#vs-code)) |
 | Zed | its default keymaps (1.25.3's built in) for your base keymap and vim or helix mode, with your `keymap.json` on top, each tagged with its context; the file's extension guessed from the title | none ([below](#zed)) |
 | qutebrowser | its bindings by mode, asked of the running browser (defaults, `config.py`, `autoconfig.yml`, `:bind`s, as `qute://bindings` lists them) with the mode it is in; else 3.7.0's defaults with your `autoconfig.yml` on top | none ([below](#qutebrowser)) |
-| GIMP | its keyboard shortcuts by menu group, named as its menus name them: GIMP 3.2.6's defaults (built in) with your `shortcutsrc` applied as GIMP applies it | none ([below](#gimp)) |
+| GIMP | its keyboard shortcuts by menu group, named as its menus name them: GIMP 3.2.8's defaults (built in; 3.2.6's are the same) with your `shortcutsrc` applied as GIMP applies it | none ([below](#gimp)) |
 | Inkscape | its keyboard shortcuts by section, named as its Keyboard preferences name them: the preset it loads (its own, Xara, Corel, …) with your `keys/default.xml` on top, as Inkscape reads them | none ([below](#inkscape)) |
 | LibreOffice | the shortcuts of the module in front (Writer, Calc, Impress, Draw, Math, Base, Start Center) and the global ones, named as its menus name them: its installed defaults with your Tools › Customize › Keyboard changes, as LibreOffice reads them | none ([below](#libreoffice)) |
 | Obsidian | its default hotkeys (1.14.5's built in) with your vault's `.obsidian/hotkeys.json` on top, the vault picked by window title | none ([below](#obsidian)) |
@@ -252,7 +252,7 @@ command is shown as written, never run.
 
 Over a GIMP 3 window (X11 class `Gimp`, Wayland app id `gimp`, the Flatpak's `org.gimp.GIMP`), keybind-find lists
 GIMP's keyboard shortcuts by menu group, each named as GIMP's menus and its Keyboard Shortcuts editor name it (`Undo`,
-`Rectangle Select`): GIMP 3.2.6's defaults, built in (from GIMP's source and the file GIMP writes), with your
+`Rectangle Select`): GIMP 3.2.8's defaults (3.2.6's are the same), built in (from GIMP's source and the file GIMP writes), with your
 `shortcutsrc` laid over them as GIMP lays it, conflicts included (a key you give one action takes it from an action still on its
 defaults, which loses all its default keys; an action you changed keeps it, and your line loses it). The file is `$GIMP3_DIRECTORY/shortcutsrc` when that is set, else
 `$XDG_CONFIG_HOME/GIMP/<major.minor>/shortcutsrc` (`~/.config/GIMP/3.2/` for GIMP 3.2, the version from `gimp
@@ -266,7 +266,7 @@ language in its menus); a plug-in's action, which has no built-in label, is name
 action in your file that GIMP no longer has is still listed (GIMP would drop it). Tab (hide docks) is a display hint in
 GIMP's menus, not a shortcut, and isn't listed. Keys keybind-find can't send (a `<Hyper>`, `<Meta>`, `<Mod2>`,
 `<Mod3>`, `<Mod5>` or `<Release>` modifier, a keycode, a key name with no X keysym) are left out with a count. The e2e
-test checks the list against the `shortcutsrc` GIMP 3.2.6 itself writes for the same file.
+test checks the list against the `shortcutsrc` GIMP 3.2.8 itself writes for the same file.
 
 ### Inkscape
 

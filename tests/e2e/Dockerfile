@@ -35,7 +35,7 @@ RUN pacman -S --noconfirm --needed kakoune && pacman -Scc --noconfirm
 RUN pacman -S --noconfirm --needed openbox && pacman -Scc --noconfirm
 # qutebrowser for the qutebrowser cases (QtWebEngine and PyYAML come with it).
 RUN pacman -S --noconfirm --needed qutebrowser && pacman -Scc --noconfirm
-# GIMP for the gimp cases.
+# GIMP for the gimp cases (its dependencies; 3.2.8 itself below).
 RUN pacman -S --noconfirm --needed gimp && pacman -Scc --noconfirm
 # Inkscape for the inkscape cases.
 RUN pacman -S --noconfirm --needed inkscape && pacman -Scc --noconfirm
@@ -46,6 +46,10 @@ RUN setcap -r /usr/bin/sway
 # zellij 0.46.0, newer than the snapshot (which has 0.45.1): its keybinding presets are what keybind-find reads now; 0.45
 # is covered by unit tests. Pinned by file name, its signature checked by pacman; its dependencies are in the snapshot.
 RUN pacman -U --noconfirm https://archive.archlinux.org/packages/z/zellij/zellij-0.46.0-1-x86_64.pkg.tar.zst \
+ && pacman -Scc --noconfirm
+# GIMP 3.2.8, newer than the snapshot (which has 3.2.6), pinned the same way. 3.2.8-1, not -2: -2 is a rebuild for a
+# libjxl newer than the snapshot's.
+RUN pacman -U --noconfirm https://archive.archlinux.org/packages/g/gimp/gimp-3.2.8-1-x86_64.pkg.tar.zst \
  && pacman -Scc --noconfirm
 
 # Programs that refuse to run as root (and a home that looks like a user's). The cache directories are created here

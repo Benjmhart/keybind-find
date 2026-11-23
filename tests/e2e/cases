@@ -254,14 +254,14 @@ print("qutebrowser:%d, no comma l" % sum(map(len, s["binds"].values())))' \
   o qutebrowser-oracle qutebrowser -- qutebrowser -s qt.force_software_rendering chromium -s qt.chromium.sandboxing disable-all ":debug-pyeval --file $E/oracle-qutebrowser.py" ":quit"
   wanted qutebrowser-oracle && qute_gone qutebrowser-oracle
   # GIMP's own shortcutsrc, written on a clean exit from a copy of the e2e home's GIMP/3.2 (tests/e2e/oracle-gimp.sh),
-  # against the dump, which reads the home's untouched file over the pinned 3.2.6 defaults. Before the gimp case: the
+  # against the dump, which reads the home's untouched file over the pinned 3.2.8 defaults. Before the gimp case: the
   # GIMP there may save over the home's file when its window is closed.
   o gimp-oracle gimp -- sh "$E/oracle-gimp.sh" "$OUT"
   # The same dump's `source`: the pin is the snapshot's GIMP, its version checked.
   if wanted gimp-oracle; then
     if python3 -I -c 'import json,sys
-assert json.load(open(sys.argv[1]))["source"] == {"defaults": "3.2.6", "installed": "3.2.6", "checked": True, "mismatch": False}' \
-      "$OUT/gimp-oracle.json" >/dev/null 2>&1; then record gimp-source "ok	3.2.6, installed 3.2.6, no mismatch"
+assert json.load(open(sys.argv[1]))["source"] == {"defaults": "3.2.8", "installed": "3.2.8", "checked": True, "mismatch": False}' \
+      "$OUT/gimp-oracle.json" >/dev/null 2>&1; then record gimp-source "ok	3.2.8, installed 3.2.8, no mismatch"
     else record gimp-source "FAIL	$(grep -o '"source":.*' "$OUT/gimp-oracle.json" | cut -c1-200)"; FAILED=1; fi
   fi
   # GIMP's image window (gimprc: no Welcome dialog); ctrl+u is Undo in the e2e shortcutsrc. No GIMP outlives the case,
