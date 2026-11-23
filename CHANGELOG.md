@@ -5,27 +5,24 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-22
+
 ### Added
 
 - LibreOffice: the shortcuts of the module in front (Writer, Calc, Impress, Draw, Math, Base, Start Center) and the global ones, named as its menus name them: its installed defaults with your Tools › Customize › Keyboard changes applied, read as LibreOffice reads them ([#59](https://github.com/Benjmhart/keybind-find/issues/59)).
 - Inkscape: its keyboard shortcuts by section, named as its Keyboard preferences name them: the preset it loads (its own, Xara, Corel, …) with your `keys/default.xml` on top, read as Inkscape reads them ([#61](https://github.com/Benjmhart/keybind-find/issues/61)).
 - GIMP 3: its keyboard shortcuts by menu group, named as GIMP's menus name them: GIMP 3.2.6's defaults with your `shortcutsrc` applied as GIMP applies it ([#60](https://github.com/Benjmhart/keybind-find/issues/60)).
 - Where the keys come from: for the 25 programs whose defaults are built in for one version, fzf's header says which version's defaults are listed and which version is installed, in red when keybind-find has no defaults for the installed version or that version is unknown, and `keybind-find dump` adds a `source` object; Konsole, Midnight Commander, ranger, ncmpcpp and lf are now asked their version (`--version`, lf's `-version`), Obsidian's is read from its window title ([#80](https://github.com/Benjmhart/keybind-find/issues/80)).
-
-### Changed
-
-- A plugin named `gimp` in `config.toml` is now refused ("keybind-find's own"): the name is the built-in GIMP provider's.
-
-## [1.3.0] - 2026-11-21
-
-### Added
-
 - lf: its keys in normal, visual and command-line mode, asked of the running lf (`lf -remote "query <pid> maps"`) once it has run a shell command, else lf r42's defaults with your `lfrc` files, `-command`s and `source`d files on top, read as lf reads them ([#54](https://github.com/Benjmhart/keybind-find/issues/54)).
 - lazygit: its keys by panel, as its keybindings cheatsheet lists them, lazygit 0.66.2's defaults with your `config.yml` files and the repo's `.lazygit.yml`/`.git/lazygit.yml` applied as lazygit applies them (their `keybinding:` section, read with a strict YAML subset); custom commands aren't listed yet ([#56](https://github.com/Benjmhart/keybind-find/issues/56)).
 - nnn: its keys as built (nnn 5.3's key table), plus the plugin (`;` + key) and bookmark (`b` + key) keys of the running nnn's `NNN_PLUG` and `NNN_BMS`, read from its environment as nnn parses them ([#55](https://github.com/Benjmhart/keybind-find/issues/55)).
 - Kakoune: its built-in keys by mode (Kakoune 2026.05.21's, from its source) with the running session's mappings on top, asked through `kak -p` (`debug mappings`: kakrc, plugins, hooks, window and buffer maps), else your kakrc and autoload files read as Kakoune parses them ([#58](https://github.com/Benjmhart/keybind-find/issues/58)).
 - Openbox (alone, or under LXDE or LXQt): the keybinds of the `rc.xml` Openbox loaded (the one its `_OB_CONFIG_FILE` names, else the XDG lookup Openbox does), each with its actions, chains as key sequences, grouped under the comments that head them ([#52](https://github.com/Benjmhart/keybind-find/issues/52)).
 - qutebrowser: its bindings by mode, asked of the running browser over its IPC socket (`:debug-pyeval --file` with a script of keybind-find's: exactly what `qute://bindings` lists, and the mode it is in), else qutebrowser 3.7.0's defaults with your `autoconfig.yml` on top, read by qutebrowser's own Python ([#49](https://github.com/Benjmhart/keybind-find/issues/49)).
+
+### Changed
+
+- A plugin in `config.toml` named `lf`, `lazygit`, `nnn`, `kakoune`, `openbox`, `qutebrowser`, `gimp`, `inkscape` or `libreoffice` is now refused ("keybind-find's own"): each is a built-in provider's name now. Rename the plugin.
 
 ## [1.2.0] - 2026-11-19
 
@@ -148,8 +145,8 @@ Everything below is new.
 
 - `config.toml` rebinds keybind-find's own picker keys (run, text search, undo, key search, scope); its own keys are listed too.
 
-[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.3.0...staging
-[1.3.0]: https://github.com/Benjmhart/keybind-find/compare/v1.2.0...v1.3.0
+[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.4.0...staging
+[1.4.0]: https://github.com/Benjmhart/keybind-find/compare/v1.2.0...v1.4.0
 [1.2.0]: https://github.com/Benjmhart/keybind-find/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/Benjmhart/keybind-find/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/Benjmhart/keybind-find/compare/v1.1.0...v1.1.1
