@@ -2,7 +2,7 @@
 name = "keybind-find"
 version = "1.3.0"
 edition = "2021"
-description = "Search the keybindings for the focused window and run the one you pick"
+description = "A command palette for your whole workspace, built from the keybindings of your window manager and apps"
 license = "MIT"
 repository = "https://github.com/Benjmhart/keybind-find"
 homepage = "https://github.com/Benjmhart/keybind-find"
@@ -59,9 +59,9 @@ zbus = { version = "6.3.0", default-features = false, features = ["default-rt"] 
 maintainer = "Benjmhart"
 copyright = "2026 Benjmhart"
 extended-description = """\
-Press one hotkey and get a searchable list of the keyboard shortcuts that work where you are: your window \
-manager's, the focused app's (nvim, tmux, herdr, alacritty, a web app) and your espanso snippets. Pick one and \
-keybind-find presses those keys for you."""
+A command palette for your whole workspace. Press one hotkey and search everything you can do where you are: \
+your window manager's actions, the focused app's (nvim, tmux, a web app, GIMP, LibreOffice) and your espanso \
+snippets. Pick one and keybind-find runs it by pressing its keys for you, and shows you those keys."""
 section = "utils"
 depends = ""
 recommends = "xdotool, x11-utils, x11-xserver-utils, fzf, alacritty"
