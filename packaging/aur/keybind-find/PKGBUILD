@@ -3,7 +3,7 @@
 pkgname=keybind-find
 pkgver=1.2.0
 pkgrel=1
-pkgdesc='Search the keybindings for the focused window and run the one you pick'
+pkgdesc='A command palette for your whole workspace, built from the keybindings of your window manager and apps'
 arch=('x86_64')
 url='https://github.com/Benjmhart/keybind-find'
 license=('MIT')

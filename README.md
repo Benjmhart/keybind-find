@@ -1,11 +1,12 @@
 # keybind-find
 
-Press one hotkey and get a searchable list of the keyboard shortcuts that work **where you are right now**: your
-window manager's, the focused app's (nvim, tmux, herdr, alacritty, a web app) and your espanso snippets. Pick one
-and keybind-find presses those keys for you, so it works as a command palette that also shows you the key you could
-have pressed instead.
+A command palette for your whole workspace. Press one hotkey and search everything you can do **where you are right
+now**: your window manager's actions, the focused app's (nvim, tmux, herdr, a terminal, a web app, GIMP, LibreOffice)
+and your espanso snippets, by name or by key. Pick one and keybind-find runs it by pressing its keys for you, and
+shows you those keys, so next time you can press them yourself.
 
-The lists are read from the programs' real configuration, your own bindings included, so nothing is kept up by hand.
+Nothing is kept up by hand: anything a program in the table below binds to a key is a command here, read from the
+program's real configuration, your own bindings included. A [plugin](docs/plugins.md) adds any other program.
 
 ![keybind-find over nvim with a dark colour scheme: Super+/ opens a floating list of the bindings for the focused window; Escape switches to typing; "light" narrows the list and puts Toggle light theme (Space u l) on top; Enter sends Space u l and the whole editor turns from dark to light. Captions name each key pressed.](docs/media/demo.gif)
 

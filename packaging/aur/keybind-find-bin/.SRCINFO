@@ -1,5 +1,5 @@
 pkgbase = keybind-find-bin
-	pkgdesc = Search the keybindings for the focused window and run the one you pick (prebuilt static binary)
+	pkgdesc = A command palette for your whole workspace, built from the keybindings of your window manager and apps (prebuilt static binary)
 	pkgver = 1.2.0
 	pkgrel = 1
 	url = https://github.com/Benjmhart/keybind-find

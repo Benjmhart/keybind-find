@@ -1,5 +1,5 @@
 {
-  description = "Search the keybindings for the focused window and run the one you pick";
+  description = "A command palette for your whole workspace, built from the keybindings of your window manager and apps";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
@@ -7,7 +7,7 @@
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
-      description = "Search the keybindings for the focused window and run the one you pick";
+      description = "A command palette for your whole workspace, built from the keybindings of your window manager and apps";
 
       keybind-find = pkgs:
         pkgs.rustPlatform.buildRustPackage {
