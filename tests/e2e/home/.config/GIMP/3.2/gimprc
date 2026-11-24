@@ -1,1 +1,4 @@
 (show-welcome-dialog no)
+# The GIMP whose config this is: without it every GIMP takes itself for an update and shows its welcome dialog anyway
+# (app/gimp-update.c, gimp_update_auto_check).
+(config-version "3.2.8")
