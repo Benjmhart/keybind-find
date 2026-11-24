@@ -1283,3 +1283,5 @@ CI runs the same task on every pull request.
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+If keybind-find saves you a lookup, a ⭐ on GitHub helps other people find it.
