@@ -750,7 +750,11 @@ mod tests {
         // Exits at once but leaves `sleep` holding stdout: the group is killed, the note says why.
         let started = std::time::Instant::now();
         let notes = parser_notes("forks", short);
-        assert!(started.elapsed() < short * 3, "{:?}", started.elapsed());
+        assert!(
+            started.elapsed() < short * 3 + crate::context::EXIT_GRACE,
+            "{:?}",
+            started.elapsed()
+        );
         assert!(
             notes.len() == 1 && notes[0].contains("left a process holding its output"),
             "{notes:?}"
