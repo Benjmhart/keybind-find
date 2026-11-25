@@ -1,4 +1,26 @@
 bindsym Mod4+Return exec xterm
 bindsym Mod4+q kill
+# A made-up everyday i3 config for recordings (tests/e2e/record): none of these keys is one a case sends.
+bindsym Mod4+j focus left
+bindsym Mod4+k focus down
+bindsym Mod4+l focus up
+bindsym Mod4+semicolon focus right
+bindsym Mod4+Shift+j move left
+bindsym Mod4+Shift+k move down
+bindsym Mod4+Shift+l move up
+bindsym Mod4+Shift+semicolon move right
+bindsym Mod4+h split h
+bindsym Mod4+v split v
+bindsym Mod4+f fullscreen toggle
+bindsym Mod4+s layout stacking
+bindsym Mod4+w layout tabbed
+bindsym Mod4+e layout toggle split
+bindsym Mod4+Shift+space floating toggle
+bindsym Mod4+1 workspace number 1
+bindsym Mod4+2 workspace number 2
+bindsym Mod4+3 workspace number 3
+bindsym Mod4+Shift+1 move container to workspace number 1
+bindsym Mod4+Shift+2 move container to workspace number 2
+bindsym Mod4+Shift+3 move container to workspace number 3
 # The picker floats, as a user's rule would make it (a recording shows it; i3 lists no binding for this).
 for_window [class="^keybind-find$"] floating enable
