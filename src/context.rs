@@ -1237,6 +1237,14 @@ pub(crate) enum Group {
     Shared,
 }
 
+/// How long the pipes of a program that has exited may stay open: 200 ms. Tests get 1 s: there, another test
+/// thread's child can hold a pipe until it execs, and a loaded machine can delay that past 200 ms.
+pub(crate) const EXIT_GRACE: Duration = if cfg!(test) {
+    Duration::from_secs(1)
+} else {
+    Duration::from_millis(200)
+};
+
 /// The run behind `run_for_input` and `run_frontend`: exit status, stdout and stderr, each within `OUTPUT_LIMIT`.
 /// `keep_output`: a process left holding the output open after the program exits is killed, and the output kept.
 fn run_with(
@@ -1337,8 +1345,8 @@ fn run_with(
         std::thread::sleep(Duration::from_millis(5));
     };
     // Once it has exited, what it wrote is already in the pipes: a short grace, not the rest of the deadline, so a
-    // helper it left holding the pipes costs 200 ms, not the whole limit.
-    let grace = Instant::now() + Duration::from_millis(200);
+    // helper it left holding the pipes costs `EXIT_GRACE`, not the whole limit.
+    let grace = Instant::now() + EXIT_GRACE;
     for _ in 0..2 {
         if rx
             .recv_timeout(grace.saturating_duration_since(Instant::now()))
