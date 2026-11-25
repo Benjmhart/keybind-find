@@ -29,6 +29,12 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 
 /// `text` as a KDL v1 document; a failure is `line N: <message>`, from the first diagnostic.
 pub(crate) fn parse(text: &str) -> anyhow::Result<KdlDocument> {
+    parse_within(text, TIMEOUT)
+}
+
+/// `parse` with its own time limit (tests give real-sized texts a long one: a debug build on a loaded machine can
+/// take more than 2 s on them).
+fn parse_within(text: &str, timeout: Duration) -> anyhow::Result<KdlDocument> {
     if let Some((at, what)) = too_deep(text) {
         anyhow::bail!("line {}: {what}", line_at(text, at));
     }
@@ -51,10 +57,10 @@ pub(crate) fn parse(text: &str) -> anyhow::Result<KdlDocument> {
             ));
         })
         .context("the KDL parser failed: can't start its thread")?;
-    match receive.recv_timeout(TIMEOUT) {
+    match receive.recv_timeout(timeout) {
         Ok(parsed) => parsed,
         Err(RecvTimeoutError::Timeout) => {
-            anyhow::bail!("the file took longer than {}s to parse", TIMEOUT.as_secs())
+            anyhow::bail!("the file took longer than {}s to parse", timeout.as_secs())
         }
         // The thread ended without a result: a panic. The default panic hook has already printed its own line;
         // kdl 4.7.1's panics are believed unreachable from `parse_v1`.
@@ -174,6 +180,12 @@ mod tests {
     use super::*;
 
     const DEEP: &str = "more than 512 `{` levels and `/-` together";
+
+    /// The parse the tests use: a long limit, so a slow debug build under load fails nothing (`slow_texts_time_out`
+    /// tests the real one).
+    fn parse(text: &str) -> anyhow::Result<KdlDocument> {
+        parse_within(text, Duration::from_secs(120))
+    }
 
     fn err(text: &str) -> String {
         format!("{:#}", parse(text).unwrap_err())
@@ -351,7 +363,10 @@ mod tests {
         ] {
             assert!(too_deep(&t).is_none());
             let started = std::time::Instant::now();
-            assert_eq!(err(&t), "the file took longer than 2s to parse");
+            assert_eq!(
+                format!("{:#}", super::parse(&t).unwrap_err()),
+                "the file took longer than 2s to parse"
+            );
             let took = started.elapsed();
             assert!(took >= TIMEOUT && took < Duration::from_secs(3), "{took:?}");
         }

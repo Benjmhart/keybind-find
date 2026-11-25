@@ -802,12 +802,20 @@ mod tests {
         let json = r#"{"title":"macros","provider":"*","binds":{"macros":[{"key":"","desc":"Macro: login","run":["/home/me/macros/login"]}]}}"#;
         std::fs::write(dir.join("macros.json"), json).unwrap();
         let p = dir.join("global.sh");
-        std::fs::write(
-            &p,
-            "#!/bin/sh\nprintf '%s' '{\"title\":\"m\",\"provider\":\"macros\",\"binds\":{\"macros\":[{\"key\":\"super+l\",\"desc\":\"Macro: lock\",\"run\":[\"/home/me/macros/lock\",\"now\"]}]}}'\n",
+        // Written by `sh`, not by this process: a write handle of ours inherited by a child another test thread forks
+        // at that moment would make running it fail with ETXTBSY (see `plugins.rs`'s `write_script`).
+        let mut sh = std::process::Command::new("sh")
+            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(&p)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::io::Write::write_all(
+            &mut sh.stdin.take().unwrap(),
+            b"#!/bin/sh\nprintf '%s' '{\"title\":\"m\",\"provider\":\"macros\",\"binds\":{\"macros\":[{\"key\":\"super+l\",\"desc\":\"Macro: lock\",\"run\":[\"/home/me/macros/lock\",\"now\"]}]}}'\n",
         )
         .unwrap();
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(sh.wait().unwrap().success());
         // A backup of the global parser is no parser either.
         std::fs::copy(&p, dir.join("global.bak")).unwrap();
         // Whatever the class, and with no class known at all.
