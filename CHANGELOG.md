@@ -5,9 +5,16 @@ All notable changes to keybind-find are listed here. The format follows
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-25
+
 ### Changed
 
 - GIMP: the built-in defaults are GIMP 3.2.8's, so GIMP 3.2.8 gets no "using the defaults of 3.2.6" note; its defaults are unchanged from 3.2.6, which keeps its own.
+- Releases publish to crates.io from the release tag (trusted publishing).
+
+### Fixed
+
+- The unit tests no longer fail on a busy machine (a parse time limit, a "Text file busy" race, a pipe-close grace), so packagers can run them all, in parallel.
 
 ## [1.4.0] - 2026-11-22
 
@@ -149,7 +156,8 @@ Everything below is new.
 
 - `config.toml` rebinds keybind-find's own picker keys (run, text search, undo, key search, scope); its own keys are listed too.
 
-[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.4.0...staging
+[Unreleased]: https://github.com/Benjmhart/keybind-find/compare/v1.4.1...staging
+[1.4.1]: https://github.com/Benjmhart/keybind-find/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/Benjmhart/keybind-find/compare/v1.2.0...v1.4.0
 [1.2.0]: https://github.com/Benjmhart/keybind-find/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/Benjmhart/keybind-find/compare/v1.1.1...v1.1.2
