@@ -1,6 +1,6 @@
 pkgbase = keybind-find
 	pkgdesc = A command palette for your whole workspace, built from the keybindings of your window manager and apps
-	pkgver = 1.4.0
+	pkgver = 1.4.1
 	pkgrel = 1
 	url = https://github.com/Benjmhart/keybind-find
 	arch = x86_64
@@ -23,7 +23,7 @@ pkgbase = keybind-find
 	optdepends = neovim: list the bindings of nvim
 	optdepends = tmux: list the bindings of tmux and the program in its pane
 	optdepends = espanso: list espanso snippets
-	source = keybind-find-1.4.0.tar.gz::https://github.com/Benjmhart/keybind-find/archive/v1.4.0.tar.gz
-	sha256sums = 8b3c296c003b2d5bbc93341d286e7cdfd2ea9d2a8f8d6f110c7aab93db8f57d0
+	source = keybind-find-1.4.1.tar.gz::https://github.com/Benjmhart/keybind-find/archive/v1.4.1.tar.gz
+	sha256sums = 7c59b6ec97c8b2c7ea1ba5ecafa32c3dd96dd58f254e13a31f68ef1b07016a6d
 
 pkgname = keybind-find
